@@ -1,0 +1,29 @@
+flowchart LR
+  User[User] --> Frontend[Next.js Frontend]
+  Frontend --> API[FastAPI Backend API]
+  API --> DB[(PostgreSQL + Vector Search)]
+  API --> Redis[(Redis Queue/Cache)]
+  Redis --> Worker[Celery Worker]
+  Worker --> Extractors[Extractors: Text, URL, PDF, YouTube]
+  Worker --> Qwen[Qwen Cloud APIs]
+  Qwen --> Worker
+  Worker --> DB
+  Worker --> OSS[(Object Storage)]
+  API --> MCP[MCP Server]
+  MCP --> QwenResponses[Qwen Responses API with MCP]
+  Eval[Evaluation Harness] --> API
+  Eval --> DB
+
+  subgraph MemoryLifecycle[Memory Lifecycle]
+    Capture[Capture]
+    Extract[Extract]
+    Structure[Structure]
+    Relate[Relate]
+    Recall[Recall]
+    Audit[Audit]
+    Archive[Archive/Forget]
+    Capture --> Extract --> Structure --> Relate --> Recall --> Audit --> Archive
+  end
+
+  Worker --> MemoryLifecycle
+
