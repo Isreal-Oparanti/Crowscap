@@ -23,9 +23,56 @@ Response:
 
 ## Captures
 
+### POST /captures/text
+
+Phase 0 implemented endpoint. Captures plain text, extracts memory atoms with Qwen, embeds each memory, deduplicates by content hash, and runs relationship detection against older memories.
+
+Request:
+
+```json
+{
+  "content": "A founder should not wait until launch to think about distribution...",
+  "intent_text": "remember and apply this to my startup",
+  "user_note": "I keep hearing distribution matters but want to use it.",
+  "source_title": "Distribution learning note"
+}
+```
+
+Response:
+
+```json
+{
+  "capture_id": "uuid",
+  "source_id": "uuid",
+  "status": "ready",
+  "inferred_intents": ["remember", "apply"],
+  "memories": [
+    {
+      "id": "uuid",
+      "memory_type": "principle",
+      "epistemic_label": "advice",
+      "content": "A founder should not wait until launch to think about distribution.",
+      "summary": "Do not delay distribution planning until launch",
+      "confidence": "medium",
+      "confidence_reason": "The source presents this as advice rather than measured evidence.",
+      "source_strength": "moderate",
+      "embedding_dimensions": 1024,
+      "relationships": [
+        {
+          "related_memory_id": "uuid",
+          "relationship_type": "tension",
+          "strength": "moderate",
+          "explanation": "The newer idea emphasizes product love while the older memory emphasizes early distribution testing."
+        }
+      ]
+    }
+  ]
+}
+```
+
 ### POST /captures
 
-Creates a capture and queues processing.
+Future generalized endpoint. Creates a capture and queues processing for URLs, PDFs, videos, and other sources.
 
 Request:
 
@@ -127,17 +174,24 @@ Response:
 ```json
 {
   "query": "what have I saved about distribution?",
+  "min_score": 0.25,
+  "candidate_count": 12,
+  "embedded_candidate_count": 10,
+  "returned_count": 3,
+  "top_score": 0.526463,
   "results": [
     {
       "memory_id": "uuid",
+      "source_id": "uuid",
+      "source_title": "YC sales video",
       "content": "Early startups should test distribution before over-investing in product polish.",
       "memory_type": "principle",
+      "epistemic_label": "advice",
       "confidence": "medium",
-      "source": {
-        "title": "YC sales video",
-        "url": "https://youtube.com/..."
-      },
-      "score": 0.82
+      "confidence_reason": "The source presents this as founder advice.",
+      "source_strength": "moderate",
+      "similarity_score": 0.526463,
+      "embedding_dimensions": 1024
     }
   ]
 }

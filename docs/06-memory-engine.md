@@ -12,6 +12,14 @@ Captured -> Extracted -> Structured -> Embedded -> Related -> Scheduled -> Revie
 
 ## Memory Atom Types
 
+The number of atoms is content-dependent. The extractor should split a capture only when it contains distinct ideas, actions, examples, questions, references, or intentions. It should not split merely to create more cards.
+
+For short text captures, the target range is usually 1 to 8 atoms. Longer sources will be chunked later and can produce more atoms across chunks.
+
+Every active memory atom should have an embedding. Embeddings power semantic search, related-memory lookup, tension detection, recall context, and knowledge audits.
+
+Semantic search should work on meaning, not exact words. For example, a query like "how do I get my product to customers" should retrieve memories about distribution or customer acquisition even when those exact words do not appear together.
+
 claim:
 A statement that can be supported, challenged, updated, or weakened.
 
@@ -78,29 +86,34 @@ Always show "why" beside confidence.
 
 ## Relation Types
 
-supports:
-Memory A strengthens Memory B.
+confirms:
+An older memory supports or reinforces a new memory.
 
-challenges:
-Memory A questions or weakens Memory B.
+conflicts:
+Two memories cannot reasonably both be true at the same time. Use this sparingly.
 
-contradicts:
-Memory A directly conflicts with Memory B. Use only when conflict is explicit and not merely contextual.
+tension:
+Both memories may be valid, but they pull in different directions depending on context.
 
-depends_on_context:
-Both may be true depending on market, timing, goal, skill level, domain, or assumptions.
+extends:
+An older memory adds detail, an example, or a next step.
 
-updates:
-Memory A is newer and revises Memory B.
+qualifies:
+An older memory narrows, limits, or adds conditions to a new memory.
 
-repeats:
-Memory A says substantially the same thing.
+unrelated:
+The memories are topically nearby but not meaningfully connected. Do not store these as edges.
 
-illustrates:
-Memory A gives an example of Memory B.
+Current Phase 0 behavior:
+- After a new memory is saved and embedded, Crowscap finds nearby older memories by cosine similarity.
+- It excludes memories from the same capture so one source is not mistaken for an independent viewpoint.
+- It skips meta memories such as `intention`, `question`, and `reference` for automatic graph edges. They remain saved and searchable.
+- It batches all eligible new memories and their top candidates into one Qwen JSON-mode call per capture.
+- It stores only meaningful relations in `memory_relations`; `unrelated` results are discarded.
+- Relationship detection is non-fatal. If Qwen is temporarily unavailable, capture still succeeds and logs the skipped relationship scan.
 
-action_gap:
-The user has saved the idea repeatedly but no linked action or experiment exists.
+Future audit signal:
+action_gap means the user has saved an idea repeatedly but no linked action or experiment exists. This belongs in recall/audit scoring and is not part of the Phase 0 relationship classifier yet.
 
 ## Recall Prompt Types
 
@@ -195,4 +208,3 @@ Important wording:
 - Say "based on what you saved..."
 - Say "your current stance appears to be..."
 - Do not say "you believe" unless the user explicitly marked it as a belief.
-

@@ -1,0 +1,326 @@
+from collections.abc import Generator
+
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.ai.qwen_client import QwenClientError
+from app.ai.structured_outputs import CaptureExtraction, ExtractedMemoryAtom
+from app.db.base import Base
+from app.db.models import Capture, Memory, MemoryRelation, Source  # noqa: F401
+from app.db.session import get_db
+from app.main import app
+from app.services.embedding_service import get_memory_embedder
+from app.services.extraction_service import get_memory_extractor
+from app.services.relationship_service import get_memory_relation_detector
+
+
+class FakeExtractor:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def extract_text(
+        self,
+        *,
+        text: str,
+        intent_text: str | None = None,
+        user_note: str | None = None,
+    ) -> CaptureExtraction:
+        self.calls += 1
+        return CaptureExtraction(
+            source_title="Distribution note",
+            inferred_intents=["remember", "apply"],
+            memories=[
+                ExtractedMemoryAtom(
+                    memory_type="principle",
+                    epistemic_label="advice",
+                    content="Early startup teams should test distribution before treating it as a later marketing task.",
+                    summary="Distribution should be tested early.",
+                    confidence="medium",
+                    confidence_reason="The captured text presents this as advice, not measured data.",
+                    source_strength="moderate",
+                )
+            ],
+        )
+
+
+class FailingExtractor:
+    def extract_text(
+        self,
+        *,
+        text: str,
+        intent_text: str | None = None,
+        user_note: str | None = None,
+    ) -> CaptureExtraction:
+        raise QwenClientError("Could not reach Qwen Cloud. Check internet/DNS.")
+
+
+class FakeEmbedder:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        self.calls += 1
+        return [[0.1, 0.2, 0.3] for _ in texts]
+
+
+class FakeRelationDetector:
+    def __init__(self, *, create_tension: bool = False) -> None:
+        self.calls = 0
+        self.create_tension = create_tension
+
+    def detect_for_memories(
+        self,
+        *,
+        db: Session,
+        new_memories: list[Memory],
+        user_id: str | None = None,
+    ) -> list[MemoryRelation]:
+        self.calls += 1
+        if not self.create_tension or not new_memories:
+            return []
+
+        older_memory = db.scalars(
+            select(Memory)
+            .where(Memory.capture_id != new_memories[0].capture_id)
+            .where(Memory.user_id.is_(None) if user_id is None else Memory.user_id == user_id)
+        ).first()
+        if older_memory is None:
+            return []
+
+        relation = MemoryRelation(
+            source_memory_id=new_memories[0].id,
+            target_memory_id=older_memory.id,
+            relation_type="tension",
+            strength="moderate",
+            explanation="The newer idea pulls against the older distribution advice depending on product quality.",
+            created_by="test",
+        )
+        db.add(relation)
+        db.flush()
+        return [relation]
+
+
+def build_test_db_override():
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    testing_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    def override_db() -> Generator[Session, None, None]:
+        db = testing_session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    return override_db
+
+
+def test_capture_text_persists_memory_atoms() -> None:
+    app.dependency_overrides[get_db] = build_test_db_override()
+    extractor = FakeExtractor()
+    embedder = FakeEmbedder()
+    relation_detector = FakeRelationDetector()
+    app.dependency_overrides[get_memory_extractor] = lambda: extractor
+    app.dependency_overrides[get_memory_embedder] = lambda: embedder
+    app.dependency_overrides[get_memory_relation_detector] = lambda: relation_detector
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/captures/text",
+            json={
+                "content": "A founder should not wait until launch to think about distribution. They should test channels early and learn which path reaches customers.",
+                "intent_text": "remember and apply this to my startup",
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "ready"
+        assert payload["inferred_intents"] == ["remember", "apply"]
+        assert len(payload["memories"]) == 1
+        assert payload["memories"][0]["memory_type"] == "principle"
+        assert payload["memories"][0]["confidence"] == "medium"
+        assert payload["memories"][0]["embedding_dimensions"] == 3
+        assert payload["memories"][0]["relationships"] == []
+        assert extractor.calls == 1
+        assert embedder.calls == 1
+        assert relation_detector.calls == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_capture_text_returns_503_when_qwen_is_unreachable() -> None:
+    app.dependency_overrides[get_db] = build_test_db_override()
+    app.dependency_overrides[get_memory_extractor] = lambda: FailingExtractor()
+    embedder = FakeEmbedder()
+    app.dependency_overrides[get_memory_embedder] = lambda: embedder
+    app.dependency_overrides[get_memory_relation_detector] = lambda: FakeRelationDetector()
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/captures/text",
+            json={
+                "content": "A founder should not wait until launch to think about distribution. They should test channels early and learn which path reaches customers.",
+                "intent_text": "remember this",
+            },
+        )
+
+        assert response.status_code == 503
+        assert "Could not reach Qwen Cloud" in response.json()["detail"]
+        assert embedder.calls == 0
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_capture_text_reuses_duplicate_text_without_calling_extractor_twice() -> None:
+    app.dependency_overrides[get_db] = build_test_db_override()
+    extractor = FakeExtractor()
+    embedder = FakeEmbedder()
+    relation_detector = FakeRelationDetector()
+    app.dependency_overrides[get_memory_extractor] = lambda: extractor
+    app.dependency_overrides[get_memory_embedder] = lambda: embedder
+    app.dependency_overrides[get_memory_relation_detector] = lambda: relation_detector
+
+    request_body = {
+        "content": "A founder should not wait until launch to think about distribution. They should test channels early and learn which path reaches customers.",
+        "intent_text": "remember and apply this to my startup",
+    }
+
+    try:
+        client = TestClient(app)
+        first_response = client.post("/api/v1/captures/text", json=request_body)
+        second_response = client.post("/api/v1/captures/text", json=request_body)
+
+        assert first_response.status_code == 200
+        assert second_response.status_code == 200
+        assert extractor.calls == 1
+        assert second_response.json()["source_id"] == first_response.json()["source_id"]
+        assert second_response.json()["memories"][0]["id"] == first_response.json()["memories"][0]["id"]
+        assert second_response.json()["memories"][0]["embedding_dimensions"] == 3
+        assert embedder.calls == 1
+        assert relation_detector.calls == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_capture_text_backfills_embeddings_for_existing_duplicate_memories() -> None:
+    override_db = build_test_db_override()
+    app.dependency_overrides[get_db] = override_db
+    extractor = FakeExtractor()
+    embedder = FakeEmbedder()
+    relation_detector = FakeRelationDetector()
+    app.dependency_overrides[get_memory_extractor] = lambda: extractor
+    app.dependency_overrides[get_memory_embedder] = lambda: embedder
+    app.dependency_overrides[get_memory_relation_detector] = lambda: relation_detector
+
+    content = (
+        "A founder should not wait until launch to think about distribution. "
+        "They should test channels early and learn which path reaches customers."
+    )
+
+    try:
+        client = TestClient(app)
+        first_response = client.post(
+            "/api/v1/captures/text",
+            json={
+                "content": content,
+                "intent_text": "remember and apply this to my startup",
+            },
+        )
+        assert first_response.status_code == 200
+
+        # Simulate older memories created before embeddings existed.
+        db = next(override_db())
+        memory = db.get(Memory, first_response.json()["memories"][0]["id"])
+        assert memory is not None
+        memory.embedding_json = None
+        db.commit()
+        db.close()
+
+        second_response = client.post(
+            "/api/v1/captures/text",
+            json={
+                "content": content,
+                "intent_text": "remember and apply this to my startup",
+            },
+        )
+
+        assert second_response.status_code == 200
+        assert extractor.calls == 1
+        assert embedder.calls == 2
+        assert relation_detector.calls == 1
+        assert second_response.json()["memories"][0]["embedding_dimensions"] == 3
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_capture_text_rejects_over_large_text_before_extraction() -> None:
+    app.dependency_overrides[get_db] = build_test_db_override()
+    extractor = FakeExtractor()
+    embedder = FakeEmbedder()
+    app.dependency_overrides[get_memory_extractor] = lambda: extractor
+    app.dependency_overrides[get_memory_embedder] = lambda: embedder
+    app.dependency_overrides[get_memory_relation_detector] = lambda: FakeRelationDetector()
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/captures/text",
+            json={
+                "content": "x" * 10_001,
+                "intent_text": "remember this",
+            },
+        )
+
+        assert response.status_code == 422
+        assert extractor.calls == 0
+        assert embedder.calls == 0
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_capture_text_returns_relationships_from_detector() -> None:
+    app.dependency_overrides[get_db] = build_test_db_override()
+    extractor = FakeExtractor()
+    embedder = FakeEmbedder()
+    relation_detector = FakeRelationDetector(create_tension=True)
+    app.dependency_overrides[get_memory_extractor] = lambda: extractor
+    app.dependency_overrides[get_memory_embedder] = lambda: embedder
+    app.dependency_overrides[get_memory_relation_detector] = lambda: relation_detector
+
+    try:
+        client = TestClient(app)
+        first_response = client.post(
+            "/api/v1/captures/text",
+            json={
+                "content": "A founder should not wait until launch to think about distribution. They should test channels early and learn which path reaches customers.",
+                "intent_text": "remember this",
+            },
+        )
+        second_response = client.post(
+            "/api/v1/captures/text",
+            json={
+                "content": "A strong product can create word of mouth, and distribution cannot save something customers do not actually want.",
+                "intent_text": "compare this with distribution advice",
+            },
+        )
+
+        assert first_response.status_code == 200
+        assert second_response.status_code == 200
+        relationship = second_response.json()["memories"][0]["relationships"][0]
+        assert relationship["relationship_type"] == "tension"
+        assert relationship["strength"] == "moderate"
+        assert relationship["related_memory_id"] == first_response.json()["memories"][0]["id"]
+        assert "product quality" in relationship["explanation"]
+        assert relation_detector.calls == 2
+    finally:
+        app.dependency_overrides.clear()

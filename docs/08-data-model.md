@@ -144,6 +144,9 @@ Fields:
 Note:
 Use `text-embedding-v4`. Qwen docs list 1024 as default dimensions and 8192 max tokens for text embeddings. Choose dimensions deliberately before creating the index.
 
+Phase 0 note:
+The local SQLite implementation stores embeddings temporarily on `memories.embedding_json`. When the project moves to Postgres, migrate embeddings into this table or a pgvector-backed equivalent.
+
 ### memory_relations
 
 Purpose:
@@ -154,11 +157,14 @@ Fields:
 - user_id
 - source_memory_id
 - target_memory_id
-- relation_type: supports, challenges, contradicts, depends_on_context, updates, repeats, illustrates, action_gap
-- strength: low, medium, high
+- relation_type: confirms, conflicts, tension, extends, qualifies
+- strength: weak, moderate, strong, unknown
 - explanation
-- created_by: system, user
+- created_by: qwen, system, user, test
 - created_at
+
+Phase 0 note:
+The local implementation stores directed edges from a newly captured memory to older candidate memories. It uses semantic similarity first, then one batched Qwen JSON classification call per capture. Candidate memories from the same capture are excluded so one source is not treated as an independent viewpoint. Meta memories such as `intention`, `question`, and `reference` are not automatically relationship-scanned.
 
 ### recall_prompts
 
@@ -264,4 +270,3 @@ Recommended:
 - Archived memories remain searchable only if user includes archived items.
 - Deleted memories should be soft-deleted first, then hard-delete through a retention job if needed.
 - User export/delete should be planned before public release.
-

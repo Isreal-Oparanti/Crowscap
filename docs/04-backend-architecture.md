@@ -10,6 +10,24 @@ Why:
 - SQLAlchemy and Alembic give mature relational modeling and migrations.
 - Python has strong libraries for extraction, PDFs, background jobs, and AI orchestration.
 
+## Database Development Path
+
+Phase 0 uses SQLite through `DATABASE_URL=sqlite:///./crowscap_dev.db` so local scaffolding does not wait on cloud database setup.
+
+This is temporary. Crowscap's real retrieval layer needs PostgreSQL with vector search support. Keep all database access behind SQLAlchemy models and repositories so the switch is a configuration/migration step, not a rewrite.
+
+See `docs/adr/0003-database-development-strategy.md`.
+
+The text capture endpoint has a 10,000 character limit. Longer articles, PDFs, and transcripts should use a chunking pipeline rather than one large extraction call. This protects latency, token cost, context-window safety, and extraction quality.
+
+Every new memory should receive an embedding during capture. In Phase 0, embeddings are stored as JSON for SQLite development. In the Postgres phase, this storage should move to pgvector or equivalent vector-capable storage.
+
+Semantic search in Phase 0 embeds the query with Qwen and computes cosine similarity in Python against SQLite JSON vectors. This is correct for local development and small datasets, but not the final retrieval engine. The Postgres phase should replace this with pgvector similarity search while preserving the API contract.
+
+Similarity thresholds are embedding-model dependent. The local search API returns `candidate_count`, `returned_count`, and `top_score` so thresholds can be tuned from observed scores instead of assumed values.
+
+Relationship detection in Phase 0 runs after new memories are embedded. It uses semantic similarity to find older candidate memories, excludes memories from the same capture, skips meta memory types such as `intention` and `question`, then asks Qwen once per capture to classify nearby pairs as `confirms`, `conflicts`, `tension`, `extends`, `qualifies`, or `unrelated`. Only meaningful relationships are stored.
+
 ## Queue Decision
 
 Use Redis + Celery for the first production-minded version.
@@ -65,7 +83,7 @@ backend/
       capture_service.py
       extraction_service.py
       memory_service.py
-      relation_service.py
+      relationship_service.py
       recall_service.py
       audit_service.py
       search_service.py
@@ -107,7 +125,10 @@ backend/
 
 ## Backend Request Pattern
 
-Do not perform slow extraction inside the HTTP request.
+For the production version, do not perform slow extraction inside the HTTP request.
+
+Phase 0 exception:
+The implemented text capture endpoint runs synchronously so Swagger and the hackathon demo can show the full loop immediately: extract atoms, embed memories, deduplicate, detect relationships, and return the result. URL, PDF, transcript, and long-document ingestion should move to workers.
 
 Pattern:
 
@@ -128,6 +149,14 @@ api key env = DASHSCOPE_API_KEY
 ```
 
 Source: Qwen Cloud first API call documentation.
+
+Hackathon workspaces may show a workspace-specific OpenAI-compatible endpoint in the Qwen Cloud dashboard, for example:
+
+```text
+https://ws-your-workspace.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1
+```
+
+Use that dashboard endpoint as `QWEN_BASE_URL` when provided. Do not use the DashScope `/api/v1` endpoint with the OpenAI SDK wrapper.
 
 Recommended model environment variables:
 
