@@ -1,0 +1,177 @@
+@import "@fontsource-variable/manrope";
+@import "tailwindcss";
+
+:root {
+  --ink: #111111;
+  --ink-soft: #4b4b4b;
+  --muted: #74777b;
+  --line: #e3e5e7;
+  --line-strong: #d2d5d8;
+  --canvas: #f5f6f7;
+  --surface: #ffffff;
+  --surface-soft: #f0f2f3;
+  --green: #2d7058;
+  --green-soft: #eaf4ef;
+  --amber: #9a611e;
+  --amber-soft: #fbf1df;
+  --blue: #356b8f;
+  --blue-soft: #eaf2f7;
+  --rose: #9b4c51;
+  --rose-soft: #f8ebec;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--canvas);
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  max-width: 100vw;
+  overflow-x: hidden;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: "Manrope Variable", "Segoe UI", sans-serif;
+  letter-spacing: 0;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+::selection {
+  background: #d8e8df;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: #c9cccf;
+  background-clip: content-box;
+}
+
+.app-grid {
+  display: grid;
+  min-height: 100dvh;
+  grid-template-columns: 252px minmax(0, 1fr) 318px;
+}
+
+.desktop-rail {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+}
+
+.workspace-main {
+  min-width: 0;
+  height: 100dvh;
+  overflow: hidden;
+  border-inline: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.conversation-scroll {
+  scrollbar-gutter: stable;
+}
+
+.fade-in {
+  animation: fade-in 280ms ease-out both;
+}
+
+.rise-in {
+  animation: rise-in 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.thinking-dot {
+  animation: breathe 1.2s ease-in-out infinite;
+}
+
+.thinking-dot:nth-child(2) {
+  animation-delay: 140ms;
+}
+
+.thinking-dot:nth-child(3) {
+  animation-delay: 280ms;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes breathe {
+  0%,
+  70%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+@media (max-width: 1180px) {
+  .app-grid {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .context-rail {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  body {
+    background: var(--surface);
+  }
+
+  .app-grid {
+    display: block;
+    min-height: 100dvh;
+  }
+
+  .desktop-rail {
+    display: none;
+  }
+
+  .workspace-main {
+    width: 100%;
+    max-width: 100vw;
+    height: 100dvh;
+    border: 0;
+    overflow-x: hidden;
+  }
+}

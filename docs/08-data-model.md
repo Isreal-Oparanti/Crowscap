@@ -48,6 +48,7 @@ Fields:
 - published_at
 - captured_snapshot_uri
 - raw_text_uri
+- raw_text: exact text submitted by the user for source fidelity and reference
 - extracted_text_hash
 - metadata_json
 - created_at
@@ -125,6 +126,10 @@ Fields:
 - decay_score
 - status: active, archived, merged, deleted
 - canonical_memory_id
+- next_review_at
+- last_reviewed_at
+- review_count
+- recall_score
 - created_at
 - updated_at
 
@@ -145,7 +150,7 @@ Note:
 Use `text-embedding-v4`. Qwen docs list 1024 as default dimensions and 8192 max tokens for text embeddings. Choose dimensions deliberately before creating the index.
 
 Phase 0 note:
-The local SQLite implementation stores embeddings temporarily on `memories.embedding_json`. When the project moves to Postgres, migrate embeddings into this table or a pgvector-backed equivalent.
+The local SQLite implementation stores embeddings on `memories.embedding_json`. PostgreSQL keeps that portable copy and also writes the same vector to `memories.embedding_vector vector(1024)` for indexed pgvector search.
 
 ### memory_relations
 
@@ -165,6 +170,8 @@ Fields:
 
 Phase 0 note:
 The local implementation stores directed edges from a newly captured memory to older candidate memories. It uses semantic similarity first, then one batched Qwen JSON classification call per capture. Candidate memories from the same capture are excluded so one source is not treated as an independent viewpoint. Meta memories such as `intention`, `question`, and `reference` are not automatically relationship-scanned.
+
+Relationship classifications must cite exact evidence phrases from both memories. The backend rejects weak results and any result whose evidence does not appear verbatim in the corresponding memory. This protects the graph from plausible-sounding but unsupported connections.
 
 ### recall_prompts
 
@@ -197,6 +204,26 @@ Fields:
 - score
 - next_due_at
 - created_at
+
+Phase 0 implementation:
+The current table is named `recall_reviews` because prompts are generated from the
+memory at request time rather than stored separately. It records:
+
+- memory_id
+- answer_text
+- self_rating
+- evaluation_score
+- rating
+- feedback
+- understanding_summary
+- knowledge_gaps
+- context_to_consider
+- next_question
+- next_review_at
+- created_at
+
+The corresponding memory row is updated in the same transaction with
+`last_reviewed_at`, `review_count`, `recall_score`, and `next_review_at`.
 
 ### audits
 

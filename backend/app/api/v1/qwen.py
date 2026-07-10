@@ -12,6 +12,7 @@ class QwenStatusResponse(BaseModel):
     base_url: str
     reasoning_model: str
     fast_model: str
+    chat_model: str
     embedding_model: str
     rerank_model: str
 
@@ -33,6 +34,7 @@ def qwen_status() -> QwenStatusResponse:
         base_url=settings.qwen_base_url,
         reasoning_model=settings.qwen_reasoning_model,
         fast_model=settings.qwen_fast_model,
+        chat_model=settings.qwen_chat_model,
         embedding_model=settings.qwen_embedding_model,
         rerank_model=settings.qwen_rerank_model,
     )
@@ -48,4 +50,3 @@ def qwen_smoke(payload: QwenSmokeRequest) -> QwenSmokeResponse:
 
     settings = get_settings()
     return QwenSmokeResponse(model=settings.qwen_fast_model, content=content)
-

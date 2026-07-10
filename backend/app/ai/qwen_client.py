@@ -9,6 +9,8 @@ from app.core.logging import get_logger
 
 logger = get_logger("ai.qwen")
 
+QWEN_EMBEDDING_BATCH_SIZE = 10
+
 
 class QwenClientError(RuntimeError):
     """Raised when Qwen Cloud cannot be called safely."""
@@ -70,6 +72,8 @@ class QwenClient:
         user_prompt: str,
         model: str | None = None,
         temperature: float = 0.0,
+        timeout_seconds: float | None = None,
+        max_retries: int | None = None,
     ) -> dict[str, Any]:
         """Call Qwen with JSON mode and parse the response into a dict.
 
@@ -84,8 +88,15 @@ class QwenClient:
             selected_model,
             len(system_prompt) + len(user_prompt),
         )
+        request_client = client
+        if timeout_seconds is not None or max_retries is not None:
+            request_client = client.with_options(
+                timeout=timeout_seconds,
+                max_retries=max_retries,
+            )
+
         try:
-            completion = client.chat.completions.create(
+            completion = request_client.chat.completions.create(
                 model=selected_model,
                 messages=[
                 {"role": "system", "content": system_prompt},
@@ -131,36 +142,74 @@ class QwenClient:
 
         client = self._build_client()
         selected_model = model or self.settings.qwen_embedding_model
+        text_list = list(texts)
+        batch_count = (len(text_list) + QWEN_EMBEDDING_BATCH_SIZE - 1) // QWEN_EMBEDDING_BATCH_SIZE
+        embeddings: list[list[float]] = []
 
         logger.info(
-            "\U0001f9ec qwen.request mode=embedding model=%s items=%s",
+            "\U0001f9ec qwen.request mode=embedding model=%s items=%s batches=%s max_batch=%s",
             selected_model,
-            len(texts),
+            len(text_list),
+            batch_count,
+            QWEN_EMBEDDING_BATCH_SIZE,
         )
-        try:
-            response = client.embeddings.create(
-                model=selected_model,
-                input=list(texts),
+
+        for batch_index, start in enumerate(
+            range(0, len(text_list), QWEN_EMBEDDING_BATCH_SIZE),
+            start=1,
+        ):
+            batch = text_list[start : start + QWEN_EMBEDDING_BATCH_SIZE]
+            logger.info(
+                "\U0001f9ec qwen.embedding_batch.start model=%s batch=%s/%s items=%s",
+                selected_model,
+                batch_index,
+                batch_count,
+                len(batch),
             )
-        except Exception as exc:
-            raise self._provider_error("embedding", selected_model, exc) from exc
+            try:
+                response = client.embeddings.create(
+                    model=selected_model,
+                    input=batch,
+                )
+            except Exception as exc:
+                raise self._provider_error("embedding", selected_model, exc) from exc
 
-        ordered = sorted(response.data, key=lambda item: item.index)
-        embeddings = [list(item.embedding) for item in ordered]
+            ordered = sorted(response.data, key=lambda item: item.index)
+            batch_embeddings = [list(item.embedding) for item in ordered]
 
-        if len(embeddings) != len(texts):
+            if len(batch_embeddings) != len(batch):
+                logger.error(
+                    "\u274c qwen.embedding_count_mismatch batch=%s/%s expected=%s actual=%s",
+                    batch_index,
+                    batch_count,
+                    len(batch),
+                    len(batch_embeddings),
+                )
+                raise QwenClientError("Qwen Cloud returned the wrong number of embeddings.")
+
+            embeddings.extend(batch_embeddings)
+            logger.info(
+                "\u2705 qwen.embedding_batch.ok model=%s batch=%s/%s items=%s",
+                selected_model,
+                batch_index,
+                batch_count,
+                len(batch_embeddings),
+            )
+
+        if len(embeddings) != len(text_list):
             logger.error(
                 "\u274c qwen.embedding_count_mismatch expected=%s actual=%s",
-                len(texts),
+                len(text_list),
                 len(embeddings),
             )
             raise QwenClientError("Qwen Cloud returned the wrong number of embeddings.")
 
         dimensions = len(embeddings[0]) if embeddings else 0
         logger.info(
-            "\u2705 qwen.response_ok mode=embedding model=%s items=%s dimensions=%s",
+            "\u2705 qwen.response_ok mode=embedding model=%s items=%s batches=%s dimensions=%s",
             selected_model,
             len(embeddings),
+            batch_count,
             dimensions,
         )
         return embeddings
@@ -187,6 +236,11 @@ class QwenClient:
 
         if error_type == "PermissionDeniedError":
             return QwenClientError("Qwen Cloud denied access to this model or workspace.")
+
+        if error_type == "BadRequestError" and mode == "embedding":
+            return QwenClientError(
+                "Qwen Cloud rejected the embedding request. Check embedding input size and model support."
+            )
 
         if error_type == "BadRequestError":
             return QwenClientError("Qwen Cloud rejected the request. Check model and JSON mode support.")

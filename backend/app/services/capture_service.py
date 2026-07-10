@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -9,13 +10,22 @@ from sqlalchemy.orm import Session
 from app.ai.qwen_client import QwenClientError
 from app.ai.structured_outputs import CaptureExtraction
 from app.core.logging import get_logger
-from app.db.models import Capture, Memory, MemoryRelation, Source
-from app.schemas.capture import MemoryCardResponse, MemoryRelationshipResponse, TextCaptureRequest, TextCaptureResponse
+from app.db.models import Capture, Memory, MemoryRelation, Source, utc_now
+from app.db.vector import update_memory_embedding_vector
+from app.schemas.capture import (
+    MemoryCardResponse,
+    MemoryRelationshipResponse,
+    TextCaptureRequest,
+    TextCaptureResponse,
+)
 from app.services.embedding_service import EmbeddingError, MemoryEmbedder
 from app.services.extraction_service import MemoryExtractor
 from app.services.relationship_service import MemoryRelationDetector, RelationshipDetectionError
 
 logger = get_logger("services.capture")
+
+RELATIONSHIP_SCAN_COMPLETED_KEY = "relationship_scan_completed"
+RELATIONSHIP_SCAN_CREATED_COUNT_KEY = "relationship_scan_created_count"
 
 
 def create_text_capture(
@@ -33,38 +43,95 @@ def create_text_capture(
         bool(payload.intent_text),
         bool(payload.user_note),
     )
-    content_hash = hashlib.sha256(payload.content.encode("utf-8")).hexdigest()
-
-    existing_source = _find_existing_text_source(
+    return create_extracted_text_capture(
         db=db,
+        source_type="text",
+        raw_text=payload.content,
+        title=payload.source_title,
+        user_note=payload.user_note,
+        intent_text=payload.intent_text,
+        metadata_json={
+            "input_kind": "text_capture",
+            "content_length": len(payload.content),
+        },
+        extractor=extractor,
+        embedder=embedder,
+        relation_detector=relation_detector,
+        user_id=user_id,
+    )
+
+
+def create_extracted_text_capture(
+    *,
+    db: Session,
+    source_type: str,
+    raw_text: str,
+    title: str | None,
+    extractor: MemoryExtractor,
+    embedder: MemoryEmbedder,
+    relation_detector: MemoryRelationDetector,
+    user_note: str | None = None,
+    intent_text: str | None = None,
+    original_url: str | None = None,
+    resolved_url: str | None = None,
+    content_hash: str | None = None,
+    metadata_json: dict | None = None,
+    source_instruction: str | None = None,
+    user_id: str | None = None,
+) -> TextCaptureResponse:
+    content_hash = content_hash or hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
+
+    existing_source = _find_existing_source(
+        db=db,
+        source_type=source_type,
         content_hash=content_hash,
+        resolved_url=resolved_url,
         user_id=user_id,
     )
     if existing_source is not None and existing_source.memories:
         latest_capture = _latest_capture_for_source(existing_source)
         if latest_capture is not None:
+            if not existing_source.raw_text:
+                existing_source.raw_text = raw_text
+                db.commit()
+                logger.info(
+                    "\U0001f527 capture.text.original_backfilled source_id=%s chars=%s",
+                    existing_source.id,
+                    len(raw_text),
+                )
+            memories = list(existing_source.memories)
             _backfill_missing_embeddings(
                 db=db,
-                memories=list(existing_source.memories),
+                memories=memories,
                 embedder=embedder,
             )
+            relationships = _backfill_missing_relationships(
+                db=db,
+                source=existing_source,
+                memories=memories,
+                detector=relation_detector,
+                user_id=user_id,
+            )
             logger.info(
-                "\u267b\ufe0f capture.text.duplicate_reused source_id=%s capture_id=%s memories=%s",
+                "\u267b\ufe0f capture.text.duplicate_reused source_id=%s capture_id=%s memories=%s relationships=%s",
                 existing_source.id,
                 latest_capture.id,
-                len(existing_source.memories),
+                len(memories),
+                len(relationships),
             )
             return _build_text_capture_response(
                 capture=latest_capture,
                 source=existing_source,
-                memories=list(existing_source.memories),
-                relationships=_relationships_for_memories(db=db, memories=list(existing_source.memories)),
+                memories=memories,
+                relationships=relationships,
             )
 
-    extraction = extractor.extract_text(
-        text=payload.content,
-        intent_text=payload.intent_text,
-        user_note=payload.user_note,
+    extraction = _extract_from_raw_text(
+        extractor=extractor,
+        raw_text=raw_text,
+        intent_text=intent_text,
+        user_note=user_note,
+        source_instruction=source_instruction,
     )
     logger.info(
         "\U0001f9e0 capture.text.extracted memories=%s intents=%s",
@@ -81,13 +148,13 @@ def create_text_capture(
 
     source = Source(
         user_id=user_id,
-        source_type="text",
-        title=payload.source_title or extraction.source_title,
+        source_type=source_type,
+        original_url=original_url,
+        resolved_url=resolved_url,
+        title=title or extraction.source_title,
+        raw_text=raw_text,
         extracted_text_hash=content_hash,
-        metadata_json={
-            "input_kind": "text_capture",
-            "content_length": len(payload.content),
-        },
+        metadata_json=metadata_json or {},
     )
     db.add(source)
     db.flush()
@@ -95,8 +162,8 @@ def create_text_capture(
     capture = Capture(
         user_id=user_id,
         source_id=source.id,
-        user_note=payload.user_note,
-        user_intent_text=payload.intent_text,
+        user_note=user_note,
+        user_intent_text=intent_text,
         inferred_intents=list(extraction.inferred_intents),
         status="ready",
     )
@@ -112,12 +179,15 @@ def create_text_capture(
         embeddings=embeddings,
     )
 
-    relationships = _detect_relationships(
+    relationships, relationship_scan_completed = _detect_relationships(
         db=db,
         memories=memories,
         detector=relation_detector,
         user_id=user_id,
     )
+    if relationship_scan_completed:
+        _mark_relationship_scan_completed(source=source, created_count=len(relationships))
+
     db.commit()
     logger.info(
         "\U0001f4be capture.text.saved source_id=%s capture_id=%s memories=%s relationships=%s",
@@ -135,19 +205,103 @@ def create_text_capture(
     )
 
 
-def _find_existing_text_source(
+def _extract_from_raw_text(
+    *,
+    extractor: MemoryExtractor,
+    raw_text: str,
+    intent_text: str | None,
+    user_note: str | None,
+    source_instruction: str | None,
+) -> CaptureExtraction:
+    extraction_note = "\n".join(
+        part for part in [source_instruction, user_note] if part
+    ) or None
+    words = raw_text.split()
+    if len(words) <= 3_000:
+        return extractor.extract_text(
+            text=raw_text,
+            intent_text=intent_text,
+            user_note=extraction_note,
+        )
+
+    logger.info("\U0001f9e9 capture.chunking.start words=%s", len(words))
+    chunks = _chunk_words(words, chunk_size=2_000, overlap=200)
+    merged_intents: list[str] = []
+    merged_memories = []
+    seen_memory_content: set[str] = set()
+    source_title: str | None = None
+
+    for index, chunk in enumerate(chunks, start=1):
+        chunk_note = "\n".join(
+            part
+            for part in [
+                extraction_note,
+                f"This is chunk {index} of {len(chunks)} from one source. Avoid duplicate memories.",
+            ]
+            if part
+        )
+        chunk_extraction = extractor.extract_text(
+            text=chunk,
+            intent_text=intent_text,
+            user_note=chunk_note,
+        )
+        source_title = source_title or chunk_extraction.source_title
+        for intent in chunk_extraction.inferred_intents:
+            if intent not in merged_intents:
+                merged_intents.append(intent)
+        for memory in chunk_extraction.memories:
+            normalized = " ".join(memory.content.lower().split())
+            if normalized in seen_memory_content:
+                continue
+            seen_memory_content.add(normalized)
+            merged_memories.append(memory)
+            if len(merged_memories) >= 12:
+                break
+        if len(merged_memories) >= 12:
+            break
+
+    logger.info(
+        "\u2705 capture.chunking.complete chunks=%s memories=%s",
+        len(chunks),
+        len(merged_memories),
+    )
+    return CaptureExtraction(
+        source_title=source_title,
+        inferred_intents=merged_intents[:5],
+        memories=merged_memories,
+    )
+
+
+def _chunk_words(words: list[str], *, chunk_size: int, overlap: int) -> list[str]:
+    chunks: list[str] = []
+    start = 0
+    while start < len(words):
+        end = min(start + chunk_size, len(words))
+        chunks.append(" ".join(words[start:end]))
+        if end >= len(words):
+            break
+        start = max(end - overlap, start + 1)
+    return chunks
+
+
+def _find_existing_source(
     *,
     db: Session,
+    source_type: str,
     content_hash: str,
+    resolved_url: str | None,
     user_id: str | None,
 ) -> Source | None:
     query = (
         select(Source)
-        .where(Source.source_type == "text")
-        .where(Source.extracted_text_hash == content_hash)
+        .where(Source.source_type == source_type)
         .where(Source.user_id.is_(None) if user_id is None else Source.user_id == user_id)
         .order_by(Source.created_at.desc())
     )
+    if resolved_url:
+        query = query.where(Source.resolved_url == resolved_url)
+    else:
+        query = query.where(Source.extracted_text_hash == content_hash)
     return db.scalars(query).first()
 
 
@@ -173,8 +327,56 @@ def _backfill_missing_embeddings(
     for memory, embedding in zip(missing, embeddings, strict=True):
         memory.embedding_json = embedding
 
+    db.flush()
+    vector_count = sum(
+        1
+        for memory in missing
+        if update_memory_embedding_vector(
+            db=db,
+            memory_id=memory.id,
+            embedding=memory.embedding_json,
+        )
+    )
     db.commit()
-    logger.info("\u2705 capture.text.embedding_backfill.complete memories=%s", len(missing))
+    logger.info(
+        "\u2705 capture.text.embedding_backfill.complete memories=%s vectors=%s",
+        len(missing),
+        vector_count,
+    )
+
+
+def _backfill_missing_relationships(
+    *,
+    db: Session,
+    source: Source,
+    memories: list[Memory],
+    detector: MemoryRelationDetector,
+    user_id: str | None,
+) -> list[MemoryRelation]:
+    existing_relationships = _relationships_for_memories(db=db, memories=memories)
+    if existing_relationships:
+        return existing_relationships
+
+    if _relationship_scan_completed(source):
+        return []
+
+    logger.info("\U0001f527 capture.text.relationship_backfill.start memories=%s", len(memories))
+    new_relationships, relationship_scan_completed = _detect_relationships(
+        db=db,
+        memories=memories,
+        detector=detector,
+        user_id=user_id,
+    )
+    if relationship_scan_completed:
+        _mark_relationship_scan_completed(source=source, created_count=len(new_relationships))
+        db.commit()
+
+    logger.info(
+        "\u2705 capture.text.relationship_backfill.complete relationships=%s completed=%s",
+        len(new_relationships),
+        relationship_scan_completed,
+    )
+    return existing_relationships + new_relationships
 
 
 def _detect_relationships(
@@ -183,12 +385,23 @@ def _detect_relationships(
     memories: list[Memory],
     detector: MemoryRelationDetector,
     user_id: str | None,
-) -> list[MemoryRelation]:
+) -> tuple[list[MemoryRelation], bool]:
     try:
-        return detector.detect_for_memories(db=db, new_memories=memories, user_id=user_id)
+        return detector.detect_for_memories(db=db, new_memories=memories, user_id=user_id), True
     except (QwenClientError, RelationshipDetectionError) as exc:
         logger.warning("\u26a0\ufe0f capture.text.relationships_skipped reason=%s", exc)
-        return []
+        return [], False
+
+
+def _relationship_scan_completed(source: Source) -> bool:
+    return bool((source.metadata_json or {}).get(RELATIONSHIP_SCAN_COMPLETED_KEY))
+
+
+def _mark_relationship_scan_completed(*, source: Source, created_count: int) -> None:
+    metadata = dict(source.metadata_json or {})
+    metadata[RELATIONSHIP_SCAN_COMPLETED_KEY] = True
+    metadata[RELATIONSHIP_SCAN_CREATED_COUNT_KEY] = created_count
+    source.metadata_json = metadata
 
 
 def _validate_embeddings(embeddings: list[list[float]], *, expected_count: int) -> None:
@@ -222,12 +435,36 @@ def _create_memories(
             confidence_reason=atom.confidence_reason,
             source_strength=atom.source_strength,
             embedding_json=embedding,
+            next_review_at=initial_next_review_at(memory_confidence=atom.confidence),
+            review_count=0,
+            recall_score=0.5,
         )
         db.add(memory)
         memories.append(memory)
 
     db.flush()
+    vector_count = sum(
+        1
+        for memory in memories
+        if update_memory_embedding_vector(
+            db=db,
+            memory_id=memory.id,
+            embedding=memory.embedding_json,
+        )
+    )
+    if vector_count:
+        logger.info("\U0001f9ec capture.text.pgvector_written memories=%s", vector_count)
     return memories
+
+
+def initial_next_review_at(*, memory_confidence: str) -> datetime:
+    intervals = {
+        "high": timedelta(hours=24),
+        "medium": timedelta(hours=12),
+        "low": timedelta(hours=6),
+        "unknown": timedelta(hours=6),
+    }
+    return utc_now() + intervals.get(memory_confidence, timedelta(hours=6))
 
 
 def _build_text_capture_response(
@@ -251,11 +488,15 @@ def _build_text_capture_response(
     return TextCaptureResponse(
         capture_id=capture.id,
         source_id=source.id,
+        source_type=source.source_type,
+        source_title=source.title,
+        original_content=source.raw_text,
         status=capture.status,
         inferred_intents=list(capture.inferred_intents or []),
         memories=[
             MemoryCardResponse(
                 id=memory.id,
+                source_type=source.source_type,
                 memory_type=memory.memory_type,
                 epistemic_label=memory.epistemic_label,
                 content=memory.content,

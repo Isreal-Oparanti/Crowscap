@@ -108,14 +108,36 @@ Current Phase 0 behavior:
 - After a new memory is saved and embedded, Crowscap finds nearby older memories by cosine similarity.
 - It excludes memories from the same capture so one source is not mistaken for an independent viewpoint.
 - It skips meta memories such as `intention`, `question`, and `reference` for automatic graph edges. They remain saved and searchable.
+- It skips those same meta memory types as older relationship candidates.
+- It skips very high-similarity near-duplicates because they are usually repeats, not useful tension edges.
 - It batches all eligible new memories and their top candidates into one Qwen JSON-mode call per capture.
+- It caps total candidate pairs per capture and uses a short timeout because relationship detection is non-critical.
+- It starts relationship candidates at `0.50` cosine similarity for the current Qwen embedding model. This is a calibrated default, not a universal vector threshold.
+- The classifier must quote exact evidence from both memories. Ungrounded and weak classifications are discarded.
+- Memories about different products, actors, mechanisms, or decisions are treated as unrelated even when generic product language makes them topically nearby.
 - It stores only meaningful relations in `memory_relations`; `unrelated` results are discarded.
 - Relationship detection is non-fatal. If Qwen is temporarily unavailable, capture still succeeds and logs the skipped relationship scan.
+- Duplicate captures can backfill a missing relationship scan from older development data. Once a scan completes, the source metadata records that it has been scanned so the same duplicate does not trigger repeated scans.
 
 Future audit signal:
 action_gap means the user has saved an idea repeatedly but no linked action or experiment exists. This belongs in recall/audit scoring and is not part of the Phase 0 relationship classifier yet.
 
 ## Recall Prompt Types
+
+Phase 0 recall behavior:
+- Every saved memory gets a `next_review_at`.
+- High-confidence memories are first reviewed after 24 hours.
+- Medium-confidence memories are first reviewed after 12 hours.
+- Low or unknown confidence memories are first reviewed after 6 hours.
+- `GET /api/v1/recalls/due` returns active memories where `next_review_at` is in the past.
+- Due memories are ordered by oldest `next_review_at` first, which means most overdue first.
+- Due memories include relationship context so review can show connected ideas and tensions.
+- Due memories include an adaptive prompt and an epistemic caution where appropriate.
+- Recall answers are evaluated against the memory, source metadata, and related memories.
+- Evaluations are persisted in `recall_reviews`.
+- Evaluation returns an understanding synthesis, missing knowledge, context boundaries,
+  and a deeper question rather than only a numeric score.
+- Review performance and optional self-rating update `recall_score` and the next interval.
 
 explain:
 "Explain this idea in your own words."

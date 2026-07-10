@@ -22,10 +22,36 @@ python scripts/init_db.py
 uvicorn app.main:app --reload
 ```
 
+Recommended development command:
+
+```bash
+python scripts/run_dev.py
+```
+
+`run_dev.py` automatically switches to `backend/.venv` even if the shell was not
+activated. This prevents a globally installed `uvicorn` from starting with a Python
+environment that is missing SQLAlchemy or other project dependencies.
+
 Open the API docs in a browser:
 
 ```text
 http://127.0.0.1:8000/docs
+```
+
+### `ModuleNotFoundError: No module named 'sqlalchemy'`
+
+This means the command resolved to the global Python installation instead of
+`backend/.venv`. Either activate the environment:
+
+```bash
+source .venv/Scripts/Activate
+python -m uvicorn app.main:app --reload
+```
+
+Or use the safer launcher:
+
+```bash
+python scripts/run_dev.py
 ```
 
 Default local database:
@@ -39,6 +65,8 @@ This keeps Phase 0 smooth. The same SQLAlchemy app configuration accepts a Postg
 ```text
 postgresql+psycopg://user:password@localhost:5432/crowscap
 ```
+
+For Alibaba PostgreSQL and pgvector setup, see `../docs/13-alibaba-postgres-migration.md`.
 
 ## Qwen Smoke Test
 
@@ -91,16 +119,49 @@ Without `DASHSCOPE_API_KEY`, this endpoint returns a clear 503 instead of preten
 
 Current behavior:
 - `content` accepts 20 to 10,000 characters.
+- `intent_text`, `user_note`, and `source_title` are optional context, not required tags.
+- the backend normalizes common model label variants such as `Compare`, `watch-later`, or `Factual Claim`.
+- the backend repairs known cross-field taxonomy mistakes, such as Qwen placing
+  `intention` in `epistemic_label` instead of using it as `memory_type`.
+- if deterministic normalization is not enough, extraction performs one bounded
+  schema-repair call before returning a friendly validation error.
 - longer sources will use a future document upload/chunking endpoint.
 - duplicate text captures reuse existing memories by content hash and skip a new Qwen call.
+- the exact submitted text is stored on the source and returned as `original_content`; atomic memories never replace the source-of-record.
+- `GET /api/v1/sources/{source_id}` returns the original capture for chat and recall reference views.
 - extraction uses Qwen JSON mode with temperature `0` for more deterministic structured output.
 - each new memory is embedded through Qwen and stored in `embedding_json` for local SQLite development.
+- on PostgreSQL, the same embedding is also written to `memories.embedding_vector` for pgvector search.
 - duplicate captures with old unembedded memories will backfill missing embeddings before returning.
+- duplicate captures from older development runs will backfill missing relationship scans once, then mark the source as scanned.
 - responses show `embedding_dimensions` to confirm embedding happened without returning the full vector.
 - relationship detection runs after embedding: nearby older memories are classified as `confirms`, `conflicts`, `tension`, `extends`, or `qualifies`.
 - relationship detection skips meta memories such as `intention`, `question`, and `reference`.
+- relationship detection also skips meta memories as older candidates, and skips very high-similarity near-duplicates.
 - relationship detection batches eligible memories into one Qwen call per capture.
+- relationship detection caps total pairs per capture and fails fast because it is useful but non-critical.
+- relationship candidates default to a calibrated `0.50` similarity floor for `text-embedding-v4`.
+- Qwen must cite exact phrases from both memories; weak or ungrounded classifications are discarded.
 - relationship detection is non-fatal; if Qwen cannot classify relationships, capture still succeeds and the skip is logged.
+
+## Conversational Chat Endpoint
+
+The frontend sends every chat turn to the backend instead of guessing from punctuation.
+
+```text
+POST /api/v1/chat
+```
+
+The backend chooses one action:
+
+- `acknowledge`: respond normally and create no memory.
+- `capture`: run extraction, embeddings, deduplication, relationships, and scheduling.
+- `answer`: retrieve relevant memories and synthesize a source-aware response.
+
+Memory answers lead with a direct synthesis, then return supporting evidence,
+knowledge gaps, context-dependent tensions, and a useful next action or question.
+Short acknowledgements such as `okay`, `thanks`, `got it`, and `this makes sense`
+are handled without creating memory.
 
 ## Semantic Search Endpoint
 
@@ -128,6 +189,43 @@ Current local behavior:
 - Responses include `candidate_count`, `embedded_candidate_count`, `returned_count`, and `top_score` so we can tune thresholds empirically.
 - Postgres/pgvector will replace only the similarity lookup later; query embedding and response shape stay the same.
 
+## Recall Endpoint
+
+Every new memory receives an initial review schedule:
+
+- high confidence: 24 hours later
+- medium confidence: 12 hours later
+- low or unknown confidence: 6 hours later
+
+Existing local SQLite memories are backfilled as due when the schema upgrades, so the endpoint has useful development data immediately.
+
+```text
+GET /api/v1/recalls/due
+```
+
+Optional query:
+
+```text
+GET /api/v1/recalls/due?limit=10
+```
+
+Current behavior:
+- returns active memories where `next_review_at` is in the past.
+- orders by most overdue first.
+- includes source title, recall score, review count, and relationship context.
+- includes a prompt selected from memory type, source strength, and tensions.
+- warns when an idea is advice, opinion, or weakly evidenced rather than a verified fact.
+
+Submit a recall answer:
+
+```text
+POST /api/v1/recalls/{memory_id}/answer
+```
+
+The response includes persisted evaluation feedback, an understanding summary,
+knowledge gaps, context to consider, a deeper follow-up question, and the next
+scheduled review.
+
 ## What DASHSCOPE_API_KEY Means
 
 `DASHSCOPE_API_KEY` is the Alibaba/Qwen Cloud API key. The backend uses it to call Qwen models through the OpenAI-compatible API. It lives only in `.env`; never commit it.
@@ -137,8 +235,11 @@ Create `.env` from `.env.example` and fill in:
 ```text
 DASHSCOPE_API_KEY=your_real_qwen_cloud_key_here
 QWEN_BASE_URL=https://your-openai-compatible-endpoint/compatible-mode/v1
-QWEN_FAST_MODEL=qwen3.7-plus
 QWEN_REASONING_MODEL=qwen3.7-plus
+QWEN_FAST_MODEL=qwen-turbo
+QWEN_CHAT_MODEL=qwen-plus
+QWEN_EXTRACTION_MODEL=qwen-plus
+QWEN_RELATIONSHIP_MODEL=qwen-turbo
 ```
 
 Use the **OpenAI Compatible Endpoint** from your Qwen Cloud workspace for `QWEN_BASE_URL`.
@@ -149,6 +250,12 @@ https://ws-your-workspace.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1
 ```
 
 Do not use the DashScope `/api/v1` endpoint with the OpenAI SDK. The backend is using the OpenAI-compatible SDK path.
+
+Model routing:
+- `qwen3.7-plus` stays reserved for deep reasoning features like belief audits.
+- `qwen-plus` handles conversational synthesis and recall evaluation.
+- `qwen-plus` is the default extraction model because extraction quality matters.
+- `qwen-turbo` is the default relationship model because tension detection is a fast classification task.
 
 ## Console Logs
 

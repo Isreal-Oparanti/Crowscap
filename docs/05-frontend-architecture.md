@@ -58,29 +58,29 @@ frontend/
   public/
 ```
 
+## Interaction Model
+
+Chat is the primary product surface. Every message goes to the backend conversation
+router, which decides whether to respond normally, capture a durable learning fragment,
+or answer by synthesizing saved memories.
+
+The frontend must never infer this from punctuation or message length. The backend is
+the source of truth because acknowledgements and social replies must not become memory.
+
 ## Primary Views
 
-Capture:
-- Paste URL, text, or note.
-- Upload PDF.
-- Add optional natural-language intent: "watch later", "remember this", "verify this", "apply to my startup".
-- Show processing status immediately.
-
-Inbox:
-- Shows recently captured sources.
-- Shows status: queued, extracting, extracting memories, relating, ready, failed.
-- Allows retry and archive.
-
-Memory:
-- Shows extracted memory atoms.
-- Each memory displays type, source, confidence, source strength, and related memories.
-- Lets user mark as useful, not useful, already known, applied, or archive.
+Chat:
+- Natural conversation is the command center.
+- Captures return an inspectable memory receipt.
+- Answers lead with synthesis, then show gaps, tensions, next steps, and expandable evidence.
+- Ordinary thanks, greetings, and confirmations remain ordinary chat.
 
 Recall:
-- Shows due prompts.
-- Prompt types: explain, defend, apply, compare, verify.
+- Opens from a notification or queue item into a focused conversation.
+- Prompts adapt to memory type, evidence quality, and related tensions.
 - User answers in natural language.
-- System grades or reflects with source-grounded feedback.
+- System persists the answer, evaluates understanding, exposes missing context,
+  reschedules the memory, and asks one deeper question.
 
 Audit:
 - Hero feature.
@@ -158,4 +158,3 @@ Recall:
 - Proper labels for inputs and buttons.
 - Color not used as the only signal for confidence or relation type.
 - Responsive layout for desktop and mobile widths.
-

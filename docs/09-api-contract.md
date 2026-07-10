@@ -21,6 +21,39 @@ Response:
 }
 ```
 
+## Chat
+
+### POST /chat
+
+The main conversational gateway. It prevents the frontend from treating every
+non-question as a memory.
+
+Request:
+
+```json
+{
+  "message": "okay this makes sense thanks",
+  "history": []
+}
+```
+
+Response:
+
+```json
+{
+  "action": "acknowledge",
+  "message": "You are welcome. I am glad it makes sense.",
+  "saved": false,
+  "capture": null,
+  "evidence": [],
+  "knowledge_gaps": [],
+  "tensions": [],
+  "next_step": null
+}
+```
+
+`action` is one of `acknowledge`, `capture`, or `answer`.
+
 ## Captures
 
 ### POST /captures/text
@@ -44,6 +77,8 @@ Response:
 {
   "capture_id": "uuid",
   "source_id": "uuid",
+  "source_title": "Distribution learning note",
+  "original_content": "A founder should not wait until launch to think about distribution...",
   "status": "ready",
   "inferred_intents": ["remember", "apply"],
   "memories": [
@@ -69,6 +104,24 @@ Response:
   ]
 }
 ```
+
+`original_content` is the exact text the user submitted. Memory atoms are derived intelligence; the original remains available as the source-of-record.
+
+### GET /sources/{source_id}
+
+Returns source metadata and the exact captured text for reference views and recall.
+
+```json
+{
+  "source_id": "uuid",
+  "source_type": "text",
+  "title": "Distribution learning note",
+  "original_url": null,
+  "original_content": "A founder should not wait until launch..."
+}
+```
+
+Older development captures may return `original_content: null`. Re-submitting the identical text backfills it through the duplicate-capture path without rerunning extraction.
 
 ### POST /captures
 
@@ -230,7 +283,48 @@ Response:
 
 ### GET /recalls/due
 
-Returns due recall prompts.
+Phase 0 implemented endpoint. Returns active memories where `next_review_at` is in the past, ordered by most overdue first.
+
+Query params:
+- limit: optional, default 50, max 100
+
+Response:
+
+```json
+{
+  "due_count": 1,
+  "now": "2026-06-14T14:00:00Z",
+  "memories": [
+    {
+      "memory_id": "uuid",
+      "source_id": "uuid",
+      "source_title": "Distribution note",
+      "memory_type": "principle",
+      "epistemic_label": "advice",
+      "content": "Distribution should be tested early.",
+      "summary": "Test distribution early",
+      "confidence": "medium",
+      "confidence_reason": "The source presents this as advice.",
+      "source_strength": "moderate",
+      "next_review_at": "2026-06-14T08:00:00Z",
+      "last_reviewed_at": null,
+      "review_count": 0,
+      "recall_score": 0.5,
+      "overdue_seconds": 21600,
+      "relationships": [
+        {
+          "related_memory_id": "uuid",
+          "related_memory_content": "Distribution cannot rescue a product nobody wants.",
+          "relationship_type": "tension",
+          "strength": "moderate",
+          "explanation": "Both ideas matter but pull in different directions.",
+          "direction": "incoming"
+        }
+      ]
+    }
+  ]
+}
+```
 
 ### POST /recalls/{recall_id}/answer
 
@@ -247,9 +341,22 @@ Response:
 
 ```json
 {
+  "review_id": "uuid",
+  "memory_id": "uuid",
   "feedback": "Good central idea. You missed the source's point about testing channel fit before scaling.",
   "score": 0.74,
-  "next_due_at": "2026-06-15T09:00:00Z"
+  "rating": "solid",
+  "understanding_summary": "Distribution testing reveals whether a product can reliably reach the customers it is designed for.",
+  "knowledge_gaps": [
+    "The answer did not distinguish channel reach from actual product demand."
+  ],
+  "context_to_consider": [
+    "This is advice from a moderate-strength source, not a universal law."
+  ],
+  "next_question": "What signal would separate channel failure from product failure?",
+  "next_due_at": "2026-06-15T09:00:00Z",
+  "review_count": 2,
+  "recall_score": 0.72
 }
 ```
 

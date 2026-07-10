@@ -6,7 +6,9 @@ from fastapi import FastAPI
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
+from app.db.schema import ensure_database_schema
 from app.db.session import check_database
+from app.db.session import engine
 
 logger = get_logger("app")
 
@@ -31,6 +33,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     database_ok = check_database()
     if database_ok:
+        ensure_database_schema(engine=engine, database_url=settings.database_url)
         logger.info("\U0001f5c4\ufe0f db.connected status=ok url=%s", settings.database_url)
     else:
         logger.error("\u274c db.connected status=failed url=%s", settings.database_url)

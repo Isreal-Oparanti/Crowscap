@@ -1,0 +1,176 @@
+import pytest
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.ai.structured_outputs import CaptureExtraction, ExtractedMemoryAtom
+from app.db.base import Base
+from app.db.models import Memory, Source
+from app.schemas.capture import UrlCaptureRequest
+from app.services.ingestion_service import (
+    FetchedContent,
+    IngestionError,
+    clean_transcript,
+    create_pdf_capture_from_bytes,
+    create_url_capture,
+    extract_youtube_video_id,
+    validate_pdf_bytes,
+    validate_public_url,
+)
+
+
+class FakeExtractor:
+    def extract_text(
+        self,
+        *,
+        text: str,
+        intent_text: str | None = None,
+        user_note: str | None = None,
+    ) -> CaptureExtraction:
+        return CaptureExtraction(
+            source_title="Extracted source",
+            inferred_intents=["learned"],
+            memories=[
+                ExtractedMemoryAtom(
+                    memory_type="principle",
+                    epistemic_label="advice",
+                    content="Useful sources should become durable memory atoms.",
+                    summary="Sources become memory atoms.",
+                    confidence="high",
+                    confidence_reason="The fake extractor always returns a supported atom.",
+                    source_strength="moderate",
+                )
+            ],
+        )
+
+
+class FakeEmbedder:
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        return [[1.0, 0.0] for _ in texts]
+
+
+class FakeRelationDetector:
+    def detect_for_memories(
+        self,
+        *,
+        db: Session,
+        new_memories: list[Memory],
+        user_id: str | None = None,
+    ) -> list:
+        return []
+
+
+def build_db() -> tuple[sessionmaker[Session], Session]:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    testing_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    return testing_session, testing_session()
+
+
+def test_validate_public_url_rejects_localhost() -> None:
+    with pytest.raises(IngestionError):
+        validate_public_url("http://localhost:8000/internal")
+
+
+def test_youtube_url_detection_supports_common_formats() -> None:
+    assert extract_youtube_video_id("https://www.youtube.com/watch?v=abc123") == "abc123"
+    assert extract_youtube_video_id("https://youtu.be/abc123") == "abc123"
+    assert extract_youtube_video_id("https://www.youtube.com/shorts/abc123") == "abc123"
+
+
+def test_clean_transcript_removes_timestamps_and_duplicates() -> None:
+    raw = """WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+Hello there
+Hello there
+00:00:02.000 --> 00:00:04.000
+[Music]
+Build useful things
+"""
+    assert clean_transcript(raw) == "Hello there Build useful things"
+
+
+def test_validate_pdf_bytes_rejects_non_pdf() -> None:
+    with pytest.raises(IngestionError):
+        validate_pdf_bytes(b"not a pdf" * 200)
+
+
+def test_url_capture_uses_article_source_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    _testing_session, db = build_db()
+
+    def fake_validate(url: str) -> str:
+        return url
+
+    def fake_fetch(url: str) -> FetchedContent:
+        return FetchedContent(
+            url="https://example.com/final",
+            content_type="text/html",
+            body=b"<html><body><article>Useful article text about memory systems.</article></body></html>",
+        )
+
+    def fake_extract(body: bytes, *, url: str) -> str:
+        return "Useful article text about memory systems and durable recall."
+
+    monkeypatch.setattr("app.services.ingestion_service.validate_public_url", fake_validate)
+    monkeypatch.setattr("app.services.ingestion_service.fetch_public_url", fake_fetch)
+    monkeypatch.setattr("app.services.ingestion_service.extract_article_text", fake_extract)
+
+    response = create_url_capture(
+        db=db,
+        payload=UrlCaptureRequest(url="https://example.com/article"),
+        extractor=FakeExtractor(),
+        embedder=FakeEmbedder(),
+        relation_detector=FakeRelationDetector(),
+    )
+
+    assert response.source_type == "article"
+    assert response.memories[0].source_type == "article"
+    assert response.original_content.startswith("Useful article")
+    assert db.scalar(select(func.count(Source.id))) == 1
+    db.close()
+
+
+def test_pdf_capture_extracts_text_and_deduplicates() -> None:
+    import fitz
+
+    _testing_session, db = build_db()
+    document = fitz.open()
+    page = document.new_page()
+    for index in range(4):
+        page.insert_text(
+            (72, 72 + index * 40),
+            (
+                "This is a text PDF about memory systems and recall. "
+                "It contains enough real selectable text for Crowscap to process safely. "
+                "The document explains how captured learning can become durable knowledge."
+            ),
+        )
+    pdf_bytes = document.tobytes()
+    document.close()
+
+    first = create_pdf_capture_from_bytes(
+        db=db,
+        file_bytes=pdf_bytes,
+        filename="memory.pdf",
+        extractor=FakeExtractor(),
+        embedder=FakeEmbedder(),
+        relation_detector=FakeRelationDetector(),
+    )
+    second = create_pdf_capture_from_bytes(
+        db=db,
+        file_bytes=pdf_bytes,
+        filename="memory.pdf",
+        extractor=FakeExtractor(),
+        embedder=FakeEmbedder(),
+        relation_detector=FakeRelationDetector(),
+    )
+
+    assert first.source_type == "pdf"
+    assert second.source_id == first.source_id
+    assert db.scalar(select(func.count(Source.id))) == 1
+    db.close()

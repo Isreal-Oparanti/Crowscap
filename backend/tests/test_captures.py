@@ -144,6 +144,8 @@ def test_capture_text_persists_memory_atoms() -> None:
         assert response.status_code == 200
         payload = response.json()
         assert payload["status"] == "ready"
+        assert payload["source_title"] == "Distribution note"
+        assert payload["original_content"].startswith("A founder should not wait")
         assert payload["inferred_intents"] == ["remember", "apply"]
         assert len(payload["memories"]) == 1
         assert payload["memories"][0]["memory_type"] == "principle"
@@ -204,10 +206,40 @@ def test_capture_text_reuses_duplicate_text_without_calling_extractor_twice() ->
         assert second_response.status_code == 200
         assert extractor.calls == 1
         assert second_response.json()["source_id"] == first_response.json()["source_id"]
+        assert second_response.json()["original_content"] == request_body["content"]
         assert second_response.json()["memories"][0]["id"] == first_response.json()["memories"][0]["id"]
         assert second_response.json()["memories"][0]["embedding_dimensions"] == 3
         assert embedder.calls == 1
         assert relation_detector.calls == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_source_endpoint_returns_exact_original_capture() -> None:
+    app.dependency_overrides[get_db] = build_test_db_override()
+    app.dependency_overrides[get_memory_extractor] = lambda: FakeExtractor()
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+    app.dependency_overrides[get_memory_relation_detector] = lambda: FakeRelationDetector()
+    original = (
+        "Line one is preserved exactly.\n\n"
+        "Line two keeps its spacing and punctuation: copy trading != AI matching."
+    )
+
+    try:
+        client = TestClient(app)
+        capture_response = client.post(
+            "/api/v1/captures/text",
+            json={"content": original, "source_title": "Exact source"},
+        )
+        assert capture_response.status_code == 200
+
+        response = client.get(
+            f"/api/v1/sources/{capture_response.json()['source_id']}"
+        )
+
+        assert response.status_code == 200
+        assert response.json()["title"] == "Exact source"
+        assert response.json()["original_content"] == original
     finally:
         app.dependency_overrides.clear()
 
@@ -322,5 +354,53 @@ def test_capture_text_returns_relationships_from_detector() -> None:
         assert relationship["related_memory_id"] == first_response.json()["memories"][0]["id"]
         assert "product quality" in relationship["explanation"]
         assert relation_detector.calls == 2
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_duplicate_capture_backfills_relationships_when_source_was_not_scanned() -> None:
+    override_db = build_test_db_override()
+    app.dependency_overrides[get_db] = override_db
+    extractor = FakeExtractor()
+    embedder = FakeEmbedder()
+    relation_detector = FakeRelationDetector()
+    app.dependency_overrides[get_memory_extractor] = lambda: extractor
+    app.dependency_overrides[get_memory_embedder] = lambda: embedder
+    app.dependency_overrides[get_memory_relation_detector] = lambda: relation_detector
+
+    distribution_body = {
+        "content": "A founder should not wait until launch to think about distribution. They should test channels early and learn which path reaches customers.",
+        "intent_text": "remember this",
+    }
+    product_body = {
+        "content": "A strong product can create word of mouth, and distribution cannot save something customers do not actually want.",
+        "intent_text": "compare this with distribution advice",
+    }
+
+    try:
+        client = TestClient(app)
+        distribution_response = client.post("/api/v1/captures/text", json=distribution_body)
+        product_response = client.post("/api/v1/captures/text", json=product_body)
+
+        assert distribution_response.status_code == 200
+        assert product_response.status_code == 200
+        assert product_response.json()["memories"][0]["relationships"] == []
+
+        # Simulate an older development capture created before relationship scans existed.
+        db = next(override_db())
+        source = db.get(Source, product_response.json()["source_id"])
+        assert source is not None
+        source.metadata_json = {"input_kind": "text_capture"}
+        db.commit()
+        db.close()
+
+        relation_detector.create_tension = True
+        duplicate_response = client.post("/api/v1/captures/text", json=product_body)
+
+        assert duplicate_response.status_code == 200
+        relationship = duplicate_response.json()["memories"][0]["relationships"][0]
+        assert relationship["relationship_type"] == "tension"
+        assert relationship["related_memory_id"] == distribution_response.json()["memories"][0]["id"]
+        assert relation_detector.calls == 3
     finally:
         app.dependency_overrides.clear()

@@ -40,6 +40,12 @@ class TextCaptureRequest(BaseModel):
         return value
 
 
+class UrlCaptureRequest(BaseModel):
+    url: str = Field(min_length=8, max_length=2048)
+    user_note: str | None = Field(default=None, max_length=TEXT_CAPTURE_NOTE_MAX_LENGTH)
+    intent_text: str | None = Field(default=None, max_length=TEXT_CAPTURE_INTENT_MAX_LENGTH)
+
+
 class MemoryRelationshipResponse(BaseModel):
     related_memory_id: str
     relationship_type: MemoryRelationType
@@ -49,6 +55,7 @@ class MemoryRelationshipResponse(BaseModel):
 
 class MemoryCardResponse(BaseModel):
     id: str
+    source_type: str
     memory_type: MemoryType
     epistemic_label: EpistemicLabel | None
     content: str
@@ -63,6 +70,9 @@ class MemoryCardResponse(BaseModel):
 class TextCaptureResponse(BaseModel):
     capture_id: str
     source_id: str
+    source_type: str
+    source_title: str | None
+    original_content: str | None
     status: str
     inferred_intents: list[CaptureIntent]
     memories: list[MemoryCardResponse]

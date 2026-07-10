@@ -26,7 +26,7 @@ Semantic search in Phase 0 embeds the query with Qwen and computes cosine simila
 
 Similarity thresholds are embedding-model dependent. The local search API returns `candidate_count`, `returned_count`, and `top_score` so thresholds can be tuned from observed scores instead of assumed values.
 
-Relationship detection in Phase 0 runs after new memories are embedded. It uses semantic similarity to find older candidate memories, excludes memories from the same capture, skips meta memory types such as `intention` and `question`, then asks Qwen once per capture to classify nearby pairs as `confirms`, `conflicts`, `tension`, `extends`, `qualifies`, or `unrelated`. Only meaningful relationships are stored.
+Relationship detection in Phase 0 runs after new memories are embedded. It uses semantic similarity to find older candidate memories, excludes memories from the same capture, skips meta memory types such as `intention` and `question`, skips near-duplicate candidates, caps total pairs per capture, then asks Qwen once per capture to classify nearby pairs as `confirms`, `conflicts`, `tension`, `extends`, `qualifies`, or `unrelated`. Only meaningful relationships are stored. The relationship call uses a short timeout because this scan is useful but non-critical.
 
 ## Queue Decision
 
@@ -162,12 +162,20 @@ Recommended model environment variables:
 
 ```text
 QWEN_REASONING_MODEL=qwen3.7-plus
-QWEN_FAST_MODEL=qwen3.6-flash
+QWEN_FAST_MODEL=qwen-turbo
+QWEN_EXTRACTION_MODEL=qwen-plus
+QWEN_RELATIONSHIP_MODEL=qwen-turbo
 QWEN_EMBEDDING_MODEL=text-embedding-v4
 QWEN_RERANK_MODEL=qwen3-rerank
 ```
 
 Do not hardcode these in business logic. Model names and pricing can change.
+
+Routing rule:
+- `QWEN_REASONING_MODEL`: deep synthesis, belief audits, complex agent reasoning.
+- `QWEN_EXTRACTION_MODEL`: structured memory extraction from captured text. Default to `qwen-plus` for quality.
+- `QWEN_RELATIONSHIP_MODEL`: fast relationship/tension classification. Default to `qwen-turbo` for speed.
+- `QWEN_EMBEDDING_MODEL`: vector generation for search and related-memory lookup.
 
 ## Structured Output Policy
 

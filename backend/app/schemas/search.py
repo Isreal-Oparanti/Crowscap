@@ -18,6 +18,7 @@ class SearchRequest(BaseModel):
 class SearchResult(BaseModel):
     memory_id: str
     source_id: str
+    source_type: str
     source_title: str | None
     memory_type: MemoryType
     epistemic_label: EpistemicLabel | None
