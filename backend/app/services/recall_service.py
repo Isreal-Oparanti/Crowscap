@@ -6,8 +6,13 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
-from app.db.models import Memory, MemoryRelation, Source, utc_now
-from app.schemas.recall import DueRecallMemoryResponse, DueRecallsResponse, RecallRelationshipResponse
+from app.db.models import Memory, MemoryRelation, Reminder, Source, utc_now
+from app.schemas.recall import (
+    DueRecallMemoryResponse,
+    DueRecallsResponse,
+    DueReminderResponse,
+    RecallRelationshipResponse,
+)
 
 logger = get_logger("services.recall")
 
@@ -52,8 +57,31 @@ def get_due_recalls(
         for memory, source in rows
     ]
 
-    logger.info("\u2705 recall.due.complete returned=%s", len(response_memories))
-    return DueRecallsResponse(due_count=len(response_memories), now=now, memories=response_memories)
+    due_reminders = _load_due_reminders(db=db, now=now, limit=limit, user_id=user_id)
+    response_reminders = [
+        DueReminderResponse(
+            reminder_id=reminder.id,
+            content=reminder.content,
+            due_at=_aware(reminder.due_at),
+            overdue_seconds=_overdue_seconds(now=now, next_review_at=reminder.due_at),
+            save_as_memory=bool(reminder.save_as_memory),
+            memory_id=reminder.memory_id,
+            status=reminder.status,
+        )
+        for reminder in due_reminders
+    ]
+
+    logger.info(
+        "\u2705 recall.due.complete memories=%s reminders=%s",
+        len(response_memories),
+        len(response_reminders),
+    )
+    return DueRecallsResponse(
+        due_count=len(response_memories) + len(response_reminders),
+        now=now,
+        memories=response_memories,
+        reminders=response_reminders,
+    )
 
 
 def _load_due_memories(
@@ -78,6 +106,28 @@ def _load_due_memories(
         query = query.where(Memory.user_id == user_id)
 
     return list(db.execute(query).all())
+
+
+def _load_due_reminders(
+    *,
+    db: Session,
+    now: datetime,
+    limit: int,
+    user_id: str | None,
+) -> list[Reminder]:
+    query = (
+        select(Reminder)
+        .where(Reminder.status == "scheduled")
+        .where(Reminder.memory_id.is_(None))
+        .where(Reminder.due_at <= now)
+        .order_by(Reminder.due_at.asc())
+        .limit(limit)
+    )
+    if user_id is None:
+        query = query.where(Reminder.user_id.is_(None))
+    else:
+        query = query.where(Reminder.user_id == user_id)
+    return list(db.scalars(query).all())
 
 
 def _relationships_for_recall_memories(

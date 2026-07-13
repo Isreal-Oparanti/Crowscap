@@ -50,7 +50,15 @@ export type ConversationTurn = {
 };
 
 export type ChatResponse = {
-  action: "acknowledge" | "conversation" | "capture" | "answer" | "audit";
+  action:
+    | "acknowledge"
+    | "conversation"
+    | "capture"
+    | "answer"
+    | "audit"
+    | "forget"
+    | "reminder"
+    | "self";
   message: string;
   conversation_id: string | null;
   user_message_id: string | null;
@@ -62,6 +70,7 @@ export type ChatResponse = {
   tensions: string[];
   next_step: string | null;
   audit: BeliefAuditResponse | null;
+  reminder: ReminderResponse | null;
 };
 
 export type PersistedChatMessage = {
@@ -165,10 +174,32 @@ export type DueRecall = {
   relationships: RecallRelationship[];
 };
 
+export type DueReminder = {
+  reminder_id: string;
+  content: string;
+  due_at: string;
+  overdue_seconds: number;
+  save_as_memory: boolean;
+  memory_id: string | null;
+  status: string;
+};
+
 export type DueRecallsResponse = {
   due_count: number;
   now: string;
   memories: DueRecall[];
+  reminders: DueReminder[];
+};
+
+export type ReminderResponse = {
+  id: string;
+  content: string;
+  due_at: string;
+  status: string;
+  save_as_memory: boolean;
+  memory_id: string | null;
+  conversation_id: string | null;
+  created_at: string;
 };
 
 export type RecallAnswerResponse = {

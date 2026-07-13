@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
 from app.ai.structured_outputs import RecallEvaluation
-from app.db.models import Capture, Memory, MemoryRelation, RecallReview, Source, utc_now
+from app.db.models import Capture, Memory, MemoryRelation, RecallReview, Reminder, Source, utc_now
 from app.db.session import get_db
 from app.main import app
 from app.services.recall_evaluation_service import get_recall_evaluator
@@ -208,5 +208,157 @@ def test_recall_answer_is_persisted_and_rescheduled() -> None:
         assert stored_memory.next_review_at > stored_memory.last_reviewed_at
         assert db.scalar(select(func.count(RecallReview.id))) == 1
         db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_due_recalls_includes_due_non_memory_reminders() -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    testing_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    db = testing_session()
+    reminder = Reminder(
+        content="Check the deployment proof recording.",
+        due_at=utc_now() - timedelta(minutes=5),
+        status="scheduled",
+        save_as_memory=0,
+    )
+    db.add(reminder)
+    db.commit()
+    db.close()
+
+    def override_db() -> Generator[Session, None, None]:
+        session = testing_session()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        client = TestClient(app)
+        response = client.get("/api/v1/recalls/due")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["due_count"] == 1
+        assert payload["memories"] == []
+        assert payload["reminders"][0]["content"] == "Check the deployment proof recording."
+        assert payload["reminders"][0]["save_as_memory"] is False
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_complete_due_reminder_removes_it_from_recall_queue() -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    testing_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    db = testing_session()
+    reminder = Reminder(
+        content="Take water.",
+        due_at=utc_now() - timedelta(minutes=2),
+        status="scheduled",
+        save_as_memory=0,
+    )
+    db.add(reminder)
+    db.commit()
+    reminder_id = reminder.id
+    db.close()
+
+    def override_db() -> Generator[Session, None, None]:
+        session = testing_session()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        client = TestClient(app)
+        complete_response = client.post(f"/api/v1/recalls/reminders/{reminder_id}/complete")
+
+        assert complete_response.status_code == 200
+        assert complete_response.json()["status"] == "completed"
+
+        due_response = client.get("/api/v1/recalls/due")
+        assert due_response.status_code == 200
+        due_payload = due_response.json()
+        assert due_payload["due_count"] == 0
+        assert due_payload["reminders"] == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_due_recalls_does_not_duplicate_memory_linked_reminders() -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    testing_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    db = testing_session()
+    source = Source(source_type="text", title="Scheduled note")
+    db.add(source)
+    db.flush()
+    capture = Capture(source_id=source.id, status="ready", inferred_intents=["remember"])
+    db.add(capture)
+    db.flush()
+    memory = Memory(
+        source_id=source.id,
+        capture_id=capture.id,
+        memory_type="principle",
+        epistemic_label="advice",
+        content="Schedule product distribution thinking before launch.",
+        confidence="medium",
+        source_strength="moderate",
+        next_review_at=utc_now() - timedelta(minutes=5),
+        recall_score=0.5,
+    )
+    db.add(memory)
+    db.flush()
+    db.add(
+        Reminder(
+            content="Schedule product distribution thinking before launch.",
+            due_at=memory.next_review_at,
+            status="scheduled",
+            save_as_memory=1,
+            memory_id=memory.id,
+        )
+    )
+    db.commit()
+    db.close()
+
+    def override_db() -> Generator[Session, None, None]:
+        session = testing_session()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        client = TestClient(app)
+        response = client.get("/api/v1/recalls/due")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["due_count"] == 1
+        assert len(payload["memories"]) == 1
+        assert payload["reminders"] == []
     finally:
         app.dependency_overrides.clear()

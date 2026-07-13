@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Protocol
 
 from pydantic import ValidationError
@@ -21,13 +23,16 @@ from app.schemas.chat import (
     ConversationResponse,
     ConversationTurn,
 )
+from app.schemas.memory import ArchiveMemoryRequest
 from app.schemas.search import SearchRequest, SearchResponse
 from app.services.belief_audit_service import BeliefAuditor
 from app.services.capture_service import create_text_capture
 from app.services.embedding_service import MemoryEmbedder
 from app.services.extraction_service import MemoryExtractor
 from app.services.ingestion_service import create_pdf_capture_from_bytes, create_url_capture
+from app.services.memory_lifecycle_service import archive_memory
 from app.services.relationship_service import MemoryRelationDetector
+from app.services.reminder_service import create_reminder
 from app.services.search_service import search_memories
 
 logger = get_logger("services.chat")
@@ -48,6 +53,71 @@ SESSION_CONVERSATION_MARKERS = (
     "what did i just say",
     "what was my last message",
     "last message",
+)
+
+
+@dataclass(frozen=True)
+class ReminderIntent:
+    due_at: datetime
+    content: str
+    save_as_memory: bool
+    time_phrase: str
+
+
+@dataclass(frozen=True)
+class SelfKnowledgeChunk:
+    title: str
+    body: str
+    keywords: tuple[str, ...]
+
+
+CROWSCAP_SELF_KNOWLEDGE: tuple[SelfKnowledgeChunk, ...] = (
+    SelfKnowledgeChunk(
+        title="Identity",
+        body=(
+            "Crowscap is a conversational memory intelligence system. It is built to help "
+            "people turn learning fragments into source-aware knowledge they can remember, "
+            "question, compare, and use."
+        ),
+        keywords=("what", "who", "identity", "crowscap", "you", "are", "assistant"),
+    ),
+    SelfKnowledgeChunk(
+        title="Memory engine",
+        body=(
+            "Crowscap can capture text, URLs, YouTube transcripts, and PDFs; extract atomic "
+            "memory cards; preserve the original source; create embeddings; search by meaning; "
+            "and relate new ideas to older ideas."
+        ),
+        keywords=("memory", "capture", "source", "extract", "search", "youtube", "pdf", "url"),
+    ),
+    SelfKnowledgeChunk(
+        title="Recall and reminders",
+        body=(
+            "Crowscap can schedule saved memories for recall. It can also create plain reminders "
+            "without saving the reminder text as long-term semantic memory when the user asks for "
+            "a practical nudge rather than knowledge storage."
+        ),
+        keywords=("recall", "remind", "reminder", "schedule", "notification", "forgetting"),
+    ),
+    SelfKnowledgeChunk(
+        title="Belief audit",
+        body=(
+            "Crowscap can audit a topic by combining the user's saved memories, stored idea "
+            "relationships, and public source leads. It is not a truth oracle; it should expose "
+            "evidence strength, uncertainty, missing context, and ideas worth comparing."
+        ),
+        keywords=("audit", "belief", "truth", "evidence", "public", "reliable", "verify"),
+    ),
+    SelfKnowledgeChunk(
+        title="Forgetting and limits",
+        body=(
+            "Crowscap can archive memories so they stop appearing in active search, recall, audits, "
+            "and nearby context. It currently surfaces reminders inside the app; native push "
+            "notifications, passive ambient capture, and full social-platform integrations are not "
+            "complete yet."
+        ),
+        keywords=("forget", "archive", "limit", "limits", "cannot", "can't", "can", "push"),
+    ),
 )
 
 
@@ -307,6 +377,58 @@ def process_chat_message(
             )
         logger.info("\u2705 chat.message.complete action=conversation saved=False")
         response = ChatResponse(action="conversation", message=reply, saved=False)
+        return _persist_assistant_response(
+            db=db,
+            conversation=conversation,
+            user_message=user_message,
+            response=response,
+            user_id=user_id,
+        )
+
+    if route.action == "self":
+        response = _process_self_question(payload.message)
+        logger.info("\u2705 chat.message.complete action=self saved=False")
+        return _persist_assistant_response(
+            db=db,
+            conversation=conversation,
+            user_message=user_message,
+            response=response,
+            user_id=user_id,
+        )
+
+    if route.action == "forget":
+        response = _process_forget_request(
+            db=db,
+            message=payload.message,
+            embedder=embedder,
+            user_id=user_id,
+        )
+        logger.info(
+            "\u2705 chat.message.complete action=forget candidates=%s",
+            len(response.evidence),
+        )
+        return _persist_assistant_response(
+            db=db,
+            conversation=conversation,
+            user_message=user_message,
+            response=response,
+            user_id=user_id,
+        )
+
+    if route.action == "reminder":
+        response = _process_reminder_request(
+            db=db,
+            message=payload.message,
+            conversation_id=conversation.id,
+            extractor=extractor,
+            embedder=embedder,
+            relation_detector=relation_detector,
+            user_id=user_id,
+        )
+        logger.info(
+            "\u2705 chat.message.complete action=reminder saved=%s",
+            response.saved,
+        )
         return _persist_assistant_response(
             db=db,
             conversation=conversation,
@@ -659,9 +781,434 @@ def _conversation_reply(*, message: str, history: list[ConversationTurn]) -> str
     return "I am with you. This part is just normal conversation, so I am not saving it as a memory."
 
 
+def _process_self_question(message: str) -> ChatResponse:
+    chunks = _retrieve_self_knowledge(message)
+    chunk_text = " ".join(chunk.body for chunk in chunks)
+    normalized = re.sub(r"\s+", " ", message.strip().lower())
+
+    if any(marker in normalized for marker in ("what can", "can you do", "features", "capabilities")):
+        answer = (
+            "Crowscap is a conversational memory intelligence system, not just a generic chat assistant. "
+            "Its job is to help you capture learning fragments, turn them into atomic memories, search "
+            "them by meaning, schedule recall, compare ideas, audit beliefs with evidence, and create "
+            "reminders with or without saving the content as long-term memory.\n\n"
+            "What I can do right now: chat normally without saving everything, capture text/URLs/YouTube/"
+            "PDFs, preserve originals, extract memory cards, search your memory, run belief audits, schedule "
+            "recall, create plain reminders, and archive memories. What is still limited: native push "
+            "notifications, passive ambient capture, and full social-platform integrations."
+        )
+    elif any(marker in normalized for marker in ("limit", "can't", "cannot", "not do", "what can't")):
+        answer = (
+            "Crowscap should be honest about its limits. I am not a truth oracle, and I should not pretend "
+            "your saved notes are automatically correct. I can surface your saved evidence, compare ideas, "
+            "pull public source leads during audits, and show uncertainty, but final judgment still needs "
+            "context.\n\n"
+            "Product limits today: reminders surface inside the app rather than as native push notifications; "
+            "passive browser capture is not built; social-platform integrations are not production-ready; and "
+            "public evidence search gives source leads, not final truth."
+        )
+    else:
+        answer = (
+            "I am Crowscap: a conversational memory intelligence system, not just a generic chat assistant. "
+            "I am here to help your learning survive past the moment you saved it. I can talk normally, but "
+            "my deeper job is to turn sources, notes, videos, PDFs, and fragments into structured memories "
+            "you can recall, search, question, compare, and use.\n\n"
+            "I should stay quiet when a message is just conversation, save only when there is durable learning "
+            "or explicit intent, and be clear about what I can and cannot do. "
+            f"{chunk_text}"
+        )
+
+    return ChatResponse(
+        action="self",
+        message=answer,
+        saved=False,
+        next_step=(
+            "Ask me to save a source, search your memory, audit a belief, set a reminder, "
+            "or explain a limitation."
+        ),
+    )
+
+
+def _retrieve_self_knowledge(message: str, *, limit: int = 3) -> list[SelfKnowledgeChunk]:
+    query_tokens = set(re.findall(r"[a-z0-9']+", message.lower()))
+    scored: list[tuple[int, SelfKnowledgeChunk]] = []
+    for chunk in CROWSCAP_SELF_KNOWLEDGE:
+        score = len(query_tokens.intersection(chunk.keywords))
+        if score:
+            scored.append((score, chunk))
+    if not scored:
+        return [
+            CROWSCAP_SELF_KNOWLEDGE[0],
+            CROWSCAP_SELF_KNOWLEDGE[1],
+            CROWSCAP_SELF_KNOWLEDGE[4],
+        ]
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [chunk for _, chunk in scored[:limit]]
+
+
+def _process_forget_request(
+    *,
+    db: Session,
+    message: str,
+    embedder: MemoryEmbedder,
+    user_id: str | None,
+) -> ChatResponse:
+    normalized = re.sub(r"\s+", " ", message.strip().lower())
+    memory_id = _explicit_memory_id(normalized)
+    if memory_id is not None:
+        try:
+            archived = archive_memory(
+                db=db,
+                memory_id=memory_id,
+                payload=ArchiveMemoryRequest(
+                    reason="user_dismissed",
+                    note="Archived from chat command.",
+                ),
+                user_id=user_id,
+            )
+        except LookupError:
+            return ChatResponse(
+                action="forget",
+                message="I could not find that memory. It may already be archived or the id may be wrong.",
+                saved=False,
+            )
+        return ChatResponse(
+            action="forget",
+            message=(
+                "Done. I archived that memory, so it will stop appearing in active search, "
+                "recall, audits, and nearby context."
+            ),
+            saved=False,
+            next_step=f"Archived memory {archived.memory_id}.",
+        )
+
+    topic = _forget_topic_from_message(message)
+    if topic is None:
+        return ChatResponse(
+            action="forget",
+            message=(
+                "Yes. I can archive memories so they stop appearing in active search, recall, "
+                "audits, and nearby context. Tell me the topic, or give me a specific memory id."
+            ),
+            saved=False,
+            next_step='Try: "forget what I know about distribution" or "archive memory <id>".',
+        )
+
+    search = search_memories(
+        db=db,
+        payload=SearchRequest(
+            query=topic,
+            limit=8,
+            min_score=0.25,
+            include_archived=False,
+        ),
+        embedder=embedder,
+        user_id=user_id,
+    )
+    if not search.results:
+        return ChatResponse(
+            action="forget",
+            message=f"I could not find active memories clearly connected to {topic!r}.",
+            saved=False,
+        )
+
+    return ChatResponse(
+        action="forget",
+        message=(
+            f"I found {len(search.results)} active memories connected to {topic!r}. "
+            "I have not archived them yet because topic-level forgetting should be confirmed. "
+            "You can archive a specific memory by id, or tell me to archive the weaker ones."
+        ),
+        saved=False,
+        evidence=search.results,
+        next_step="Choose specific memories to archive, or ask me to archive the weaker matches.",
+    )
+
+
+def _process_reminder_request(
+    *,
+    db: Session,
+    message: str,
+    conversation_id: str,
+    extractor: MemoryExtractor,
+    embedder: MemoryEmbedder,
+    relation_detector: MemoryRelationDetector,
+    user_id: str | None,
+) -> ChatResponse:
+    reminder_intent = _parse_reminder_intent(message)
+    if reminder_intent is None:
+        return ChatResponse(
+            action="reminder",
+            message=(
+                "I can do that, but I need both the reminder content and the time. "
+                'For example: "remind me in 1 hour" followed by the note.'
+            ),
+            saved=False,
+        )
+
+    if reminder_intent.save_as_memory and len(reminder_intent.content) >= 20:
+        capture = create_text_capture(
+            db=db,
+            payload=TextCaptureRequest(
+                content=reminder_intent.content,
+                intent_text=f"Remind me at {reminder_intent.due_at.isoformat()}",
+                user_note="Scheduled from chat reminder command.",
+            ),
+            extractor=extractor,
+            embedder=embedder,
+            relation_detector=relation_detector,
+            user_id=user_id,
+        )
+        memory_ids = [memory.id for memory in capture.memories]
+        memories = list(db.scalars(select(Memory).where(Memory.id.in_(memory_ids))).all())
+        for memory in memories:
+            memory.next_review_at = reminder_intent.due_at
+        db.commit()
+        reminder = create_reminder(
+            db=db,
+            content=reminder_intent.content,
+            due_at=reminder_intent.due_at,
+            conversation_id=conversation_id,
+            memory_id=memory_ids[0] if memory_ids else None,
+            save_as_memory=True,
+            user_id=user_id,
+            metadata_json={"memory_ids": memory_ids},
+        )
+        return ChatResponse(
+            action="reminder",
+            message=(
+                f"Done. I saved this as {len(capture.memories)} memories and scheduled it "
+                "to show under Recall when it is due."
+            ),
+            saved=True,
+            capture=capture,
+            reminder=reminder,
+        )
+
+    reminder = create_reminder(
+        db=db,
+        content=reminder_intent.content,
+        due_at=reminder_intent.due_at,
+        conversation_id=conversation_id,
+        save_as_memory=False,
+        user_id=user_id,
+        metadata_json={"reason": "user_requested_no_memory"},
+    )
+    return ChatResponse(
+        action="reminder",
+        message=(
+            "Done. I scheduled the reminder and did not save it as semantic memory. "
+            "It will show under Recall when it is due."
+        ),
+        saved=False,
+        reminder=reminder,
+    )
+
+
+def _explicit_memory_id(normalized_message: str) -> str | None:
+    match = re.search(
+        r"\b(?:memory|memory_id|id)\s*[:#-]?\s*"
+        r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b",
+        normalized_message,
+    )
+    return match.group(1) if match else None
+
+
+def _forget_topic_from_message(message: str) -> str | None:
+    compact = re.sub(r"\s+", " ", message.strip())
+    normalized = compact.lower()
+    if normalized in {
+        "can you forget a memory?",
+        "can you forget a memory",
+        "can you forget memories?",
+        "can you forget memories",
+    }:
+        return None
+
+    patterns = [
+        r"^forget\s+what\s+i\s+know\s+about\s+(.+)$",
+        r"^forget\s+what\s+know\s+about\s+(.+)$",
+        r"^forget\s+my\s+memories\s+about\s+(.+)$",
+        r"^forget\s+memories\s+about\s+(.+)$",
+        r"^archive\s+memories\s+about\s+(.+)$",
+        r"^stop\s+reminding\s+me\s+about\s+(.+)$",
+        r"^do\s+not\s+show\s+me\s+(.+?)\s+again$",
+        r"^don't\s+show\s+me\s+(.+?)\s+again$",
+        r"^dont\s+show\s+me\s+(.+?)\s+again$",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, normalized)
+        if match:
+            return match.group(1).strip(" ?.,;:") or None
+    return None
+
+
+def _parse_reminder_intent(message: str) -> ReminderIntent | None:
+    due_at, time_phrase = _parse_due_time(message)
+    if due_at is None or time_phrase is None:
+        return None
+
+    content = _reminder_content(message=message, time_phrase=time_phrase)
+    if not content:
+        return None
+
+    normalized = message.lower()
+    no_memory = any(
+        marker in normalized
+        for marker in (
+            "don't save",
+            "dont save",
+            "do not save",
+            "without saving",
+            "not save this",
+            "don't keep",
+            "dont keep",
+            "do not keep",
+        )
+    )
+    save_as_memory = False if no_memory else _should_save_reminder_as_memory(message=message, content=content)
+    return ReminderIntent(
+        due_at=due_at,
+        content=content,
+        save_as_memory=save_as_memory,
+        time_phrase=time_phrase,
+    )
+
+
+def _should_save_reminder_as_memory(*, message: str, content: str) -> bool:
+    normalized_message = message.lower()
+    normalized_content = content.lower()
+    words = re.findall(r"[a-z0-9']+", content)
+
+    explicit_memory_markers = (
+        "save this",
+        "save it",
+        "save as memory",
+        "keep this",
+        "remember this",
+        "don't want to forget",
+        "dont want to forget",
+        "revisit this note",
+        "revisit the note",
+        "read this",
+        "watch this",
+    )
+    if any(marker in normalized_message for marker in explicit_memory_markers) and len(words) >= 8:
+        return True
+
+    utility_markers = (
+        "take water",
+        "drink water",
+        "call ",
+        "message ",
+        "email ",
+        "meeting",
+        "buy ",
+        "pay ",
+        "submit ",
+        "check ",
+        "wake ",
+        "stand up",
+        "stretch",
+    )
+    if len(words) <= 12 and any(marker in normalized_content for marker in utility_markers):
+        return False
+
+    if "http://" in normalized_content or "https://" in normalized_content:
+        return True
+
+    durable_markers = (
+        "principle",
+        "claim",
+        "idea",
+        "lesson",
+        "framework",
+        "evidence",
+        "source",
+        "article",
+        "video",
+        "book",
+        "distribution",
+        "product",
+        "leadership",
+        "startup",
+        "founder",
+    )
+    if len(words) >= 12 and any(marker in normalized_content for marker in durable_markers):
+        return True
+
+    return len(words) >= 28
+
+
+def _parse_due_time(message: str) -> tuple[datetime | None, str | None]:
+    normalized = message.lower()
+    relative_match = re.search(
+        r"\b(in\s+the\s+next|in|within|after|next)\s+"
+        r"(\d+)\s*"
+        r"(hours?|hrs?|hr|h|minutes?|mins?|min|m|days?|d)\b",
+        normalized,
+    )
+    if relative_match:
+        amount = int(relative_match.group(2))
+        unit = relative_match.group(3)
+        if unit.startswith(("h", "hr")) or unit.startswith("hour"):
+            delta = timedelta(hours=amount)
+        elif unit.startswith(("m", "min")) or unit.startswith("minute"):
+            delta = timedelta(minutes=amount)
+        else:
+            delta = timedelta(days=amount)
+        return utc_now() + delta, message[relative_match.start() : relative_match.end()]
+
+    if "tomorrow" in normalized:
+        return utc_now() + timedelta(days=1), "tomorrow"
+    return None, None
+
+
+def _reminder_content(*, message: str, time_phrase: str) -> str:
+    lines = [line.strip() for line in message.splitlines()]
+    if len(lines) > 1:
+        note = "\n".join(line for line in lines[1:] if line).strip()
+        if note:
+            return note
+
+    without_time = message.replace(time_phrase, " ")
+    without_memory_clause = re.sub(
+        r"(?i),?\s*but\s+(?:do\s+not|don't|dont)\s+(?:save|keep).*$",
+        " ",
+        without_time,
+    )
+    cleaned = re.sub(
+        r"(?i)\b(?:please\s+)?(?:set\s+a\s+)?reminder\s+(?:for\s+me\s+)?(?:to\s+)?",
+        " ",
+        without_memory_clause,
+    )
+    cleaned = re.sub(r"(?i)\b(?:can|could|would)\s+you\s+", " ", cleaned)
+    cleaned = re.sub(r"(?i)\bremind\s+me\s+(?:to\s+)?", " ", cleaned)
+    cleaned = re.sub(r"(?i)\btime\b", " ", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip(" .,:;?")
+
+
 def _deterministic_route(message: str) -> ChatRoute | None:
     normalized = re.sub(r"\s+", " ", message.strip().lower())
     words = re.findall(r"[a-z0-9']+", normalized)
+
+    if _is_forget_command(normalized):
+        return ChatRoute(
+            action="forget",
+            reason="The user is asking to archive, forget, or stop surfacing memory.",
+        )
+
+    if _is_reminder_command(normalized):
+        return ChatRoute(
+            action="reminder",
+            reason="The user is asking for time-based resurfacing.",
+        )
+
+    if _is_self_question(normalized):
+        return ChatRoute(
+            action="self",
+            reason="The user is asking about Crowscap's identity, capabilities, or limits.",
+        )
 
     explicit_capture_starts = (
         "remember ",
@@ -783,6 +1330,69 @@ def _deterministic_route(message: str) -> ChatRoute | None:
         )
 
     return None
+
+
+def _is_forget_command(normalized: str) -> bool:
+    if "what am i forgetting" in normalized:
+        return False
+    forget_markers = (
+        "can you forget",
+        "forget what i know",
+        "forget what know",
+        "forget my memories",
+        "forget memories",
+        "archive memory",
+        "archive memories",
+        "delete memory",
+        "remove memory",
+        "don't show me",
+        "dont show me",
+        "do not show me",
+        "stop reminding me",
+    )
+    return any(marker in normalized for marker in forget_markers)
+
+
+def _is_reminder_command(normalized: str) -> bool:
+    return any(
+        marker in normalized
+        for marker in (
+            "remind me",
+            "set a reminder",
+            "reminder for me",
+        )
+    )
+
+
+def _is_self_question(normalized: str) -> bool:
+    direct_self_questions = {
+        "what are you",
+        "who are you",
+        "what is crowscap",
+        "what are you?",
+        "who are you?",
+        "what is crowscap?",
+    }
+    stripped = normalized.strip(" ?.")
+    if stripped in {item.strip(" ?.") for item in direct_self_questions}:
+        return True
+
+    self_markers = (
+        "what can you do",
+        "what do you do",
+        "what can crowscap do",
+        "how does crowscap work",
+        "how do you work",
+        "what are your limitations",
+        "what are your limits",
+        "what can't you do",
+        "what can you not do",
+        "are you just chatgpt",
+        "are you a chatbot",
+        "are you an assistant",
+        "explain crowscap",
+    )
+    return any(marker in normalized for marker in self_markers)
 
 
 def _is_explicit_memory_query(normalized: str) -> bool:
@@ -963,7 +1573,7 @@ def _build_router_prompt(*, message: str, history: list[ConversationTurn]) -> st
 
 Return JSON:
 {{
-  "action": "acknowledge" | "conversation" | "capture" | "answer" | "audit",
+  "action": "acknowledge" | "conversation" | "capture" | "answer" | "audit" | "forget" | "reminder" | "self",
   "reply": "short natural reply only when action is acknowledge, otherwise null",
   "reason": "brief classification reason"
 }}
@@ -974,11 +1584,17 @@ Definitions:
 - capture: the user supplies a substantive learning fragment, claim, source, note, reflection, or explicitly asks to remember/save something.
 - answer: the user explicitly asks about saved/learned knowledge, asks what they know from memory, asks to search memories/notes, requests comparison across saved memories, or wants help thinking with their knowledge base.
 - audit: the user explicitly asks Crowscap to challenge, audit, evidence-check, or compare a belief against public evidence.
+- forget: the user asks to forget, archive, stop showing, stop reminding, remove, or delete a memory or topic from active memory.
+- reminder: the user asks to remind them at a specific later time, with or without saving the content as memory.
+- self: the user asks what Crowscap is, what it can do, how it works, whether it is just a chatbot, or what its current limitations are.
 
 Never classify thanks, "okay", "this makes sense", or simple agreement as capture.
 Never run saved-memory search for questions about only the current chat, such as "have I thanked you before in this chat?"
 Do not classify ordinary advice questions as answer just because they are questions.
 Do not classify ordinary memory questions as audit unless the user explicitly asks for an audit, challenge, evidence check, reliability check, or public evidence comparison.
+Do classify "forget what I know about X" as forget, not audit.
+Do classify "remind me in 1 hour" as reminder, not capture.
+Do classify "what are you?" and "what can you do?" as self.
 Do not save every user message. Capture only when there is durable informational content or explicit saving intent.
 
 Recent conversation:

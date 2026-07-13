@@ -35,10 +35,21 @@ class DueRecallMemoryResponse(BaseModel):
     relationships: list[RecallRelationshipResponse] = Field(default_factory=list)
 
 
+class DueReminderResponse(BaseModel):
+    reminder_id: str
+    content: str
+    due_at: datetime
+    overdue_seconds: int
+    save_as_memory: bool
+    memory_id: str | None = None
+    status: str
+
+
 class DueRecallsResponse(BaseModel):
     due_count: int
     now: datetime
     memories: list[DueRecallMemoryResponse]
+    reminders: list[DueReminderResponse] = Field(default_factory=list)
 
 
 class RecallAnswerRequest(BaseModel):

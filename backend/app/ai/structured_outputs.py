@@ -45,7 +45,16 @@ Confidence = Literal["low", "medium", "high", "unknown"]
 SourceStrength = Literal["weak", "moderate", "strong", "unknown"]
 MemoryRelationType = Literal["confirms", "conflicts", "tension", "extends", "qualifies", "unrelated"]
 RelationStrength = Literal["weak", "moderate", "strong", "unknown"]
-ChatAction = Literal["acknowledge", "conversation", "capture", "answer", "audit"]
+ChatAction = Literal[
+    "acknowledge",
+    "conversation",
+    "capture",
+    "answer",
+    "audit",
+    "forget",
+    "reminder",
+    "self",
+]
 RecallRating = Literal["needs_work", "partial", "solid", "strong"]
 
 EPISTEMIC_LABEL_VALUES = {
@@ -208,6 +217,14 @@ class ChatRoute(BaseModel):
             "belief_audit": "audit",
             "evidence_check": "audit",
             "challenge": "audit",
+            "archive": "forget",
+            "forget_memory": "forget",
+            "remind": "reminder",
+            "schedule": "reminder",
+            "capability": "self",
+            "capabilities": "self",
+            "identity": "self",
+            "self_knowledge": "self",
         }
         return aliases.get(normalized, normalized) if isinstance(normalized, str) else normalized
 

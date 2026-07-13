@@ -6,6 +6,7 @@ from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.db.session import get_db
 from app.schemas.recall import DueRecallsResponse, RecallAnswerRequest, RecallAnswerResponse
+from app.schemas.reminder import ReminderResponse
 from app.services.recall_evaluation_service import (
     RecallEvaluationError,
     RecallEvaluator,
@@ -13,6 +14,7 @@ from app.services.recall_evaluation_service import (
     get_recall_evaluator,
 )
 from app.services.recall_service import get_due_recalls
+from app.services.reminder_service import complete_reminder
 
 router = APIRouter(tags=["recalls"])
 logger = get_logger("api.recalls")
@@ -25,6 +27,17 @@ def due_recalls(
 ) -> DueRecallsResponse:
     settings = get_settings()
     return get_due_recalls(db=db, limit=limit or settings.recall_due_limit)
+
+
+@router.post("/reminders/{reminder_id}/complete", response_model=ReminderResponse)
+def complete_due_reminder(
+    reminder_id: str,
+    db: Session = Depends(get_db),
+) -> ReminderResponse:
+    try:
+        return complete_reminder(db=db, reminder_id=reminder_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/{memory_id}/answer", response_model=RecallAnswerResponse)

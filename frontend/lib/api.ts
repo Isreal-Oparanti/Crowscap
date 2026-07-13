@@ -5,6 +5,7 @@ import type {
   ConversationResponse,
   ConversationTurn,
   DueRecallsResponse,
+  ReminderResponse,
   RecallAnswerResponse,
   SearchResponse,
   SourceContentResponse,
@@ -111,6 +112,12 @@ export function auditBelief(topic: string): Promise<BeliefAuditResponse> {
 
 export function getDueRecalls(limit = 12): Promise<DueRecallsResponse> {
   return request<DueRecallsResponse>(`recalls/due?limit=${limit}`);
+}
+
+export function completeReminder(reminderId: string): Promise<ReminderResponse> {
+  return request<ReminderResponse>(`recalls/reminders/${reminderId}/complete`, {
+    method: "POST",
+  });
 }
 
 export function getSourceContent(

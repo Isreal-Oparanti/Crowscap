@@ -166,6 +166,21 @@ class RecallReview(Base, TimestampMixin):
     next_review_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class Reminder(Base, TimestampMixin):
+    __tablename__ = "reminders"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    user_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    conversation_id: Mapped[str | None] = mapped_column(ForeignKey("conversations.id"), index=True)
+    memory_id: Mapped[str | None] = mapped_column(ForeignKey("memories.id"), index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(40), default="scheduled", nullable=False, index=True)
+    save_as_memory: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+
 class ActionItem(Base, TimestampMixin):
     __tablename__ = "action_items"
 

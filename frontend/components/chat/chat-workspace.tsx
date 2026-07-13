@@ -4,6 +4,7 @@ import {
   ArrowUp,
   Check,
   ChevronRight,
+  Clock3,
   CircleAlert,
   FileText,
   GitCompareArrows,
@@ -24,12 +25,13 @@ import {
   sendChatMessage,
   uploadPdfToChat,
 } from "@/lib/api";
-import { humanizeRelationshipText } from "@/lib/chat";
+import { formatFriendlyDateTime, humanizeRelationshipText } from "@/lib/chat";
 import type {
   BeliefAuditResponse,
   CaptureResponse,
   ChatResponse,
   ConversationTurn,
+  DueReminder,
   DueRecallsResponse,
   PersistedChatMessage,
   SearchResponse,
@@ -67,6 +69,13 @@ type ChatMessage =
   | {
       id: string;
       role: "assistant";
+      kind: "reminder";
+      text: string;
+      data: ChatResponse;
+    }
+  | {
+      id: string;
+      role: "assistant";
       kind: "error";
       text: string;
     };
@@ -90,17 +99,37 @@ export function ChatWorkspace() {
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    getDueRecalls(8).then(setDue).catch(() => setDue(null));
+    let cancelled = false;
+    const refreshDue = () => {
+      getDueRecalls(8)
+        .then((response) => {
+          if (!cancelled) setDue(response);
+        })
+        .catch(() => {
+          if (!cancelled) setDue(null);
+        });
+    };
+
+    refreshDue();
+    const intervalId = window.setInterval(refreshDue, 30_000);
+
     getCurrentConversation()
       .then((conversation) => {
+        if (cancelled) return;
         if (!conversation) return;
         setConversationId(conversation.id);
         const restored = conversation.messages.map(hydratePersistedMessage);
         setMessages(restored.length > 0 ? restored : openingMessages);
       })
       .catch(() => {
+        if (cancelled) return;
         setConversationId(null);
       });
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
   }, []);
 
   useEffect(() => {
@@ -122,6 +151,8 @@ export function ChatWorkspace() {
       ? latestAssistant.data.memories.slice(0, 3)
       : latestAssistant.kind === "audit"
         ? latestAssistant.data.memories.slice(0, 3)
+        : latestAssistant.kind === "reminder"
+          ? (latestAssistant.data.capture?.memories.slice(0, 3) ?? [])
         : latestAssistant.data.evidence.slice(0, 3);
   }, [messages]);
 
@@ -159,7 +190,9 @@ export function ChatWorkspace() {
               text: response.message,
               data: response.capture,
             }
-          : response.action === "answer"
+          : response.action === "answer" ||
+              response.action === "forget" ||
+              response.action === "self"
             ? {
                 id: response.assistant_message_id ?? crypto.randomUUID(),
                 role: "assistant",
@@ -174,6 +207,14 @@ export function ChatWorkspace() {
                   kind: "audit",
                   text: response.message,
                   data: response.audit,
+                }
+            : response.action === "reminder" && response.reminder
+              ? {
+                  id: response.assistant_message_id ?? crypto.randomUUID(),
+                  role: "assistant",
+                  kind: "reminder",
+                  text: response.message,
+                  data: response,
                 }
             : {
                 id: response.assistant_message_id ?? crypto.randomUUID(),
@@ -293,7 +334,11 @@ export function ChatWorkspace() {
       <div className="conversation-scroll min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
         <div className="mx-auto w-full min-w-0 max-w-[780px] px-4 pb-40 pt-7 md:px-8 md:pt-10">
           {due && due.due_count > 0 ? (
-            <RecallNotice recall={due.memories[0]} count={due.due_count} />
+            <RecallNotice
+              memory={due.memories[0] ?? null}
+              reminder={due.reminders[0] ?? null}
+              count={due.due_count}
+            />
           ) : null}
 
           <div className="mt-8 space-y-8">
@@ -338,7 +383,11 @@ function hydratePersistedMessage(message: PersistedChatMessage): ChatMessage {
     };
   }
 
-  if (metadata?.action === "answer") {
+  if (
+    metadata?.action === "answer" ||
+    metadata?.action === "forget" ||
+    metadata?.action === "self"
+  ) {
     return {
       id: message.id,
       role: "assistant",
@@ -355,6 +404,16 @@ function hydratePersistedMessage(message: PersistedChatMessage): ChatMessage {
       kind: "audit",
       text: message.content,
       data: metadata.audit,
+    };
+  }
+
+  if (metadata?.action === "reminder" && metadata.reminder) {
+    return {
+      id: message.id,
+      role: "assistant",
+      kind: "reminder",
+      text: message.content,
+      data: metadata,
     };
   }
 
@@ -400,6 +459,10 @@ function ChatTurn({ message }: { message: ChatMessage }) {
 
           {message.kind === "audit" ? <BeliefAudit data={message.data} /> : null}
 
+          {message.kind === "reminder" ? (
+            <ReminderReceipt data={message.data} />
+          ) : null}
+
           {message.kind === "error" ? (
             <button
               type="button"
@@ -410,6 +473,33 @@ function ChatTurn({ message }: { message: ChatMessage }) {
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReminderReceipt({ data }: { data: ChatResponse }) {
+  if (!data.reminder) return null;
+
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="rounded-lg border border-[#d7e5dc] bg-[#f1f7f4] px-4 py-3 text-[#2d7058]">
+        <div className="flex items-center gap-2">
+          <Clock3 size={14} />
+          <p className="text-[9px] font-extrabold uppercase">
+            Reminder scheduled
+          </p>
+        </div>
+        <p className="mt-2 text-[12px] font-semibold leading-relaxed text-[#3f5d51]">
+          {data.reminder.content}
+        </p>
+        <p className="mt-2 text-[10px] font-bold text-[#668074]">
+          Due {formatFriendlyDateTime(data.reminder.due_at)} -{" "}
+          {data.reminder.save_as_memory
+            ? "also saved to memory"
+            : "not saved to memory"}
+        </p>
+      </div>
+      {data.capture ? <MemoryReceipt data={data.capture} /> : null}
     </div>
   );
 }
@@ -431,7 +521,7 @@ function MemoryReceipt({ data }: { data: CaptureResponse }) {
         <div>
           <p className="text-[11px] font-extrabold">Memory receipt</p>
           <p className="text-[10px] font-medium text-[#7d8083]">
-            {data.memories.length} memories ·{" "}
+            {data.memories.length} memories -{" "}
             {data.inferred_intents.join(", ") || "saved"}
           </p>
         </div>
@@ -740,26 +830,36 @@ function InsightBlock({
 }
 
 function RecallNotice({
-  recall,
+  memory,
+  reminder,
   count,
 }: {
-  recall: DueRecallsResponse["memories"][number];
+  memory: DueRecallsResponse["memories"][number] | null;
+  reminder: DueReminder | null;
   count: number;
 }) {
+  const href = memory ? `/recall/${memory.memory_id}` : "/recall";
+  const title = memory
+    ? "A thought is ready to revisit"
+    : "A reminder is ready";
+  const body = memory
+    ? memory.summary ?? memory.content
+    : reminder?.content ?? "Open your recall queue";
+
   return (
     <Link
-      href={`/recall/${recall.memory_id}`}
+      href={href}
       className="fade-in flex items-center gap-3 rounded-lg border border-[#d7e5dc] bg-[#f1f7f4] px-4 py-3 transition hover:border-[#b9d2c3]"
     >
       <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-white text-[#2d7058] shadow-sm">
-        <Sparkles size={17} />
+        {memory ? <Sparkles size={17} /> : <Clock3 size={17} />}
       </div>
       <div className="min-w-0">
         <p className="text-[11px] font-extrabold text-[#245e4b]">
-          A thought is ready to revisit
+          {title}
         </p>
         <p className="truncate text-[11px] font-medium text-[#668074]">
-          {recall.summary ?? recall.content}
+          {body}
         </p>
       </div>
       <div className="ml-auto flex items-center gap-1 text-[10px] font-bold text-[#2d7058]">
@@ -884,6 +984,11 @@ function ChatContext({
   >;
   due: DueRecallsResponse | null;
 }) {
+  const dueMemory = due?.memories[0] ?? null;
+  const dueReminder = due?.reminders[0] ?? null;
+  const dueHref = dueMemory ? `/recall/${dueMemory.memory_id}` : "/recall";
+  const dueText = dueMemory?.content ?? dueReminder?.content;
+
   return (
     <div className="flex h-full flex-col overflow-y-auto px-5 py-6">
       <p className="text-[10px] font-extrabold uppercase text-[#8a8d90]">
@@ -911,14 +1016,14 @@ function ChatContext({
 
       {due && due.due_count > 0 ? (
         <Link
-          href={`/recall/${due.memories[0].memory_id}`}
+          href={dueHref}
           className="mt-auto border-t border-[#e1e3e4] pt-4"
         >
           <p className="text-[10px] font-extrabold uppercase text-[#2d7058]">
             Ready for recall
           </p>
           <p className="mt-2 line-clamp-3 text-[11px] font-semibold leading-relaxed text-[#4f5552]">
-            {due.memories[0].content}
+            {dueText}
           </p>
         </Link>
       ) : null}

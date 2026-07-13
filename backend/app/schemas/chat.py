@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from app.ai.structured_outputs import ChatAction
 from app.schemas.belief import BeliefAuditResponse
 from app.schemas.capture import TextCaptureResponse
+from app.schemas.reminder import ReminderResponse
 from app.schemas.search import SearchResult
 
 
@@ -32,6 +33,7 @@ class ChatResponse(BaseModel):
     tensions: list[str] = Field(default_factory=list)
     next_step: str | None = None
     audit: BeliefAuditResponse | None = None
+    reminder: ReminderResponse | None = None
 
 
 class ChatMessageResponse(BaseModel):

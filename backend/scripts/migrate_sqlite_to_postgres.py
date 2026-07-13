@@ -15,6 +15,7 @@ from app.db.models import (
     MemoryRelation,
     ProcessingJob,
     RecallReview,
+    Reminder,
     Source,
 )
 from app.db.session import SessionLocal as TargetSessionLocal
@@ -30,6 +31,7 @@ MODEL_ORDER = [
     ProcessingJob,
     Memory,
     RecallReview,
+    Reminder,
     ActionItem,
     MemoryArchiveEvent,
     MemoryRelation,

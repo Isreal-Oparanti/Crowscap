@@ -5,6 +5,7 @@ import {
   ChevronRight,
   CircleAlert,
   CircleCheck,
+  Clock3,
   FileText,
   GitCompareArrows,
   Sparkles,
@@ -14,16 +15,19 @@ import { useEffect, useMemo, useState } from "react";
 
 import { AppShell } from "@/components/shell/app-shell";
 import {
+  completeReminder,
   getDueRecalls,
   getSourceContent,
   submitRecallAnswer,
 } from "@/lib/api";
 import {
+  formatFriendlyDateTime,
   formatRelativeOverdue,
   humanizeRelationshipText,
 } from "@/lib/chat";
 import type {
   DueRecall,
+  DueReminder,
   DueRecallsResponse,
   RecallAnswerResponse,
   SourceContentResponse,
@@ -44,29 +48,57 @@ export function RecallWorkspace({
   const [source, setSource] = useState<SourceContentResponse | null>(null);
   const [showOriginal, setShowOriginal] = useState(false);
   const [sourceLoading, setSourceLoading] = useState(false);
+  const [selectedReminderId, setSelectedReminderId] = useState<string | null>(null);
+  const [completingReminder, setCompletingReminder] = useState(false);
 
   useEffect(() => {
-    getDueRecalls(50)
-      .then(setData)
-      .catch((requestError) =>
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : "Recall is unavailable.",
-        ),
-      )
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    const refreshDue = (isInitial = false) => {
+      getDueRecalls(50)
+        .then((response) => {
+          if (!cancelled) setData(response);
+        })
+        .catch((requestError) => {
+          if (cancelled) return;
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Recall is unavailable.",
+          );
+        })
+        .finally(() => {
+          if (!cancelled && isInitial) setLoading(false);
+        });
+    };
+
+    refreshDue(true);
+    const intervalId = window.setInterval(() => refreshDue(false), 30_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
   }, []);
+
+  const selectedReminder = useMemo(() => {
+    if (requestedMemoryId || !data?.reminders.length) return null;
+    return (
+      data.reminders.find(
+        (reminder) => reminder.reminder_id === selectedReminderId,
+      ) ?? data.reminders[0]
+    );
+  }, [data, requestedMemoryId, selectedReminderId]);
 
   const selected = useMemo(() => {
     if (!data?.memories.length) return null;
+    if (selectedReminder && !requestedMemoryId) return null;
     if (!requestedMemoryId) return data.memories[0];
     return (
       data.memories.find(
         (memory) => memory.memory_id === requestedMemoryId,
       ) ?? data.memories[0]
     );
-  }, [data, requestedMemoryId]);
+  }, [data, requestedMemoryId, selectedReminder]);
 
   useEffect(() => {
     setAnswer("");
@@ -75,7 +107,36 @@ export function RecallWorkspace({
     setError(null);
     setSource(null);
     setShowOriginal(false);
-  }, [selected?.memory_id]);
+  }, [selected?.memory_id, selectedReminder?.reminder_id]);
+
+  async function completeSelectedReminder() {
+    if (!selectedReminder || completingReminder) return;
+
+    setCompletingReminder(true);
+    setError(null);
+    try {
+      await completeReminder(selectedReminder.reminder_id);
+      setData((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          due_count: Math.max(0, current.due_count - 1),
+          reminders: current.reminders.filter(
+            (reminder) => reminder.reminder_id !== selectedReminder.reminder_id,
+          ),
+        };
+      });
+      setSelectedReminderId(null);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "The reminder could not be marked done.",
+      );
+    } finally {
+      setCompletingReminder(false);
+    }
+  }
 
   async function toggleOriginal() {
     if (!selected) return;
@@ -137,12 +198,19 @@ export function RecallWorkspace({
       dueCount={data?.due_count ?? 0}
       title="Recall"
       subtitle={
-        selected ? "A quiet return to something you learned" : "Nothing due"
+        selected
+          ? "A quiet return to something you learned"
+          : selectedReminder
+            ? "A reminder is ready"
+            : "Nothing due"
       }
       context={
         <RecallContext
           memories={data?.memories ?? []}
+          reminders={data?.reminders ?? []}
           selectedId={selected?.memory_id ?? null}
+          selectedReminderId={selectedReminder?.reminder_id ?? null}
+          onSelectReminder={setSelectedReminderId}
         />
       }
     >
@@ -156,7 +224,17 @@ export function RecallWorkspace({
           {error ? (
             <p className="text-[12px] font-semibold text-[#9b4c51]">{error}</p>
           ) : null}
-          {!loading && !error && !selected ? <EmptyRecall /> : null}
+          {!loading && !error && !selected && !selectedReminder ? (
+            <EmptyRecall />
+          ) : null}
+
+          {!loading && !error && selectedReminder ? (
+            <ReminderDue
+              reminder={selectedReminder}
+              completing={completingReminder}
+              onComplete={completeSelectedReminder}
+            />
+          ) : null}
 
           {selected ? (
             <div className="rise-in">
@@ -170,7 +248,7 @@ export function RecallWorkspace({
                 {selected.recall_prompt}
               </h2>
               <p className="mt-3 text-[11px] font-semibold text-[#85888b]">
-                From {selected.source_title ?? "a saved source"} ·{" "}
+                From {selected.source_title ?? "a saved source"} -{" "}
                 {formatRelativeOverdue(selected.overdue_seconds)}
               </p>
 
@@ -290,6 +368,53 @@ export function RecallWorkspace({
   );
 }
 
+function ReminderDue({
+  reminder,
+  completing,
+  onComplete,
+}: {
+  reminder: DueReminder;
+  completing: boolean;
+  onComplete: () => void;
+}) {
+  return (
+    <div className="rise-in">
+      <div className="flex items-center gap-2 text-[#2d7058]">
+        <Clock3 size={15} />
+        <span className="text-[10px] font-extrabold uppercase">
+          Reminder ready
+        </span>
+      </div>
+      <h2 className="mt-5 max-w-[650px] text-[24px] font-[750] leading-[1.35] md:text-[30px]">
+        {reminder.content}
+      </h2>
+      <p className="mt-3 text-[11px] font-semibold text-[#85888b]">
+        Due {formatFriendlyDateTime(reminder.due_at)} -{" "}
+        {formatRelativeOverdue(reminder.overdue_seconds)} -{" "}
+        {reminder.save_as_memory
+          ? "connected to a saved memory"
+          : "not saved as memory"}
+      </p>
+      <div className="mt-8 rounded-lg border border-[#d7e5dc] bg-[#f1f7f4] px-4 py-3 text-[#2d7058]">
+        <p className="text-[9px] font-extrabold uppercase">Why this is here</p>
+        <p className="mt-2 text-[12px] font-semibold leading-relaxed text-[#3f5d51]">
+          You asked Crowscap to remind you about this without turning it into a
+          long-term knowledge card.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onComplete}
+        disabled={completing}
+        className="mt-5 inline-flex items-center gap-2 rounded-lg bg-[#111111] px-4 py-3 text-[11px] font-extrabold text-white transition disabled:bg-[#c7cacc]"
+      >
+        <CircleCheck size={14} />
+        {completing ? "Marking done..." : "Mark done"}
+      </button>
+    </div>
+  );
+}
+
 function Reflection({
   evaluation,
 }: {
@@ -383,21 +508,51 @@ function EmptyRecall() {
 
 function RecallContext({
   memories,
+  reminders,
   selectedId,
+  selectedReminderId,
+  onSelectReminder,
 }: {
   memories: DueRecall[];
+  reminders: DueReminder[];
   selectedId: string | null;
+  selectedReminderId: string | null;
+  onSelectReminder: (reminderId: string) => void;
 }) {
+  const total = memories.length + reminders.length;
+
   return (
     <div className="h-full overflow-y-auto px-5 py-6">
       <p className="text-[10px] font-extrabold uppercase text-[#8a8d90]">
         Recall queue
       </p>
-      <p className="mt-2 text-[24px] font-[760]">{memories.length}</p>
+      <p className="mt-2 text-[24px] font-[760]">{total}</p>
       <p className="text-[10px] font-semibold text-[#888b8e]">
-        thoughts ready
+        items ready
       </p>
       <div className="mt-6 space-y-1">
+        {reminders.slice(0, 8).map((reminder, index) => (
+          <button
+            key={reminder.reminder_id}
+            type="button"
+            onClick={() => onSelectReminder(reminder.reminder_id)}
+            className={`block w-full rounded-lg border px-3 py-3 text-left transition ${
+              reminder.reminder_id === selectedReminderId
+                ? "border-[#c6d9ce] bg-[#edf5f1]"
+                : "border-transparent hover:border-[#e0e2e3] hover:bg-white"
+            }`}
+          >
+            <p className="text-[9px] font-extrabold uppercase text-[#2d7058]">
+              {String(index + 1).padStart(2, "0")} - reminder
+            </p>
+            <p className="mt-1 line-clamp-2 text-[11px] font-semibold leading-relaxed">
+              {reminder.content}
+            </p>
+            <p className="mt-1 text-[9px] font-bold text-[#85888b]">
+              Due {formatFriendlyDateTime(reminder.due_at)}
+            </p>
+          </button>
+        ))}
         {memories.slice(0, 12).map((memory, index) => (
           <Link
             key={memory.memory_id}
@@ -409,7 +564,8 @@ function RecallContext({
             }`}
           >
             <p className="text-[9px] font-extrabold uppercase text-[#85888b]">
-              {String(index + 1).padStart(2, "0")} · {memory.memory_type}
+              {String(reminders.length + index + 1).padStart(2, "0")} -{" "}
+              {memory.memory_type}
             </p>
             <p className="mt-1 line-clamp-2 text-[11px] font-semibold leading-relaxed">
               {memory.summary ?? memory.content}

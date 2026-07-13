@@ -11,7 +11,7 @@ from app.ai.structured_outputs import (
     GroundedChatSynthesis,
 )
 from app.db.base import Base
-from app.db.models import Capture, ChatMessage, Conversation, Memory, Source
+from app.db.models import Capture, ChatMessage, Conversation, Memory, Reminder, Source
 from app.db.session import get_db
 from app.main import app
 from app.schemas.belief import BeliefAuditResponse, PublicEvidenceResult
@@ -243,6 +243,33 @@ def test_current_chat_question_uses_conversation_not_memory_search() -> None:
         app.dependency_overrides.clear()
 
 
+def test_self_question_uses_crowscap_capability_knowledge() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "what are you?", "history": []},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "self"
+        assert payload["saved"] is False
+        assert payload["capture"] is None
+        assert "conversational memory intelligence system" in payload["message"]
+        assert "generic chat assistant" in payload["message"]
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Memory.id))) == 0
+        assert db.scalar(select(func.count(Capture.id))) == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_explicit_memory_message_uses_capture_pipeline() -> None:
     override_db, _testing_session = build_chat_db_override()
     app.dependency_overrides[get_db] = override_db
@@ -397,6 +424,179 @@ def test_explicit_belief_audit_routes_to_audit_without_saving() -> None:
         db = testing_session()
         assert db.scalar(select(func.count(Memory.id))) == 0
         assert db.scalar(select(func.count(Capture.id))) == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_forget_capability_question_is_self_aware_without_searching() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "can you forget a memory?", "history": []},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "forget"
+        assert payload["saved"] is False
+        assert "archive memories" in payload["message"]
+        assert payload["evidence"] == []
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Memory.id))) == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_topic_forget_returns_confirmation_candidates_not_audit() -> None:
+    override_db, testing_session = build_chat_db_override()
+    db = testing_session()
+    source = Source(source_type="text", title="Distribution note")
+    db.add(source)
+    db.flush()
+    capture = Capture(source_id=source.id, status="ready", inferred_intents=["remember"])
+    db.add(capture)
+    db.flush()
+    db.add(
+        Memory(
+            source_id=source.id,
+            capture_id=capture.id,
+            memory_type="principle",
+            epistemic_label="advice",
+            content="Distribution should be tested while shaping the product.",
+            confidence="medium",
+            source_strength="moderate",
+            embedding_json=[1.0, 0.0],
+        )
+    )
+    db.commit()
+    db.close()
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "forget what I know about distribution", "history": []},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "forget"
+        assert payload["saved"] is False
+        assert payload["audit"] is None
+        assert len(payload["evidence"]) == 1
+        assert "I have not archived them yet" in payload["message"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_reminder_with_note_saves_memory_and_sets_due_recall_time() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_memory_extractor] = lambda: FakeExtractor()
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+    app.dependency_overrides[get_memory_relation_detector] = lambda: FakeRelationDetector()
+
+    note = "Distribution should be considered while shaping the product, not only after launch."
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": f"remind me to revisit this in the next 1hr\n{note}",
+                "history": [],
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "reminder"
+        assert payload["saved"] is True
+        assert payload["capture"] is not None
+        assert payload["reminder"]["save_as_memory"] is True
+
+        db = testing_session()
+        memory = db.scalar(select(Memory))
+        reminder = db.scalar(select(Reminder))
+        assert memory is not None
+        assert reminder is not None
+        assert reminder.memory_id == memory.id
+        assert reminder.save_as_memory == 1
+        assert memory.next_review_at == reminder.due_at
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_reminder_can_skip_semantic_memory_storage() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+
+    note = "Check the deployment proof recording before submitting the hackathon."
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": f"remind me in the next 1hr, but don't save this information in my memory\n{note}",
+                "history": [],
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "reminder"
+        assert payload["saved"] is False
+        assert payload["capture"] is None
+        assert payload["reminder"]["save_as_memory"] is False
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Memory.id))) == 0
+        assert db.scalar(select(func.count(Capture.id))) == 0
+        reminder = db.scalar(select(Reminder))
+        assert reminder is not None
+        assert reminder.content == note
+        assert reminder.save_as_memory == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_short_practical_reminder_is_not_saved_as_memory_by_default() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "can you remind me to take water in the next 5mins?",
+                "history": [],
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "reminder"
+        assert payload["saved"] is False
+        assert payload["capture"] is None
+        assert payload["reminder"]["save_as_memory"] is False
+        assert payload["reminder"]["content"] == "take water"
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Memory.id))) == 0
+        assert db.scalar(select(func.count(Capture.id))) == 0
+        assert db.scalar(select(func.count(Reminder.id))) == 1
         db.close()
     finally:
         app.dependency_overrides.clear()
