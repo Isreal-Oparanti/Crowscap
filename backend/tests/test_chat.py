@@ -11,7 +11,7 @@ from app.ai.structured_outputs import (
     GroundedChatSynthesis,
 )
 from app.db.base import Base
-from app.db.models import Capture, ChatMessage, Conversation, Memory, Reminder, Source
+from app.db.models import Capture, ChatMessage, Conversation, Memory, Reminder, Source, UserPreference
 from app.db.session import get_db
 from app.main import app
 from app.schemas.belief import BeliefAuditResponse, PublicEvidenceResult
@@ -195,6 +195,70 @@ def test_acknowledgement_is_not_saved_as_memory() -> None:
         assert db.scalar(select(func.count(Conversation.id))) == 1
         assert db.scalar(select(func.count(ChatMessage.id))) == 2
         db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_explicit_preference_updates_profile_without_saving_memory() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": (
+                    "I prefer short answers. Challenge my assumptions more. "
+                    "I care mostly about startups and product. Don't show me weak "
+                    "YouTube advice unless there is evidence."
+                ),
+                "history": [],
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "acknowledge"
+        assert payload["saved"] is False
+        assert payload["capture"] is None
+        assert payload["preference_updates"]
+        assert payload["preferences"]["answer_style"] == "concise"
+        assert payload["preferences"]["challenge_style"] == "direct"
+        assert payload["preferences"]["evidence_strictness"] == "strict"
+        assert "startups" in payload["preferences"]["topics_of_interest"]
+        assert "youtube" in payload["preferences"]["source_preferences"]["avoid_weak"]
+
+        db = testing_session()
+        profile = db.scalar(select(UserPreference))
+        assert profile is not None
+        assert profile.answer_style == "concise"
+        assert profile.challenge_style == "direct"
+        assert profile.evidence_strictness == "strict"
+        assert db.scalar(select(func.count(Memory.id))) == 0
+        assert db.scalar(select(func.count(Capture.id))) == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_preferences_returns_durable_profile() -> None:
+    override_db, _testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "I prefer detailed answers and evidence-heavy audits.", "history": []},
+        )
+        assert response.status_code == 200
+
+        preferences_response = client.get("/api/v1/preferences/me")
+        assert preferences_response.status_code == 200
+        payload = preferences_response.json()
+        assert payload["answer_style"] == "detailed"
+        assert payload["evidence_strictness"] == "strict"
     finally:
         app.dependency_overrides.clear()
 

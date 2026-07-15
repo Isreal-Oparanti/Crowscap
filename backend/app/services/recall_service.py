@@ -6,13 +6,14 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
-from app.db.models import Memory, MemoryRelation, Reminder, Source, utc_now
+from app.db.models import Memory, MemoryRelation, Reminder, Source, UserPreference, utc_now
 from app.schemas.recall import (
     DueRecallMemoryResponse,
     DueRecallsResponse,
     DueReminderResponse,
     RecallRelationshipResponse,
 )
+from app.services.preference_service import get_or_create_user_preferences
 
 logger = get_logger("services.recall")
 
@@ -29,6 +30,7 @@ def get_due_recalls(
     rows = _load_due_memories(db=db, now=now, limit=limit, user_id=user_id)
     memories = [memory for memory, _source in rows]
     relationships = _relationships_for_recall_memories(db=db, memories=memories)
+    preferences = get_or_create_user_preferences(db=db, user_id=user_id)
 
     response_memories = [
         DueRecallMemoryResponse(
@@ -50,6 +52,7 @@ def get_due_recalls(
             recall_prompt=_recall_prompt(
                 memory=memory,
                 relationships=relationships.get(memory.id, []),
+                preferences=preferences,
             ),
             epistemic_caution=_epistemic_caution(memory=memory),
             relationships=relationships.get(memory.id, []),
@@ -211,15 +214,28 @@ def _recall_prompt(
     *,
     memory: Memory,
     relationships: list[RecallRelationshipResponse],
+    preferences: UserPreference | None = None,
 ) -> str:
+    answer_style = preferences.answer_style if preferences else None
+    evidence_strictness = preferences.evidence_strictness if preferences else "balanced"
+    challenge_style = preferences.challenge_style if preferences else "balanced"
+
     if any(relationship.relationship_type in {"conflicts", "tension"} for relationship in relationships):
-        return "Explain this idea, then say when the related view might also be valid."
+        if challenge_style == "direct":
+            return "Where does this idea hold, and where could the competing view be right?"
+        return "Connect this idea with the related view. Where might each one apply?"
     if memory.memory_type == "action":
+        if answer_style == "concise":
+            return "What is one real situation where this action would matter?"
         return "Explain why this action matters and how you would apply it in a real situation."
     if memory.memory_type in {"claim", "principle"} and memory.source_strength in {"weak", "moderate"}:
+        if evidence_strictness == "strict":
+            return "Restate this idea, then name what evidence would make you trust it more."
         return "Explain this idea in your own words, then name what evidence or context it still needs."
     if memory.memory_type == "warning":
         return "What mistake is this warning trying to prevent, and when does it matter?"
+    if answer_style == "concise":
+        return "What does this mean in your own words?"
     return "Explain this idea in your own words and why it matters."
 
 

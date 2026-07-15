@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from app.ai.structured_outputs import ChatAction
 from app.schemas.belief import BeliefAuditResponse
 from app.schemas.capture import TextCaptureResponse
+from app.schemas.preference import UserPreferenceResponse
 from app.schemas.reminder import ReminderResponse
 from app.schemas.search import SearchResult
 
@@ -34,6 +35,8 @@ class ChatResponse(BaseModel):
     next_step: str | None = None
     audit: BeliefAuditResponse | None = None
     reminder: ReminderResponse | None = None
+    preference_updates: list[str] = Field(default_factory=list)
+    preferences: UserPreferenceResponse | None = None
 
 
 class ChatMessageResponse(BaseModel):

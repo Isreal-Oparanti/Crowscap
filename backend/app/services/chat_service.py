@@ -13,7 +13,7 @@ from app.ai.qwen_client import QwenClient
 from app.ai.structured_outputs import ChatRoute, ConversationalChatReply, GroundedChatSynthesis
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.db.models import ChatMessage, Conversation, Memory, MemoryRelation, utc_now
+from app.db.models import ChatMessage, Conversation, Memory, MemoryRelation, UserPreference, utc_now
 from app.schemas.belief import BeliefAuditRequest
 from app.schemas.capture import TextCaptureRequest, UrlCaptureRequest
 from app.schemas.chat import (
@@ -31,6 +31,13 @@ from app.services.embedding_service import MemoryEmbedder
 from app.services.extraction_service import MemoryExtractor
 from app.services.ingestion_service import create_pdf_capture_from_bytes, create_url_capture
 from app.services.memory_lifecycle_service import archive_memory
+from app.services.preference_service import (
+    PreferenceLearningResult,
+    format_preference_context,
+    is_explicit_preference_statement,
+    learn_preferences_from_message,
+    preference_response,
+)
 from app.services.relationship_service import MemoryRelationDetector
 from app.services.reminder_service import create_reminder
 from app.services.search_service import search_memories
@@ -142,12 +149,19 @@ class ChatSynthesizer(Protocol):
         history: list[ConversationTurn],
         search: SearchResponse,
         relation_context: list[str],
+        preferences: UserPreference | None = None,
     ) -> GroundedChatSynthesis:
         pass
 
 
 class ChatConversationResponder(Protocol):
-    def respond(self, *, message: str, history: list[ConversationTurn]) -> str:
+    def respond(
+        self,
+        *,
+        message: str,
+        history: list[ConversationTurn],
+        preferences: UserPreference | None = None,
+    ) -> str:
         pass
 
 
@@ -195,6 +209,7 @@ class QwenChatSynthesizer:
         history: list[ConversationTurn],
         search: SearchResponse,
         relation_context: list[str],
+        preferences: UserPreference | None = None,
     ) -> GroundedChatSynthesis:
         payload = self.client.chat_json(
             system_prompt=CHAT_SYNTHESIS_SYSTEM_PROMPT,
@@ -203,6 +218,7 @@ class QwenChatSynthesizer:
                 history=history,
                 search=search,
                 relation_context=relation_context,
+                preference_context=format_preference_context(preferences),
             ),
             model=self.settings.qwen_chat_model,
             temperature=0.2,
@@ -218,10 +234,20 @@ class QwenChatConversationResponder:
         self.client = client or QwenClient()
         self.settings = get_settings()
 
-    def respond(self, *, message: str, history: list[ConversationTurn]) -> str:
+    def respond(
+        self,
+        *,
+        message: str,
+        history: list[ConversationTurn],
+        preferences: UserPreference | None = None,
+    ) -> str:
         payload = self.client.chat_json(
             system_prompt=CHAT_CONVERSATION_SYSTEM_PROMPT,
-            user_prompt=_build_conversation_prompt(message=message, history=history),
+            user_prompt=_build_conversation_prompt(
+                message=message,
+                history=history,
+                preference_context=format_preference_context(preferences),
+            ),
             model=self.settings.qwen_chat_model,
             temperature=0.35,
             timeout_seconds=30.0,
@@ -313,11 +339,21 @@ def process_chat_message(
     )
     db.add(user_message)
     db.flush()
+    preference_learning = learn_preferences_from_message(
+        db=db,
+        message=payload.message,
+        message_id=user_message.id,
+        user_id=user_id,
+    )
+    preferences = preference_learning.profile
 
     if route.action == "acknowledge":
-        reply = route.reply or "You are welcome. I am here when you want to keep going."
+        reply = route.reply or _preference_acknowledgement(preference_learning) or (
+            "You are welcome. I am here when you want to keep going."
+        )
         logger.info("\u2705 chat.message.complete action=acknowledge saved=False")
         response = ChatResponse(action="acknowledge", message=reply, saved=False)
+        response = _with_preference_learning(response, preference_learning)
         return _persist_assistant_response(
             db=db,
             conversation=conversation,
@@ -349,6 +385,7 @@ def process_chat_message(
                     history=effective_history,
                     search=high_confidence_context,
                     relation_context=relation_context,
+                    preferences=preferences,
                 )
                 logger.info(
                     "\u2705 chat.message.complete action=answer source=strong_conversation_context evidence=%s",
@@ -363,6 +400,7 @@ def process_chat_message(
                     tensions=synthesis.tensions,
                     next_step=synthesis.next_step,
                 )
+                response = _with_preference_learning(response, preference_learning)
                 return _persist_assistant_response(
                     db=db,
                     conversation=conversation,
@@ -374,9 +412,11 @@ def process_chat_message(
             reply = route.reply or conversation_responder.respond(
                 message=payload.message,
                 history=effective_history,
+                preferences=preferences,
             )
         logger.info("\u2705 chat.message.complete action=conversation saved=False")
         response = ChatResponse(action="conversation", message=reply, saved=False)
+        response = _with_preference_learning(response, preference_learning)
         return _persist_assistant_response(
             db=db,
             conversation=conversation,
@@ -387,6 +427,7 @@ def process_chat_message(
 
     if route.action == "self":
         response = _process_self_question(payload.message)
+        response = _with_preference_learning(response, preference_learning)
         logger.info("\u2705 chat.message.complete action=self saved=False")
         return _persist_assistant_response(
             db=db,
@@ -407,6 +448,7 @@ def process_chat_message(
             "\u2705 chat.message.complete action=forget candidates=%s",
             len(response.evidence),
         )
+        response = _with_preference_learning(response, preference_learning)
         return _persist_assistant_response(
             db=db,
             conversation=conversation,
@@ -429,6 +471,7 @@ def process_chat_message(
             "\u2705 chat.message.complete action=reminder saved=%s",
             response.saved,
         )
+        response = _with_preference_learning(response, preference_learning)
         return _persist_assistant_response(
             db=db,
             conversation=conversation,
@@ -470,6 +513,7 @@ def process_chat_message(
             saved=True,
             capture=capture,
         )
+        response = _with_preference_learning(response, preference_learning)
         return _persist_assistant_response(
             db=db,
             conversation=conversation,
@@ -499,6 +543,7 @@ def process_chat_message(
             next_step=audit.next_questions[0] if audit.next_questions else None,
             audit=audit,
         )
+        response = _with_preference_learning(response, preference_learning)
         return _persist_assistant_response(
             db=db,
             conversation=conversation,
@@ -527,6 +572,7 @@ def process_chat_message(
         history=effective_history,
         search=search,
         relation_context=relation_context,
+        preferences=preferences,
     )
     logger.info(
         "\u2705 chat.message.complete action=answer saved=False evidence=%s gaps=%s tensions=%s",
@@ -543,6 +589,7 @@ def process_chat_message(
         tensions=synthesis.tensions,
         next_step=synthesis.next_step,
     )
+    response = _with_preference_learning(response, preference_learning)
     return _persist_assistant_response(
         db=db,
         conversation=conversation,
@@ -718,6 +765,23 @@ def _persist_assistant_response(
         response.action,
     )
     return response
+
+
+def _with_preference_learning(
+    response: ChatResponse,
+    learning: PreferenceLearningResult,
+) -> ChatResponse:
+    if learning.updates:
+        response.preference_updates = learning.updates
+        response.preferences = preference_response(learning.profile)
+    return response
+
+
+def _preference_acknowledgement(learning: PreferenceLearningResult) -> str | None:
+    if not learning.updates:
+        return None
+    updates = "; ".join(learning.updates)
+    return f"Got it. I updated your Crowscap preferences: {updates}."
 
 
 def _search_for_conversation_context(
@@ -1210,6 +1274,12 @@ def _deterministic_route(message: str) -> ChatRoute | None:
             reason="The user is asking about Crowscap's identity, capabilities, or limits.",
         )
 
+    if is_explicit_preference_statement(message):
+        return ChatRoute(
+            action="acknowledge",
+            reason="The user explicitly stated a durable preference for how Crowscap should behave.",
+        )
+
     explicit_capture_starts = (
         "remember ",
         "save ",
@@ -1334,6 +1404,11 @@ def _deterministic_route(message: str) -> ChatRoute | None:
 
 def _is_forget_command(normalized: str) -> bool:
     if "what am i forgetting" in normalized:
+        return False
+    if (
+        any(marker in normalized for marker in ("don't show me weak", "dont show me weak", "do not show me weak"))
+        and any(marker in normalized for marker in ("evidence", "source", "corroborated"))
+    ):
         return False
     forget_markers = (
         "can you forget",
@@ -1611,6 +1686,7 @@ def _build_synthesis_prompt(
     history: list[ConversationTurn],
     search: SearchResponse,
     relation_context: list[str],
+    preference_context: str,
 ) -> str:
     history_text = "\n".join(
         f"{turn.role}: {turn.content}" for turn in history[-6:]
@@ -1648,6 +1724,13 @@ Rules:
 - You may use general reasoning to explain a gap, but do not pretend it came from the user's saved sources.
 - If no personal memories were found, answer helpfully but clearly say this answer is not grounded in their saved memory yet.
 - Do not mention vector scores or internal retrieval.
+- Follow the learned user preferences when they do not conflict with safety, honesty, or source-grounding.
+- If evidence strictness is strict, be clearer about what is supported vs only plausible.
+- If challenge style is direct, push back plainly while keeping the user's agency.
+- If answer style is concise, be brief; if detailed, give more context.
+
+Learned user preferences:
+{preference_context}
 
 Recent conversation:
 {history_text}
@@ -1663,7 +1746,12 @@ Stored relationships:
 """
 
 
-def _build_conversation_prompt(*, message: str, history: list[ConversationTurn]) -> str:
+def _build_conversation_prompt(
+    *,
+    message: str,
+    history: list[ConversationTurn],
+    preference_context: str,
+) -> str:
     history_text = "\n".join(
         f"{turn.role}: {turn.content}" for turn in history[-8:]
     ) or "No earlier turns."
@@ -1681,6 +1769,12 @@ Rules:
 - If the user asks for advice, answer directly like a thoughtful assistant.
 - Keep the tone warm, clear, and practical.
 - If the user asks to save, remember, or remind them, say you can do that when they state exactly what to save or when to remind them.
+- Follow the learned user preferences when they do not conflict with honesty or usefulness.
+- If answer style is concise, be brief; if detailed, add context.
+- If challenge style is direct, push back plainly when the user's idea needs it.
+
+Learned user preferences:
+{preference_context}
 
 Recent conversation:
 {history_text}

@@ -12,7 +12,14 @@ from app.ai.structured_outputs import RecallEvaluation
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.db.models import Memory, RecallReview, Source, utc_now
-from app.schemas.recall import RecallAnswerRequest, RecallAnswerResponse, RecallRelationshipResponse
+from app.schemas.recall import (
+    RecallAnswerRequest,
+    RecallAnswerResponse,
+    RecallQuickAction,
+    RecallQuickRequest,
+    RecallQuickResponse,
+    RecallRelationshipResponse,
+)
 from app.services.recall_service import _relationships_for_recall_memories
 
 logger = get_logger("services.recall_evaluation")
@@ -161,6 +168,109 @@ def answer_recall(
         next_due_at=next_due_at,
         review_count=memory.review_count,
         recall_score=round(memory.recall_score, 4),
+    )
+
+
+def quick_recall(
+    *,
+    db: Session,
+    memory_id: str,
+    payload: RecallQuickRequest,
+    user_id: str | None = None,
+) -> RecallQuickResponse:
+    logger.info(
+        "\u26a1 recall.quick.start memory_id=%s action=%s",
+        memory_id,
+        payload.action,
+    )
+    query = select(Memory).where(Memory.id == memory_id)
+    if user_id is None:
+        query = query.where(Memory.user_id.is_(None))
+    else:
+        query = query.where(Memory.user_id == user_id)
+
+    memory = db.scalar(query)
+    if memory is None:
+        raise LookupError("Memory not found.")
+
+    now = utc_now()
+    if payload.action == "not_now":
+        next_due_at = now + timedelta(days=1)
+        memory.next_review_at = next_due_at
+        db.commit()
+        logger.info(
+            "\u2705 recall.quick.deferred memory_id=%s next_due_at=%s",
+            memory.id,
+            next_due_at.isoformat(),
+        )
+        return RecallQuickResponse(
+            memory_id=memory.id,
+            action=payload.action,
+            feedback="No problem. I moved this out of the way and will bring it back later.",
+            next_due_at=next_due_at,
+            review_count=memory.review_count,
+            recall_score=round(memory.recall_score, 4),
+        )
+
+    score, rating, feedback, interval = _quick_action_outcome(payload.action)
+    next_due_at = now + interval
+    memory.last_reviewed_at = now
+    memory.review_count += 1
+    memory.recall_score = max(memory.recall_score, score)
+    memory.next_review_at = next_due_at
+
+    review = RecallReview(
+        user_id=user_id,
+        memory_id=memory.id,
+        answer_text=f"[quick recall] {payload.action}",
+        self_rating=None,
+        evaluation_score=score,
+        rating=rating,
+        feedback=feedback,
+        understanding_summary=(
+            "The user gave a lightweight recall signal instead of writing a full "
+            "reflection."
+        ),
+        knowledge_gaps=[],
+        context_to_consider=[],
+        next_question=None,
+        next_review_at=next_due_at,
+    )
+    db.add(review)
+    db.commit()
+
+    logger.info(
+        "\u2705 recall.quick.complete memory_id=%s action=%s score=%.3f next_due_at=%s",
+        memory.id,
+        payload.action,
+        memory.recall_score,
+        next_due_at.isoformat(),
+    )
+    return RecallQuickResponse(
+        memory_id=memory.id,
+        action=payload.action,
+        feedback=feedback,
+        next_due_at=next_due_at,
+        review_count=memory.review_count,
+        recall_score=round(memory.recall_score, 4),
+    )
+
+
+def _quick_action_outcome(
+    action: RecallQuickAction,
+) -> tuple[float, str, str, timedelta]:
+    if action == "applied":
+        return (
+            0.9,
+            "strong",
+            "Good. I’ll treat this as used knowledge and bring it back less often.",
+            timedelta(days=14),
+        )
+    return (
+        0.72,
+        "solid",
+        "Got it. I’ll keep this alive, but I won’t make it feel like homework.",
+        timedelta(days=3),
     )
 
 

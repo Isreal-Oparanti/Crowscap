@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -55,6 +56,22 @@ class DueRecallsResponse(BaseModel):
 class RecallAnswerRequest(BaseModel):
     answer: str = Field(min_length=3, max_length=5000)
     self_rating: int | None = Field(default=None, ge=1, le=4)
+
+
+RecallQuickAction = Literal["still_relevant", "applied", "not_now"]
+
+
+class RecallQuickRequest(BaseModel):
+    action: RecallQuickAction
+
+
+class RecallQuickResponse(BaseModel):
+    memory_id: str
+    action: RecallQuickAction
+    feedback: str
+    next_due_at: datetime
+    review_count: int
+    recall_score: float
 
 
 class RecallAnswerResponse(BaseModel):

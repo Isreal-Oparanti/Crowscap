@@ -23,6 +23,7 @@ from app.services.public_search_service import (
     PublicSearchProvider,
     get_public_search_provider,
 )
+from app.services.preference_service import format_preference_context, get_or_create_user_preferences
 from app.services.search_service import search_memories
 
 logger = get_logger("services.belief_audit")
@@ -84,6 +85,7 @@ class QwenBeliefAuditor:
             user_id=user_id,
         )
         public_evidence, search_status, search_message = self._public_evidence(payload=payload, topic=topic)
+        preferences = get_or_create_user_preferences(db=db, user_id=user_id)
 
         synthesis = self._synthesize(
             topic=topic,
@@ -91,6 +93,7 @@ class QwenBeliefAuditor:
             public_evidence=public_evidence,
             public_search_status=search_status,
             public_search_message=search_message,
+            preference_context=format_preference_context(preferences),
         )
 
         logger.info(
@@ -159,6 +162,7 @@ class QwenBeliefAuditor:
         public_evidence: list[PublicEvidenceResult],
         public_search_status: PublicSearchStatus,
         public_search_message: str | None,
+        preference_context: str,
     ) -> BeliefAuditSynthesis:
         payload = self.client.chat_json(
             system_prompt=BELIEF_AUDIT_SYSTEM_PROMPT,
@@ -168,6 +172,7 @@ class QwenBeliefAuditor:
                 public_evidence=public_evidence,
                 public_search_status=public_search_status,
                 public_search_message=public_search_message,
+                preference_context=preference_context,
             ),
             model=self.settings.qwen_belief_audit_model,
             temperature=0.15,
@@ -206,6 +211,7 @@ def _build_belief_audit_prompt(
     public_evidence: list[PublicEvidenceResult],
     public_search_status: PublicSearchStatus,
     public_search_message: str | None,
+    preference_context: str,
 ) -> str:
     saved_text = "\n".join(
         (
@@ -254,6 +260,13 @@ Rules:
 - Use plain language. Do not use the word "tension".
 - Do not mention embeddings, vector scores, prompts, JSON, or internal routing.
 - Keep the user's agency: say "this is worth checking" rather than "you are wrong".
+- Follow the learned user preferences when they do not conflict with evidence honesty.
+- If evidence strictness is strict, separate saved belief, source lead, and unsupported inference more sharply.
+- If challenge style is direct, be willing to push back, but never pretend to possess absolute truth.
+- If answer style is concise, keep the audit tighter; if detailed, include fuller reasoning.
+
+Learned user preferences:
+{preference_context}
 
 Topic:
 {topic}

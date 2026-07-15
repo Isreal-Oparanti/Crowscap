@@ -65,6 +65,25 @@ class ChatMessage(Base, TimestampMixin):
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
 
 
+class UserPreference(Base, TimestampMixin):
+    __tablename__ = "user_preferences"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    user_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    profile_key: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
+    preferred_review_time: Mapped[str | None] = mapped_column(String(40))
+    recall_frequency: Mapped[str | None] = mapped_column(String(40))
+    answer_style: Mapped[str | None] = mapped_column(String(40))
+    evidence_strictness: Mapped[str] = mapped_column(String(40), default="balanced", nullable=False)
+    challenge_style: Mapped[str] = mapped_column(String(40), default="balanced", nullable=False)
+    memory_density: Mapped[str | None] = mapped_column(String(40))
+    notification_preference: Mapped[str | None] = mapped_column(String(80))
+    topics_of_interest: Mapped[list[str] | None] = mapped_column(JSON)
+    source_preferences: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    updated_from_message_id: Mapped[str | None] = mapped_column(ForeignKey("chat_messages.id"), index=True)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+
 class Source(Base, TimestampMixin):
     __tablename__ = "sources"
 
