@@ -7,8 +7,11 @@ import type {
   DueRecallsResponse,
   ReminderResponse,
   RecallAnswerResponse,
+  RecallQuickAction,
+  RecallQuickResponse,
   SearchResponse,
   SourceContentResponse,
+  UserPreferenceProfile,
 } from "@/lib/types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -86,6 +89,10 @@ export function getCurrentConversation(): Promise<ConversationResponse | null> {
   return request<ConversationResponse | null>("chat/conversations/current");
 }
 
+export function getPreferences(): Promise<UserPreferenceProfile> {
+  return request<UserPreferenceProfile>("preferences/me");
+}
+
 export function searchMemories(query: string): Promise<SearchResponse> {
   return request<SearchResponse>("search", {
     method: "POST",
@@ -120,6 +127,16 @@ export function completeReminder(reminderId: string): Promise<ReminderResponse> 
   });
 }
 
+export function snoozeReminder(
+  reminderId: string,
+  minutes = 60,
+): Promise<ReminderResponse> {
+  return request<ReminderResponse>(`recalls/reminders/${reminderId}/snooze`, {
+    method: "POST",
+    body: JSON.stringify({ minutes }),
+  });
+}
+
 export function getSourceContent(
   sourceId: string,
 ): Promise<SourceContentResponse> {
@@ -137,5 +154,15 @@ export function submitRecallAnswer(
       answer,
       self_rating: selfRating,
     }),
+  });
+}
+
+export function submitQuickRecall(
+  memoryId: string,
+  action: RecallQuickAction,
+): Promise<RecallQuickResponse> {
+  return request<RecallQuickResponse>(`recalls/${memoryId}/quick`, {
+    method: "POST",
+    body: JSON.stringify({ action }),
   });
 }

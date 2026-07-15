@@ -84,6 +84,8 @@ Deliverables:
 - Recall prompt generation.
 - Recall answer flow.
 - Knowledge Audit API.
+- Explicit user preference profile.
+- Preference-aware chat, recall, and audit behavior.
 - Audit frontend page.
 
 Skills:
@@ -92,6 +94,7 @@ Skills:
 - Relation classification.
 - Recall algorithms.
 - Product thinking.
+- Preference modeling.
 - Source-grounded synthesis.
 - UX for uncertainty.
 
@@ -189,6 +192,7 @@ Product:
 - Tension detection language.
 - Familiarity without mastery.
 - Knowledge audits.
+- Preference learning without over-inferring.
 - Demo narrative.
 
 ## Learning Priority for Founder
@@ -207,4 +211,3 @@ Codex can build scaffolding, but founder judgment is most needed in:
 - recall scoring philosophy.
 - audit output quality.
 - what feels genuinely useful.
-

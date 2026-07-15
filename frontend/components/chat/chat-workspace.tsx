@@ -337,7 +337,6 @@ export function ChatWorkspace() {
             <RecallNotice
               memory={due.memories[0] ?? null}
               reminder={due.reminders[0] ?? null}
-              count={due.due_count}
             />
           ) : null}
 
@@ -832,11 +831,9 @@ function InsightBlock({
 function RecallNotice({
   memory,
   reminder,
-  count,
 }: {
   memory: DueRecallsResponse["memories"][number] | null;
   reminder: DueReminder | null;
-  count: number;
 }) {
   const href = memory ? `/recall/${memory.memory_id}` : "/recall";
   const title = memory
@@ -863,7 +860,7 @@ function RecallNotice({
         </p>
       </div>
       <div className="ml-auto flex items-center gap-1 text-[10px] font-bold text-[#2d7058]">
-        {count > 1 ? `+${count - 1}` : "Open"}
+        Open
         <ChevronRight size={14} />
       </div>
     </Link>
@@ -964,7 +961,7 @@ function Composer({
               aria-label="Send"
               onClick={sendMessage}
               disabled={!draft.trim() || working}
-              className="ml-auto flex size-8 items-center justify-center rounded-md bg-[#111111] text-white transition hover:bg-black disabled:cursor-not-allowed disabled:bg-[#d3d5d6]"
+              className="ml-auto flex size-8 items-center justify-center rounded-md bg-[#111111] text-white transition hover:bg-black disabled:cursor-not-allowed disabled:bg-[#d3d5d6] [&_svg]:stroke-white"
             >
               <ArrowUp size={16} strokeWidth={2.3} />
             </button>

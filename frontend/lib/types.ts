@@ -49,6 +49,22 @@ export type ConversationTurn = {
   content: string;
 };
 
+export type UserPreferenceProfile = {
+  id: string;
+  user_id: string | null;
+  preferred_review_time: string | null;
+  recall_frequency: "low" | "normal" | "high" | "daily" | "weekly" | null;
+  answer_style: "concise" | "balanced" | "detailed" | null;
+  evidence_strictness: "relaxed" | "balanced" | "strict";
+  challenge_style: "gentle" | "balanced" | "direct";
+  memory_density: "compact" | "balanced" | "rich" | null;
+  notification_preference: string | null;
+  topics_of_interest: string[];
+  source_preferences: Record<string, unknown>;
+  updated_from_message_id: string | null;
+  updated_at: string;
+};
+
 export type ChatResponse = {
   action:
     | "acknowledge"
@@ -71,6 +87,8 @@ export type ChatResponse = {
   next_step: string | null;
   audit: BeliefAuditResponse | null;
   reminder: ReminderResponse | null;
+  preference_updates: string[];
+  preferences: UserPreferenceProfile | null;
 };
 
 export type PersistedChatMessage = {
@@ -212,6 +230,17 @@ export type RecallAnswerResponse = {
   knowledge_gaps: string[];
   context_to_consider: string[];
   next_question: string | null;
+  next_due_at: string;
+  review_count: number;
+  recall_score: number;
+};
+
+export type RecallQuickAction = "still_relevant" | "applied" | "not_now";
+
+export type RecallQuickResponse = {
+  memory_id: string;
+  action: RecallQuickAction;
+  feedback: string;
   next_due_at: string;
   review_count: number;
   recall_score: number;

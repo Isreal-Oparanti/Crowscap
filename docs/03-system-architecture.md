@@ -17,7 +17,7 @@ Worker:
 - Background processor for extraction, chunking, Qwen calls, embeddings, relation detection, recall scheduling, and cleanup.
 
 Database:
-- PostgreSQL stores users, captures, sources, chunks, memories, relations, recall events, audit records, and jobs.
+- PostgreSQL stores users, preference profiles, captures, sources, chunks, memories, relations, recall events, audit records, and jobs.
 - Vector extension or vector-capable storage is used for semantic memory retrieval.
 
 Redis:
@@ -60,6 +60,17 @@ User -> Frontend -> FastAPI -> DB
        v                                    v
   Store Source/Chunks -> Atomic Memories -> Embeddings -> Relations -> Recall Schedule
 ```
+
+## Preference Memory Layer
+
+Preference memory is separate from semantic memory. It stores how the user wants Crowscap to behave, not what the user learned. The detector is intentionally conservative: it updates the profile only when the user clearly states a preference, such as "I prefer short answers", "challenge my assumptions", "remind me in the evenings", or "do not show weak YouTube advice unless there is evidence".
+
+The profile currently affects:
+- Chat synthesis: answer length, directness, and evidence framing.
+- Belief audit: strictness around evidence and how directly Crowscap pushes back.
+- Recall prompts: whether review questions are concise, evidence-focused, or more challenging.
+
+This is the core Track 1 adaptation layer: Crowscap persists not only what the user has learned, but how the user wants to learn.
 
 ## Recommended Service Boundaries
 
@@ -132,4 +143,3 @@ Recommended:
 
 5. Cost grows with raw input:
    Clean, chunk, deduplicate, cache, and choose task-appropriate models.
-

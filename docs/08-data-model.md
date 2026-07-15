@@ -21,16 +21,35 @@ Fields:
 ### user_preferences
 
 Purpose:
-Stores recall cadence, capture defaults, and notification preferences.
+Stores durable user preferences for how Crowscap should behave. This is not semantic knowledge memory. It is the user's learning/control profile.
 
 Fields:
 - id
 - user_id
-- recall_frequency
+- profile_key
 - preferred_review_time
-- default_capture_intent
+- recall_frequency
+- answer_style: concise, balanced, detailed
+- evidence_strictness: relaxed, balanced, strict
+- challenge_style: gentle, balanced, direct
+- memory_density: compact, balanced, rich
+- notification_preference
+- topics_of_interest
+- source_preferences
+- updated_from_message_id
+- metadata_json
 - created_at
 - updated_at
+
+Phase 0 implementation:
+The preference profile is updated only from explicit preference language, not inferred casually from every chat message. Examples:
+
+- "I prefer short answers" -> `answer_style=concise`
+- "Challenge my assumptions more" -> `challenge_style=direct`
+- "I care mostly about startups and product" -> adds topics of interest
+- "Do not show weak YouTube advice unless there is evidence" -> source preference plus stricter evidence handling
+
+The profile is used by chat synthesis, belief audits, and recall prompt generation.
 
 ### sources
 

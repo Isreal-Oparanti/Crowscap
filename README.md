@@ -8,7 +8,7 @@ Turn what you save into knowledge you can remember, question, and use.
 
 ## Product Thesis
 
-Most tools help people store information. Crowscap should help saved information become living, source-aware memory. It should not behave like a passive bookmark folder, a generic note app, or a basic RAG chatbot. It should capture learning fragments, extract atomic memories, track source strength, detect tensions, schedule recall, and expose a belief/knowledge audit that helps the user see what they appear to know, where evidence is weak, and what has not been applied.
+Most tools help people store information. Crowscap should help saved information become living, source-aware memory. It should not behave like a passive bookmark folder, a generic note app, or a basic RAG chatbot. It should capture learning fragments, extract atomic memories, track source strength, detect tensions, schedule recall, and expose a belief/knowledge audit that helps the user see what they appear to know, where evidence is weak, and what has not been applied. It should also learn the user's explicit preferences for how they want to learn: answer style, evidence strictness, challenge style, review timing, topics of interest, and source preferences.
 
 ## Hackathon Track
 
@@ -64,8 +64,12 @@ crowscap/
 ## Core Loop
 
 ```text
-Capture -> Extract -> Structure -> Relate -> Recall -> Audit -> Improve
+Capture -> Extract -> Structure -> Relate -> Recall -> Audit -> Adapt -> Improve
 ```
+
+## Preference Layer
+
+Crowscap keeps preference memory separate from knowledge memory. A normal saved idea becomes a `memory`; an explicit instruction such as "I prefer short answers" or "challenge my assumptions more" updates the durable `user_preferences` profile. That profile is then used by chat, recall, and belief audits without turning casual conversation into memory cards.
 
 ## Documentation Map
 
@@ -95,4 +99,3 @@ Last verified: 2026-06-11.
 - Qwen Cloud MCP: https://docs.qwencloud.com/developer-guides/text-generation/mcp
 - Qwen Cloud cost optimization: https://docs.qwencloud.com/developer-guides/run-and-scale/cost-optimization
 - Qwen Cloud safety: https://docs.qwencloud.com/developer-guides/run-and-scale/safety
-

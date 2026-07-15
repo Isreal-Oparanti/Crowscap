@@ -73,12 +73,13 @@ export function AppShell({
                     ? "bg-white text-[#111111] shadow-[0_1px_0_rgba(0,0,0,0.04)]"
                     : "text-[#676a6d] hover:bg-white/70 hover:text-[#111111]"
                 }`}
-              >
-                <Icon size={17} strokeWidth={1.9} />
-                <span>{item.label}</span>
-                {item.label === "Recall" && dueCount > 0 ? (
-                  <span className="ml-auto min-w-5 rounded-full bg-[#111111] px-1.5 py-0.5 text-center text-[10px] text-white">
-                    {dueCount}
+                >
+                  <Icon size={17} strokeWidth={1.9} />
+                  <span>{item.label}</span>
+                  {item.label === "Recall" && dueCount > 0 ? (
+                  <span className="ml-auto flex items-center gap-1.5 rounded-full bg-[#eaf3ee] px-2 py-1 text-[9px] font-extrabold uppercase text-[#2d7058]">
+                    <span className="size-1.5 rounded-full bg-[#2d7058]" />
+                    Ready
                   </span>
                 ) : null}
               </Link>
@@ -169,9 +170,7 @@ function MobileNavigation({
             <Icon size={20} strokeWidth={active ? 2.2 : 1.8} />
             <span>{item.label}</span>
             {item.label === "Recall" && dueCount > 0 ? (
-              <span className="absolute right-[calc(50%-19px)] top-3 min-w-4 rounded-full bg-[#2d7058] px-1 text-center text-[9px] leading-4 text-white">
-                {dueCount}
-              </span>
+              <span className="absolute right-[calc(50%-18px)] top-3 size-2.5 rounded-full border-2 border-white bg-[#2d7058]" />
             ) : null}
           </Link>
         );

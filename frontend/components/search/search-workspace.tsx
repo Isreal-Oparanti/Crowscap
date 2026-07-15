@@ -91,7 +91,7 @@ export function SearchWorkspace() {
               type="submit"
               aria-label="Search memories"
               disabled={query.trim().length < 2 || loading}
-              className="absolute right-2 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-md bg-[#111111] text-white disabled:bg-[#d1d3d4]"
+              className="absolute right-2 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-md bg-[#111111] text-white disabled:bg-[#d1d3d4] [&_svg]:stroke-white"
             >
               <ArrowRight size={17} />
             </button>

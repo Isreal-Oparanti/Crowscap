@@ -48,11 +48,68 @@ Response:
   "evidence": [],
   "knowledge_gaps": [],
   "tensions": [],
-  "next_step": null
+  "next_step": null,
+  "preference_updates": [],
+  "preferences": null
 }
 ```
 
-`action` is one of `acknowledge`, `capture`, or `answer`.
+`action` is one of `acknowledge`, `conversation`, `capture`, `answer`, `audit`, `forget`, `reminder`, or `self`.
+
+When the user explicitly states a preference, the same endpoint updates the durable preference profile without saving a memory:
+
+```json
+{
+  "message": "I prefer short answers. Challenge my assumptions more."
+}
+```
+
+Response excerpt:
+
+```json
+{
+  "action": "acknowledge",
+  "saved": false,
+  "preference_updates": [
+    "Answer style: concise",
+    "Challenge style: direct"
+  ],
+  "preferences": {
+    "answer_style": "concise",
+    "challenge_style": "direct",
+    "evidence_strictness": "balanced"
+  }
+}
+```
+
+## Preferences
+
+### GET /preferences/me
+
+Returns the durable preference profile that Crowscap uses to adapt chat, recall, and belief audits.
+
+Response:
+
+```json
+{
+  "id": "uuid",
+  "user_id": null,
+  "preferred_review_time": "evening",
+  "recall_frequency": "daily",
+  "answer_style": "concise",
+  "evidence_strictness": "strict",
+  "challenge_style": "direct",
+  "memory_density": "compact",
+  "notification_preference": "in_app_only",
+  "topics_of_interest": ["startups", "product"],
+  "source_preferences": {
+    "avoid_weak": ["youtube"],
+    "rule": "avoid weak sources unless corroborated by stronger evidence"
+  },
+  "updated_from_message_id": "uuid",
+  "updated_at": "2026-07-14T12:00:00Z"
+}
+```
 
 ## Captures
 

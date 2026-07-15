@@ -18,6 +18,8 @@ import {
   completeReminder,
   getDueRecalls,
   getSourceContent,
+  snoozeReminder,
+  submitQuickRecall,
   submitRecallAnswer,
 } from "@/lib/api";
 import {
@@ -30,6 +32,8 @@ import type {
   DueReminder,
   DueRecallsResponse,
   RecallAnswerResponse,
+  RecallQuickAction,
+  RecallQuickResponse,
   SourceContentResponse,
 } from "@/lib/types";
 
@@ -47,9 +51,14 @@ export function RecallWorkspace({
   const [evaluation, setEvaluation] = useState<RecallAnswerResponse | null>(null);
   const [source, setSource] = useState<SourceContentResponse | null>(null);
   const [showOriginal, setShowOriginal] = useState(false);
+  const [showDeepReview, setShowDeepReview] = useState(false);
   const [sourceLoading, setSourceLoading] = useState(false);
   const [selectedReminderId, setSelectedReminderId] = useState<string | null>(null);
   const [completingReminder, setCompletingReminder] = useState(false);
+  const [snoozingReminder, setSnoozingReminder] = useState(false);
+  const [quickSubmitting, setQuickSubmitting] =
+    useState<RecallQuickAction | null>(null);
+  const [quickResult, setQuickResult] = useState<RecallQuickResponse | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,6 +116,11 @@ export function RecallWorkspace({
     setError(null);
     setSource(null);
     setShowOriginal(false);
+    setShowDeepReview(false);
+    setQuickSubmitting(null);
+    setQuickResult(null);
+    setCompletingReminder(false);
+    setSnoozingReminder(false);
   }, [selected?.memory_id, selectedReminder?.reminder_id]);
 
   async function completeSelectedReminder() {
@@ -135,6 +149,35 @@ export function RecallWorkspace({
       );
     } finally {
       setCompletingReminder(false);
+    }
+  }
+
+  async function snoozeSelectedReminder() {
+    if (!selectedReminder || snoozingReminder) return;
+
+    setSnoozingReminder(true);
+    setError(null);
+    try {
+      await snoozeReminder(selectedReminder.reminder_id, 60);
+      setData((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          due_count: Math.max(0, current.due_count - 1),
+          reminders: current.reminders.filter(
+            (reminder) => reminder.reminder_id !== selectedReminder.reminder_id,
+          ),
+        };
+      });
+      setSelectedReminderId(null);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "The reminder could not be snoozed.",
+      );
+    } finally {
+      setSnoozingReminder(false);
     }
   }
 
@@ -193,13 +236,55 @@ export function RecallWorkspace({
     }
   }
 
+  async function submitQuick(action: RecallQuickAction) {
+    if (!selected || quickSubmitting || quickResult) return;
+
+    setQuickSubmitting(action);
+    setError(null);
+    try {
+      const response = await submitQuickRecall(selected.memory_id, action);
+      setQuickResult(response);
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              due_count: Math.max(0, current.due_count - 1),
+            }
+          : current,
+      );
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "This recall action could not be saved.",
+      );
+    } finally {
+      setQuickSubmitting(null);
+    }
+  }
+
+  function showNextThought() {
+    if (!selected) return;
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            memories: current.memories.filter(
+              (memory) => memory.memory_id !== selected.memory_id,
+            ),
+          }
+        : current,
+    );
+    setQuickResult(null);
+  }
+
   return (
     <AppShell
       dueCount={data?.due_count ?? 0}
       title="Recall"
       subtitle={
         selected
-          ? "A quiet return to something you learned"
+          ? "One useful nudge, not a queue"
           : selectedReminder
             ? "A reminder is ready"
             : "Nothing due"
@@ -232,7 +317,9 @@ export function RecallWorkspace({
             <ReminderDue
               reminder={selectedReminder}
               completing={completingReminder}
+              snoozing={snoozingReminder}
               onComplete={completeSelectedReminder}
+              onSnooze={snoozeSelectedReminder}
             />
           ) : null}
 
@@ -241,21 +328,21 @@ export function RecallWorkspace({
               <div className="flex items-center gap-2 text-[#2d7058]">
                 <Sparkles size={15} />
                 <span className="text-[10px] font-extrabold uppercase">
-                  Ready to retrieve
+                  A thought is ready
                 </span>
               </div>
               <h2 className="mt-5 max-w-[650px] text-[24px] font-[750] leading-[1.35] md:text-[30px]">
-                {selected.recall_prompt}
+                {selected.summary ?? selected.content}
               </h2>
               <p className="mt-3 text-[11px] font-semibold text-[#85888b]">
-                From {selected.source_title ?? "a saved source"} -{" "}
+                Saved from {selected.source_title ?? "a saved source"} -{" "}
                 {formatRelativeOverdue(selected.overdue_seconds)}
               </p>
 
               <div className="mt-8 rounded-lg border border-[#d9dcde] bg-[#f8f9f9] p-5">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-[10px] font-extrabold uppercase text-[#85888b]">
-                    The memory
+                    The idea
                   </p>
                   <button
                     type="button"
@@ -297,46 +384,106 @@ export function RecallWorkspace({
                 </div>
               ) : null}
 
-              <div className="mt-5 rounded-lg border border-[#cfd2d4] bg-white p-2 shadow-[0_14px_42px_rgba(17,17,17,0.07)]">
-                <textarea
-                  rows={5}
-                  value={answer}
-                  onChange={(event) => setAnswer(event.target.value)}
-                  placeholder="Start from what you remember..."
-                  className="w-full resize-none bg-transparent px-3 py-3 text-[13px] font-medium leading-relaxed outline-none placeholder:text-[#a0a3a5]"
-                />
-                <div className="flex items-center px-1 pb-1">
-                  <span className="text-[9px] font-bold uppercase text-[#939699]">
-                    Your own words
-                  </span>
-                  <div className="ml-auto mr-2 flex items-center rounded-md bg-[#f1f2f3] p-0.5">
-                    {[1, 2, 3, 4].map((rating) => (
-                      <button
-                        key={rating}
-                        type="button"
-                        title={`Self-rating ${rating} of 4`}
-                        onClick={() => setSelfRating(rating)}
-                        className={`flex size-7 items-center justify-center rounded text-[9px] font-extrabold ${
-                          selfRating === rating
-                            ? "bg-white text-[#111111] shadow-sm"
-                            : "text-[#8a8d90]"
-                        }`}
-                      >
-                        {rating}
-                      </button>
-                    ))}
-                  </div>
+              <div className="mt-5 rounded-lg border border-[#d7e5dc] bg-[#f1f7f4] p-5">
+                <p className="text-[10px] font-extrabold uppercase text-[#2d7058]">
+                  Quick check
+                </p>
+                <p className="mt-2 text-[13px] font-semibold leading-relaxed text-[#3f5d51]">
+                  Does this still feel useful for what you are doing now?
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <QuickRecallButton
+                    label="Still useful"
+                    action="still_relevant"
+                    activeAction={quickSubmitting}
+                    disabled={Boolean(quickResult)}
+                    onClick={submitQuick}
+                  />
+                  <QuickRecallButton
+                    label="I used it"
+                    action="applied"
+                    activeAction={quickSubmitting}
+                    disabled={Boolean(quickResult)}
+                    onClick={submitQuick}
+                  />
+                  <QuickRecallButton
+                    label="Not now"
+                    action="not_now"
+                    activeAction={quickSubmitting}
+                    disabled={Boolean(quickResult)}
+                    onClick={submitQuick}
+                  />
                   <button
                     type="button"
-                    onClick={submitAnswer}
-                    disabled={answer.trim().length < 3 || submitting || Boolean(evaluation)}
-                    aria-label="Reflect on answer"
-                    className="ml-auto flex size-9 items-center justify-center rounded-md bg-[#111111] text-white disabled:bg-[#d2d4d5]"
+                    onClick={() => setShowDeepReview((value) => !value)}
+                    className="rounded-md border border-[#d7dadc] bg-white px-3 py-2 text-[11px] font-extrabold text-[#4d5255] transition hover:border-[#9fa4a7]"
                   >
-                    <ArrowUp size={17} />
+                    {showDeepReview ? "Hide deeper review" : "Review deeper"}
                   </button>
                 </div>
               </div>
+
+              {quickResult ? (
+                <QuickRecallResult
+                  result={quickResult}
+                  onShowNext={showNextThought}
+                />
+              ) : null}
+
+              {showDeepReview ? (
+                <div className="mt-5 rounded-lg border border-[#cfd2d4] bg-white p-2 shadow-[0_14px_42px_rgba(17,17,17,0.07)]">
+                  <div className="px-3 pt-3">
+                    <p className="text-[10px] font-extrabold uppercase text-[#85888b]">
+                      Sit with it
+                    </p>
+                    <p className="mt-1 text-[12px] font-semibold leading-relaxed text-[#606568]">
+                      {selected.recall_prompt}
+                    </p>
+                  </div>
+                  <textarea
+                    rows={5}
+                    value={answer}
+                    onChange={(event) => setAnswer(event.target.value)}
+                    placeholder="Write what comes to mind..."
+                    className="w-full resize-none bg-transparent px-3 py-3 text-[13px] font-medium leading-relaxed outline-none placeholder:text-[#a0a3a5]"
+                  />
+                  <div className="flex items-center px-1 pb-1">
+                    <span className="text-[9px] font-bold uppercase text-[#939699]">
+                      Your own words
+                    </span>
+                    <div className="ml-auto mr-2 flex items-center rounded-md bg-[#f1f2f3] p-0.5">
+                      {[1, 2, 3, 4].map((rating) => (
+                        <button
+                          key={rating}
+                          type="button"
+                          title={`Self-rating ${rating} of 4`}
+                          onClick={() => setSelfRating(rating)}
+                          className={`flex size-7 items-center justify-center rounded text-[9px] font-extrabold ${
+                            selfRating === rating
+                              ? "bg-white text-[#111111] shadow-sm"
+                              : "text-[#8a8d90]"
+                          }`}
+                        >
+                          {rating}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={submitAnswer}
+                      disabled={
+                        answer.trim().length < 3 ||
+                        submitting ||
+                        Boolean(evaluation)
+                      }
+                      aria-label="Reflect on answer"
+                      className="ml-auto flex size-9 items-center justify-center rounded-md bg-[#111111] text-white disabled:bg-[#d2d4d5]"
+                    >
+                      <ArrowUp size={17} />
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
               {evaluation ? (
                 <Reflection evaluation={evaluation} />
@@ -368,14 +515,81 @@ export function RecallWorkspace({
   );
 }
 
+function QuickRecallButton({
+  label,
+  action,
+  activeAction,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  action: RecallQuickAction;
+  activeAction: RecallQuickAction | null;
+  disabled: boolean;
+  onClick: (action: RecallQuickAction) => void;
+}) {
+  const active = activeAction === action;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onClick(action)}
+      disabled={disabled || activeAction !== null}
+      className="rounded-md border border-[#cfd8d3] bg-white px-3 py-2 text-[11px] font-extrabold text-[#244f42] transition hover:border-[#9eb9ad] hover:bg-[#f7fbf9] disabled:cursor-not-allowed disabled:border-[#d9dddb] disabled:bg-[#eef0ef] disabled:text-[#8c9390]"
+    >
+      {active ? "Saving..." : label}
+    </button>
+  );
+}
+
+function QuickRecallResult({
+  result,
+  onShowNext,
+}: {
+  result: RecallQuickResponse;
+  onShowNext: () => void;
+}) {
+  return (
+    <div className="mt-4 rounded-lg border border-[#d5e4db] bg-[#f0f7f3] p-5 rise-in">
+      <div className="flex items-start gap-3">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-white text-[#2d7058] shadow-sm">
+          <CircleCheck size={16} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-extrabold uppercase text-[#2d7058]">
+            Noted
+          </p>
+          <p className="mt-1 text-[12px] font-semibold leading-relaxed text-[#43564e]">
+            {result.feedback}
+          </p>
+          <p className="mt-2 text-[10px] font-bold uppercase text-[#759084]">
+            Back again {formatFriendlyDateTime(result.next_due_at)}
+          </p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onShowNext}
+        className="mt-4 inline-flex items-center gap-1.5 text-[11px] font-extrabold text-[#2d7058]"
+      >
+        Show next thought <ChevronRight size={14} />
+      </button>
+    </div>
+  );
+}
+
 function ReminderDue({
   reminder,
   completing,
+  snoozing,
   onComplete,
+  onSnooze,
 }: {
   reminder: DueReminder;
   completing: boolean;
+  snoozing: boolean;
   onComplete: () => void;
+  onSnooze: () => void;
 }) {
   return (
     <div className="rise-in">
@@ -396,21 +610,34 @@ function ReminderDue({
           : "not saved as memory"}
       </p>
       <div className="mt-8 rounded-lg border border-[#d7e5dc] bg-[#f1f7f4] px-4 py-3 text-[#2d7058]">
-        <p className="text-[9px] font-extrabold uppercase">Why this is here</p>
+        <p className="text-[9px] font-extrabold uppercase">
+          One-time reminder
+        </p>
         <p className="mt-2 text-[12px] font-semibold leading-relaxed text-[#3f5d51]">
-          You asked Crowscap to remind you about this without turning it into a
-          long-term knowledge card.
+          This is a nudge, not recall history. Mark it done and it leaves the
+          active recall surface.
         </p>
       </div>
-      <button
-        type="button"
-        onClick={onComplete}
-        disabled={completing}
-        className="mt-5 inline-flex items-center gap-2 rounded-lg bg-[#111111] px-4 py-3 text-[11px] font-extrabold text-white transition disabled:bg-[#c7cacc]"
-      >
-        <CircleCheck size={14} />
-        {completing ? "Marking done..." : "Mark done"}
-      </button>
+      <div className="mt-5 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onComplete}
+          disabled={completing || snoozing}
+          className="inline-flex items-center gap-2 rounded-lg border border-[#c8dcd2] bg-white px-4 py-3 text-[11px] font-extrabold text-[#245e4b] transition hover:border-[#9ebfad] hover:bg-[#f7fbf9] disabled:cursor-not-allowed disabled:border-[#d9dddb] disabled:bg-[#eef0ef] disabled:text-[#8c9390] [&_svg]:stroke-[#245e4b]"
+        >
+          <CircleCheck size={14} />
+          {completing ? "Marking done..." : "Done"}
+        </button>
+        <button
+          type="button"
+          onClick={onSnooze}
+          disabled={completing || snoozing}
+          className="inline-flex items-center gap-2 rounded-lg border border-[#d7dadc] bg-white px-4 py-3 text-[11px] font-extrabold text-[#555a5d] transition hover:border-[#aeb3b5] hover:bg-[#f7f8f8] disabled:cursor-not-allowed disabled:border-[#d9dddb] disabled:bg-[#eef0ef] disabled:text-[#8c9390] [&_svg]:stroke-[#555a5d]"
+        >
+          <Clock3 size={14} />
+          {snoozing ? "Snoozing..." : "Snooze 1h"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -519,16 +746,17 @@ function RecallContext({
   selectedReminderId: string | null;
   onSelectReminder: (reminderId: string) => void;
 }) {
-  const total = memories.length + reminders.length;
-
   return (
     <div className="h-full overflow-y-auto px-5 py-6">
       <p className="text-[10px] font-extrabold uppercase text-[#8a8d90]">
-        Recall queue
+        More to revisit
       </p>
-      <p className="mt-2 text-[24px] font-[760]">{total}</p>
-      <p className="text-[10px] font-semibold text-[#888b8e]">
-        items ready
+      <h2 className="mt-2 text-[20px] font-[750] leading-tight">
+        One at a time.
+      </h2>
+      <p className="mt-2 text-[11px] font-semibold leading-relaxed text-[#777b7e]">
+        Crowscap keeps the backlog quiet and brings forward the next useful
+        thing.
       </p>
       <div className="mt-6 space-y-1">
         {reminders.slice(0, 8).map((reminder, index) => (
