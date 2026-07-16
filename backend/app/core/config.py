@@ -1,5 +1,7 @@
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlsplit
+from urllib.parse import urlunsplit
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -44,6 +46,14 @@ class Settings(BaseSettings):
     public_search_duckduckgo_url: str = "https://html.duckduckgo.com/html/"
     public_search_timeout_seconds: float = 10.0
 
+    crowscap_mcp_enabled: bool = False
+    crowscap_mcp_host: str = "127.0.0.1"
+    crowscap_mcp_port: int = 8010
+    crowscap_mcp_transport: Literal["stdio", "sse", "streamable-http"] = "sse"
+    crowscap_mcp_sse_path: str = "/mcp/sse"
+    crowscap_mcp_message_path: str = "/mcp/messages/"
+    crowscap_mcp_streamable_http_path: str = "/mcp"
+
     @property
     def has_qwen_key(self) -> bool:
         return bool(self.dashscope_api_key_value)
@@ -59,3 +69,27 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def mask_url_credentials(url: str) -> str:
+    """Hide password-like credentials before writing connection URLs to logs."""
+    parsed = urlsplit(url)
+    if not parsed.netloc or "@" not in parsed.netloc:
+        return url
+
+    userinfo, hostinfo = parsed.netloc.rsplit("@", 1)
+    if ":" in userinfo:
+        username, _password = userinfo.split(":", 1)
+        safe_userinfo = f"{username}:***"
+    else:
+        safe_userinfo = "***"
+
+    return urlunsplit(
+        (
+            parsed.scheme,
+            f"{safe_userinfo}@{hostinfo}",
+            parsed.path,
+            parsed.query,
+            parsed.fragment,
+        )
+    )

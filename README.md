@@ -31,8 +31,9 @@ Backend:
 - SQLAlchemy 2.x
 - Alembic
 - PostgreSQL with vector search support where available
-- Redis plus Celery for background jobs
+- Database-backed job/status MVP; Redis plus Celery remains optional for scale
 - Qwen Cloud via OpenAI-compatible SDK
+- Local MCP/SSE server for agent-accessible memory tools
 
 Infrastructure:
 - Docker for local reproducibility
@@ -85,6 +86,8 @@ Crowscap keeps preference memory separate from knowledge memory. A normal saved 
 - [Security, Cost, and Reliability](docs/10-security-cost-reliability.md)
 - [Roadmap and Skills](docs/11-roadmap-and-skills.md)
 - [Demo and Evaluation](docs/12-demo-and-evaluation.md)
+- [Alibaba ECS Backend Deployment](docs/14-alibaba-ecs-deployment.md)
+- [MCP Contract](docs/15-mcp-contract.md)
 
 ## Verified Sources
 

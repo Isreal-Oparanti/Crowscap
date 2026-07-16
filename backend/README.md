@@ -226,6 +226,38 @@ The response includes persisted evaluation feedback, an understanding summary,
 knowledge gaps, context to consider, a deeper follow-up question, and the next
 scheduled review.
 
+## Local MCP Server
+
+Crowscap now exposes a read-only MCP server over SSE. This lets an agent call the
+memory system as tools without duplicating backend logic.
+
+Run it from the backend folder:
+
+```powershell
+.\.venv\Scripts\python -m app.mcp.server
+```
+
+Default local SSE URL:
+
+```text
+http://127.0.0.1:8010/mcp/sse
+```
+
+Read-only tools currently exposed:
+
+- `search_memory`: semantic search over saved memories.
+- `audit_belief`: synthesize what saved memories appear to say about a topic.
+- `get_due_recalls`: return due knowledge recalls and one-time reminders.
+- `get_user_preferences`: return the learned preference profile.
+
+Verify the tool output contracts:
+
+```powershell
+.\.venv\Scripts\python -m pytest tests\test_mcp_tools.py
+```
+
+The MCP contract lives in `../docs/15-mcp-contract.md`.
+
 ## What DASHSCOPE_API_KEY Means
 
 `DASHSCOPE_API_KEY` is the Alibaba/Qwen Cloud API key. The backend uses it to call Qwen models through the OpenAI-compatible API. It lives only in `.env`; never commit it.

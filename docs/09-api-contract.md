@@ -419,14 +419,29 @@ Response:
 
 ## MCP Tools
 
-Expose equivalent operations through MCP:
+Local MCP/SSE endpoint:
 
-- capture_memory
-- search_memory
-- get_due_recalls
-- answer_recall
-- audit_topic
-- compare_memories
-- archive_memory
+```text
+http://127.0.0.1:8010/mcp/sse
+```
 
-Qwen Cloud MCP support uses the Responses API and currently supports SSE MCP servers according to Qwen Cloud documentation. The docs also state MCP is available through the Responses API only. Keep MCP as a separate service layer that calls internal backend services.
+Implemented read-only tools:
+
+- `search_memory`: semantic search over saved memory atoms.
+- `audit_belief`: source-aware belief audit over saved memories and optional public evidence leads.
+- `get_due_recalls`: due memories and one-time reminders.
+- `get_user_preferences`: learned preference profile.
+
+Write tools are intentionally deferred:
+
+- `capture_memory`
+- `answer_recall`
+- `archive_memory`
+- `complete_reminder`
+- `update_action`
+
+Reason: external agent write access needs authentication, ownership checks, and
+confirmation behavior. The first MCP surface is read-only so judges can inspect
+and call the memory system without risking accidental mutation.
+
+Full contract: `docs/15-mcp-contract.md`.
