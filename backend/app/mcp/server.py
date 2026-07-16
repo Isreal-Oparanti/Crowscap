@@ -82,6 +82,5 @@ def get_user_preferences(user_id: str | None = None) -> dict:
 def main() -> None:
     mcp.run(transport=settings.crowscap_mcp_transport)
 
-
 if __name__ == "__main__":
     main()
