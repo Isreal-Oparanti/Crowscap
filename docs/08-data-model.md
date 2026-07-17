@@ -41,13 +41,22 @@ Fields:
 - created_at
 - updated_at
 
-Phase 0 implementation:
-The preference profile is updated only from explicit preference language, not inferred casually from every chat message. Examples:
+Current implementation:
+The preference profile is updated from two signal tiers.
+
+High-confidence explicit preferences come from direct user language. Examples:
 
 - "I prefer short answers" -> `answer_style=concise`
 - "Challenge my assumptions more" -> `challenge_style=direct`
 - "I care mostly about startups and product" -> adds topics of interest
 - "Do not show weak YouTube advice unless there is evidence" -> source preference plus stricter evidence handling
+
+Lower-confidence autonomous signals come from accumulated behavior:
+
+- Repeated capture topics -> inferred topics of interest
+- Archive events -> topics or memory types to deprioritize
+- Recall reviews -> memory types the user seems to retain well
+- Source mix -> transparency about the user's saved source patterns
 
 The profile is used by chat synthesis, belief audits, and recall prompt generation.
 
@@ -192,6 +201,36 @@ The local implementation stores directed edges from a newly captured memory to o
 
 Relationship classifications must cite exact evidence phrases from both memories. The backend rejects weak results and any result whose evidence does not appear verbatim in the corresponding memory. This protects the graph from plausible-sounding but unsupported connections.
 
+### memory_perspective_notes
+
+Purpose:
+Stores delayed, non-judgmental prompts linked to under-evidenced or one-sided memories. These notes are Crowscap's "ignorance gap" surface. They ask the user to consider a counterexample, boundary condition, or stronger source later. They do not automatically rewrite the user's memory.
+
+Fields:
+- id
+- user_id
+- memory_id
+- status: queued, surfaced, accepted, dismissed
+- perspective_type: counterpoint, nuance, evidence_gap
+- title
+- content
+- suggested_query
+- confidence
+- surface_after_at
+- surfaced_at
+- accepted_at
+- dismissed_at
+- created_by
+- metadata_json
+- created_at
+- updated_at
+
+Creation rule:
+Crowscap queues notes for claim-like memories such as `claim`, `principle`, `framework`, `prediction`, and `warning` when they are not strongly supported or are labeled as opinion, advice, prediction, framework, or unresolved. High-confidence memories from strong sources are skipped.
+
+User-control rule:
+Accepting a note marks it useful but does not create a new memory automatically. Dismissing a note stops it from surfacing.
+
 ### recall_prompts
 
 Purpose:
@@ -307,6 +346,7 @@ Recommended:
 - recall_prompts(user_id, status, due_at)
 - memory_relations(user_id, source_memory_id)
 - memory_relations(user_id, target_memory_id)
+- memory_perspective_notes(user_id, status, surface_after_at)
 - vector index on memory_embeddings.embedding
 - unique or hash index for sources.extracted_text_hash
 
@@ -314,5 +354,6 @@ Recommended:
 
 - Raw source snapshots are retained unless user deletes the source.
 - Archived memories remain searchable only if user includes archived items.
+- Dismissed perspective notes remain as audit trail but should not surface again.
 - Deleted memories should be soft-deleted first, then hard-delete through a retention job if needed.
 - User export/delete should be planned before public release.

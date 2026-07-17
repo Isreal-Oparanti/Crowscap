@@ -241,6 +241,26 @@ class MemoryArchiveEvent(Base, TimestampMixin):
     metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
 
+class MemoryPerspectiveNote(Base, TimestampMixin):
+    __tablename__ = "memory_perspective_notes"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    user_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    memory_id: Mapped[str] = mapped_column(ForeignKey("memories.id"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(40), default="queued", nullable=False, index=True)
+    perspective_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    suggested_query: Mapped[str | None] = mapped_column(Text)
+    confidence: Mapped[str] = mapped_column(String(20), default="medium", nullable=False)
+    surface_after_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    surfaced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by: Mapped[str] = mapped_column(String(40), default="system", nullable=False)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+
 class MemoryRelation(Base, TimestampMixin):
     __tablename__ = "memory_relations"
 

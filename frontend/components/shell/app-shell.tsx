@@ -10,9 +10,11 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { getPreferences } from "@/lib/api";
+import type { UserPreferenceProfile } from "@/lib/types";
 
 export type AppShellUser = {
   name?: string | null;
@@ -208,38 +210,102 @@ function MobileNavigation({
 }
 
 function DefaultContext() {
+  const [preferences, setPreferences] = useState<UserPreferenceProfile | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let active = true;
+    getPreferences()
+      .then((profile) => {
+        if (active) {
+          setPreferences(profile);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setPreferences(null);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const topics = [
+    ...(preferences?.topics_of_interest ?? []),
+    ...(preferences?.inferred_topics ?? []),
+  ].filter((topic, index, list) => list.indexOf(topic) === index);
+  const signals = preferences?.learning_signals ?? [];
+
   return (
     <div className="flex h-full flex-col px-5 py-6">
       <p className="text-[10px] font-extrabold uppercase text-[#8a8d90]">
-        In mind
+        Crowscap is learning
       </p>
       <h2 className="mt-2 text-[20px] font-[750] leading-tight">
-        A clearer view of what you know.
+        Your memory should get more personal over time.
       </h2>
       <div className="mt-6 space-y-2">
-        {[
-          ["Distribution", "6 memories"],
-          ["Product thinking", "4 memories"],
-          ["Design systems", "3 memories"],
-        ].map(([topic, count]) => (
-          <div
-            key={topic}
-            className="flex items-center justify-between border-b border-[#e4e5e6] py-3"
-          >
-            <span className="text-[12px] font-semibold">{topic}</span>
-            <span className="text-[10px] text-[#8b8e91]">{count}</span>
-          </div>
-        ))}
+        <PreferenceRow
+          label="Answers"
+          value={preferences?.answer_style ?? "balanced"}
+        />
+        <PreferenceRow
+          label="Evidence"
+          value={preferences?.evidence_strictness ?? "balanced"}
+        />
+        <PreferenceRow
+          label="Challenge"
+          value={preferences?.challenge_style ?? "balanced"}
+        />
       </div>
+      {topics.length > 0 ? (
+        <div className="mt-6">
+          <p className="text-[10px] font-extrabold uppercase text-[#8a8d90]">
+            Topics it has noticed
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {topics.slice(0, 8).map((topic) => (
+              <span
+                key={topic}
+                className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-[#424548] shadow-[0_0_0_1px_#e2e4e5]"
+              >
+                {topic}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {signals.length > 0 ? (
+        <div className="mt-6 rounded-md border border-[#d7e9df] bg-[#eff8f3] p-3 text-[#285b48]">
+          <p className="text-[10px] font-extrabold uppercase">
+            Latest learning signal
+          </p>
+          <p className="mt-2 text-[11px] leading-relaxed">{signals[0]}</p>
+        </div>
+      ) : null}
       <div className="mt-auto border-t border-[#e1e3e4] pt-4">
         <div className="flex items-center gap-2 text-[#5d6265]">
           <Sparkles size={14} />
-          <span className="text-[10px] font-bold uppercase">Memory active</span>
+          <span className="text-[10px] font-bold uppercase">Agent memory</span>
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-[#84878a]">
-          Your sources remain attached to every remembered idea.
+          Explicit preferences are treated as strongest. Inferred preferences
+          are lower-confidence and can change as you use Crowscap.
         </p>
       </div>
+    </div>
+  );
+}
+
+function PreferenceRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between border-b border-[#e4e5e6] py-3">
+      <span className="text-[12px] font-semibold">{label}</span>
+      <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold uppercase text-[#676a6d] shadow-[0_0_0_1px_#e4e5e6]">
+        {value}
+      </span>
     </div>
   );
 }

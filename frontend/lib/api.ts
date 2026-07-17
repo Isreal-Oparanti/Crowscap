@@ -5,12 +5,14 @@ import type {
   ConversationResponse,
   ConversationTurn,
   DueRecallsResponse,
+  PerspectiveNoteListResponse,
   ReminderResponse,
   RecallAnswerResponse,
   RecallQuickAction,
   RecallQuickResponse,
   SearchResponse,
   SourceContentResponse,
+  UserPreferenceLearningResponse,
   UserPreferenceProfile,
 } from "@/lib/types";
 
@@ -91,6 +93,21 @@ export function getCurrentConversation(): Promise<ConversationResponse | null> {
 
 export function getPreferences(): Promise<UserPreferenceProfile> {
   return request<UserPreferenceProfile>("preferences/me");
+}
+
+export function learnPreferencesNow(): Promise<UserPreferenceLearningResponse> {
+  return request<UserPreferenceLearningResponse>("preferences/learn-now", {
+    method: "POST",
+  });
+}
+
+export function getDuePerspectiveNotes(
+  includeFuture = false,
+  limit = 10,
+): Promise<PerspectiveNoteListResponse> {
+  return request<PerspectiveNoteListResponse>(
+    `memories/perspective-notes/due?limit=${limit}&include_future=${includeFuture}`,
+  );
 }
 
 export function searchMemories(query: string): Promise<SearchResponse> {

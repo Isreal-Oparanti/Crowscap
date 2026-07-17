@@ -36,6 +36,7 @@ from app.services.preference_service import (
     format_preference_context,
     is_explicit_preference_statement,
     learn_preferences_from_message,
+    maybe_autonomously_update_preferences,
     preference_response,
 )
 from app.services.relationship_service import MemoryRelationDetector
@@ -345,6 +346,9 @@ def process_chat_message(
         message_id=user_message.id,
         user_id=user_id,
     )
+    autonomous_learning = maybe_autonomously_update_preferences(db=db, user_id=user_id)
+    if autonomous_learning.updates:
+        preference_learning.updates.extend(autonomous_learning.updates)
     preferences = preference_learning.profile
 
     if route.action == "acknowledge":

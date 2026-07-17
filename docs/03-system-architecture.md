@@ -63,7 +63,14 @@ User -> Frontend -> FastAPI -> DB
 
 ## Preference Memory Layer
 
-Preference memory is separate from semantic memory. It stores how the user wants Crowscap to behave, not what the user learned. The detector is intentionally conservative: it updates the profile only when the user clearly states a preference, such as "I prefer short answers", "challenge my assumptions", "remind me in the evenings", or "do not show weak YouTube advice unless there is evidence".
+Preference memory is separate from semantic memory. It stores how the user wants Crowscap to behave, not what the user learned.
+
+The layer has two confidence tiers:
+
+- Explicit preferences: direct user statements such as "I prefer short answers", "challenge my assumptions", "remind me in the evenings", or "do not show weak YouTube advice unless there is evidence".
+- Autonomous signals: lower-confidence patterns inferred from captures, archives, recall reviews, source mix, and memory types.
+
+Autonomous updates are throttled and database-first. They do not call Qwen on every message. This keeps the adaptation loop cheap, explainable, and safe from overfitting.
 
 The profile currently affects:
 - Chat synthesis: answer length, directness, and evidence framing.
@@ -71,6 +78,12 @@ The profile currently affects:
 - Recall prompts: whether review questions are concise, evidence-focused, or more challenging.
 
 This is the core Track 1 adaptation layer: Crowscap persists not only what the user has learned, but how the user wants to learn.
+
+## Perspective Note Layer
+
+Perspective notes sit between passive storage and active correction. When a saved memory looks under-evidenced or one-sided, Crowscap queues a delayed note that asks the user to compare the memory with a counterexample, boundary condition, or stronger source.
+
+The system does not immediately declare the saved idea wrong. It surfaces a future prompt and lets the user accept or dismiss it. This preserves trust while still helping the user repair knowledge gaps over time.
 
 ## Recommended Service Boundaries
 

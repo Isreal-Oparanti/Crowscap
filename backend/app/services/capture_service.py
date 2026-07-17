@@ -20,6 +20,7 @@ from app.schemas.capture import (
 )
 from app.services.embedding_service import EmbeddingError, MemoryEmbedder
 from app.services.extraction_service import MemoryExtractor
+from app.services.perspective_service import queue_perspective_notes_for_memories
 from app.services.relationship_service import MemoryRelationDetector, RelationshipDetectionError
 
 logger = get_logger("services.capture")
@@ -112,12 +113,20 @@ def create_extracted_text_capture(
                 detector=relation_detector,
                 user_id=user_id,
             )
+            perspective_notes = queue_perspective_notes_for_memories(
+                db=db,
+                memories=memories,
+                user_id=user_id,
+            )
+            if perspective_notes:
+                db.commit()
             logger.info(
-                "\u267b\ufe0f capture.text.duplicate_reused source_id=%s capture_id=%s memories=%s relationships=%s",
+                "\u267b\ufe0f capture.text.duplicate_reused source_id=%s capture_id=%s memories=%s relationships=%s perspective_notes=%s",
                 existing_source.id,
                 latest_capture.id,
                 len(memories),
                 len(relationships),
+                len(perspective_notes),
             )
             return _build_text_capture_response(
                 capture=latest_capture,
@@ -178,6 +187,11 @@ def create_extracted_text_capture(
         user_id=user_id,
         embeddings=embeddings,
     )
+    perspective_notes = queue_perspective_notes_for_memories(
+        db=db,
+        memories=memories,
+        user_id=user_id,
+    )
 
     relationships, relationship_scan_completed = _detect_relationships(
         db=db,
@@ -190,11 +204,12 @@ def create_extracted_text_capture(
 
     db.commit()
     logger.info(
-        "\U0001f4be capture.text.saved source_id=%s capture_id=%s memories=%s relationships=%s",
+        "\U0001f4be capture.text.saved source_id=%s capture_id=%s memories=%s relationships=%s perspective_notes=%s",
         source.id,
         capture.id,
         len(memories),
         len(relationships),
+        len(perspective_notes),
     )
 
     return _build_text_capture_response(

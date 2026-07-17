@@ -24,6 +24,13 @@ class UserPreferenceResponse(BaseModel):
     notification_preference: str | None = None
     topics_of_interest: list[str] = Field(default_factory=list)
     source_preferences: dict = Field(default_factory=dict)
+    confidence_scores: dict[str, float] = Field(default_factory=dict)
+    inferred_topics: list[str] = Field(default_factory=list)
+    deprioritized_topics: list[str] = Field(default_factory=list)
+    deprioritized_memory_types: list[str] = Field(default_factory=list)
+    content_affinities: dict = Field(default_factory=dict)
+    learning_signals: list[str] = Field(default_factory=list)
+    last_autonomous_update_at: str | None = None
     updated_from_message_id: str | None = None
     updated_at: str
 

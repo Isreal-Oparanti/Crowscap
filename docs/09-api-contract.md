@@ -106,8 +106,55 @@ Response:
     "avoid_weak": ["youtube"],
     "rule": "avoid weak sources unless corroborated by stronger evidence"
   },
+  "confidence_scores": {
+    "answer_style": 0.9,
+    "topics_of_interest": 0.55
+  },
+  "inferred_topics": ["startup", "backend"],
+  "deprioritized_topics": [],
+  "deprioritized_memory_types": ["quote"],
+  "content_affinities": {
+    "source_types": {
+      "youtube": 4,
+      "text": 3
+    },
+    "memory_types": {
+      "principle": 9,
+      "action": 5
+    },
+    "strong_recall_memory_types": ["action"]
+  },
+  "learning_signals": [
+    "Recurring topics inferred from saved memories: startup, backend."
+  ],
+  "last_autonomous_update_at": "2026-07-17T12:00:00Z",
   "updated_from_message_id": "uuid",
   "updated_at": "2026-07-14T12:00:00Z"
+}
+```
+
+Explicit user preferences are treated as high-confidence. Behavior-derived fields such as `inferred_topics`, `content_affinities`, and `deprioritized_memory_types` are lower-confidence signals and should be displayed as things Crowscap has noticed, not as unquestionable facts.
+
+### POST /preferences/learn-now
+
+Forces the autonomous preference accumulator to run immediately for the current user. This is useful in development and demos because the normal chat path throttles autonomous updates to roughly once per 24 hours.
+
+Response:
+
+```json
+{
+  "preferences": {
+    "id": "uuid",
+    "answer_style": "concise",
+    "topics_of_interest": ["startups", "backend"],
+    "inferred_topics": ["startup", "backend"],
+    "learning_signals": [
+      "Recurring topics inferred from saved memories: startup, backend."
+    ]
+  },
+  "updates": [
+    "Recurring topics inferred from saved memories: startup, backend."
+  ]
 }
 ```
 
@@ -264,6 +311,46 @@ Request:
 ### POST /memories/{memory_id}/archive
 
 Archives a memory.
+
+### GET /memories/perspective-notes/due
+
+Returns perspective notes that are ready to surface for the signed-in user. Perspective notes are delayed, non-judgmental prompts linked to under-evidenced or one-sided memories.
+
+Query params:
+- limit: optional, default 10, max 50
+- include_future: optional, default false. Set true during development to inspect queued notes before their surface date.
+
+Response:
+
+```json
+{
+  "count": 1,
+  "notes": [
+    {
+      "id": "uuid",
+      "memory_id": "uuid",
+      "memory_content": "Polling is the best way to handle chat notifications in the backend.",
+      "source_title": "Backend note",
+      "status": "queued",
+      "perspective_type": "nuance",
+      "title": "Consider where this may not apply",
+      "content": "You saved this idea, but Crowscap should not treat it as settled truth yet. When it resurfaces, compare it against a credible counterexample, boundary condition, or stronger source before deciding whether to keep, refine, or replace the belief.",
+      "suggested_query": "Polling is the best way to handle chat notifications in the backend counterarguments evidence limitations",
+      "confidence": "medium",
+      "surface_after_at": "2026-07-20T12:00:00Z",
+      "created_at": "2026-07-17T12:00:00Z"
+    }
+  ]
+}
+```
+
+### POST /memories/perspective-notes/{note_id}/accept
+
+Marks a perspective note as useful. It does not automatically create a new memory yet.
+
+### POST /memories/perspective-notes/{note_id}/dismiss
+
+Stops surfacing a perspective note.
 
 ## Search
 

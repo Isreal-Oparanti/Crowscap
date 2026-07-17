@@ -61,8 +61,40 @@ export type UserPreferenceProfile = {
   notification_preference: string | null;
   topics_of_interest: string[];
   source_preferences: Record<string, unknown>;
+  confidence_scores: Record<string, number>;
+  inferred_topics: string[];
+  deprioritized_topics: string[];
+  deprioritized_memory_types: string[];
+  content_affinities: Record<string, unknown>;
+  learning_signals: string[];
+  last_autonomous_update_at: string | null;
   updated_from_message_id: string | null;
   updated_at: string;
+};
+
+export type UserPreferenceLearningResponse = {
+  preferences: UserPreferenceProfile;
+  updates: string[];
+};
+
+export type PerspectiveNote = {
+  id: string;
+  memory_id: string;
+  memory_content: string;
+  source_title: string | null;
+  status: "queued" | "surfaced" | "accepted" | "dismissed";
+  perspective_type: "counterpoint" | "nuance" | "evidence_gap";
+  title: string;
+  content: string;
+  suggested_query: string | null;
+  confidence: string;
+  surface_after_at: string;
+  created_at: string;
+};
+
+export type PerspectiveNoteListResponse = {
+  count: number;
+  notes: PerspectiveNote[];
 };
 
 export type ChatResponse = {

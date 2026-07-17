@@ -10,14 +10,63 @@ from app.schemas.memory import (
     MemoryArchiveResponse,
     RestoreMemoryResponse,
 )
+from app.schemas.perspective import PerspectiveNoteDecisionResponse, PerspectiveNoteListResponse
 from app.services.memory_lifecycle_service import (
     archive_memory,
     list_archive_candidates,
     list_compression_candidates,
     restore_memory,
 )
+from app.services.perspective_service import (
+    list_due_perspective_notes,
+    mark_perspective_note_accepted,
+    mark_perspective_note_dismissed,
+)
 
 router = APIRouter(tags=["memories"])
+
+
+@router.get("/perspective-notes/due", response_model=PerspectiveNoteListResponse)
+def due_perspective_notes(
+    limit: int = Query(default=10, ge=1, le=50),
+    include_future: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_current_user),
+) -> PerspectiveNoteListResponse:
+    return list_due_perspective_notes(
+        db=db,
+        user_id=current_user.id,
+        limit=limit,
+        include_future=include_future,
+    )
+
+
+@router.post("/perspective-notes/{note_id}/accept", response_model=PerspectiveNoteDecisionResponse)
+def accept_perspective_note(
+    note_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_current_user),
+) -> PerspectiveNoteDecisionResponse:
+    try:
+        response = mark_perspective_note_accepted(db=db, note_id=note_id, user_id=current_user.id)
+        db.commit()
+        return response
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/perspective-notes/{note_id}/dismiss", response_model=PerspectiveNoteDecisionResponse)
+def dismiss_perspective_note(
+    note_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_current_user),
+) -> PerspectiveNoteDecisionResponse:
+    try:
+        response = mark_perspective_note_dismissed(db=db, note_id=note_id, user_id=current_user.id)
+        db.commit()
+        return response
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/{memory_id}/archive", response_model=MemoryArchiveResponse)

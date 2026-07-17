@@ -195,7 +195,8 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
               text: response.message,
               data: response.capture,
             }
-          : response.action === "answer" ||
+          : response.preference_updates.length > 0 ||
+              response.action === "answer" ||
               response.action === "forget" ||
               response.action === "self"
             ? {
@@ -378,7 +379,16 @@ function hydratePersistedMessage(message: PersistedChatMessage): ChatMessage {
   }
 
   const metadata = message.metadata_json;
-  if (metadata?.action === "capture" && metadata.capture) {
+  if (!metadata) {
+    return {
+      id: message.id,
+      role: "assistant",
+      kind: "text",
+      text: message.content,
+    };
+  }
+
+  if (metadata.action === "capture" && metadata.capture) {
     return {
       id: message.id,
       role: "assistant",
@@ -389,9 +399,10 @@ function hydratePersistedMessage(message: PersistedChatMessage): ChatMessage {
   }
 
   if (
-    metadata?.action === "answer" ||
-    metadata?.action === "forget" ||
-    metadata?.action === "self"
+    (metadata.preference_updates?.length ?? 0) > 0 ||
+    metadata.action === "answer" ||
+    metadata.action === "forget" ||
+    metadata.action === "self"
   ) {
     return {
       id: message.id,
@@ -402,7 +413,7 @@ function hydratePersistedMessage(message: PersistedChatMessage): ChatMessage {
     };
   }
 
-  if (metadata?.action === "audit" && metadata.audit) {
+  if (metadata.action === "audit" && metadata.audit) {
     return {
       id: message.id,
       role: "assistant",
@@ -412,7 +423,7 @@ function hydratePersistedMessage(message: PersistedChatMessage): ChatMessage {
     };
   }
 
-  if (metadata?.action === "reminder" && metadata.reminder) {
+  if (metadata.action === "reminder" && metadata.reminder) {
     return {
       id: message.id,
       role: "assistant",
@@ -598,6 +609,14 @@ function GroundedAnswer({ data }: { data: ChatResponse }) {
 
   return (
     <div className="mt-5 space-y-3">
+      {data.preference_updates.length > 0 ? (
+        <InsightBlock
+          icon={Sparkles}
+          label="Preference learned"
+          items={data.preference_updates}
+          tone="green"
+        />
+      ) : null}
       {data.knowledge_gaps.length > 0 ? (
         <InsightBlock
           icon={CircleAlert}

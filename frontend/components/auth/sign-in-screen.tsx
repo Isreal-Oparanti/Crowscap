@@ -2,8 +2,18 @@
 
 import { ArrowRight, BrainCircuit, LockKeyhole, ShieldCheck } from "lucide-react";
 import { signIn } from "next-auth/react";
+import { useState } from "react";
 
 export function SignInScreen() {
+  const [isSigningIn, setIsSigningIn] = useState(false);
+
+  function handleGoogleSignIn() {
+    setIsSigningIn(true);
+    void signIn("google", { callbackUrl: "/" }).finally(() => {
+      setIsSigningIn(false);
+    });
+  }
+
   return (
     <main className="min-h-screen bg-[#f5f6f7] px-4 py-5 text-[#111111] md:px-8 md:py-8">
       <div className="mx-auto flex min-h-[calc(100vh-40px)] max-w-6xl flex-col rounded-[18px] border border-[#e2e4e5] bg-white shadow-[0_24px_80px_rgba(17,17,17,0.08)]">
@@ -40,14 +50,17 @@ export function SignInScreen() {
 
             <button
               type="button"
-              onClick={() => signIn("google", { callbackUrl: "/" })}
-              className="mt-9 inline-flex h-12 w-full max-w-sm items-center justify-center gap-3 rounded-lg bg-[#111111] px-5 text-[13px] font-extrabold text-white shadow-[0_14px_38px_rgba(17,17,17,0.18)] transition hover:bg-black"
+              onClick={handleGoogleSignIn}
+              disabled={isSigningIn}
+              className="mt-9 inline-flex h-12 w-full max-w-sm items-center justify-between gap-3 rounded-lg border border-[#111111] bg-white px-4 text-[13px] font-extrabold text-[#111111] shadow-[0_14px_38px_rgba(17,17,17,0.08)] transition hover:bg-[#f7f8f8] disabled:cursor-wait disabled:opacity-70"
             >
-              <span className="flex size-5 items-center justify-center rounded-full bg-white text-[12px] font-black text-[#111111]">
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-[#dfe2e3] bg-white text-[12px] font-black text-[#111111]">
                 G
               </span>
-              Continue with Google
-              <ArrowRight size={16} />
+              <span className="min-w-0 flex-1 text-center">
+                {isSigningIn ? "Opening Google..." : "Continue with Google"}
+              </span>
+              <ArrowRight className="shrink-0" size={16} />
             </button>
 
             <p className="mt-4 max-w-sm text-[11px] font-medium leading-5 text-[#8b8f92]">

@@ -230,3 +230,42 @@ Important wording:
 - Say "based on what you saved..."
 - Say "your current stance appears to be..."
 - Do not say "you believe" unless the user explicitly marked it as a belief.
+
+## Autonomous Adaptation
+
+Crowscap should become more useful as the same user keeps using it.
+
+The first adaptation layer is preference memory:
+
+- Explicit user preferences are high confidence.
+- Behavior-derived signals are lower confidence.
+- Chat, recall, and audit prompts read the preference profile before responding.
+- Autonomous learning is throttled so normal conversation does not become a constant preference-writing loop.
+
+Stored signals include recurring topics, source mix, archived memory types, and recall review patterns.
+
+## Perspective Notes
+
+Perspective notes are the first implementation of "fixing ignorance gaps without judging the user."
+
+When a memory is saved, Crowscap checks whether it is a claim-like idea that may need stronger support later. Eligible types include:
+
+- claim
+- principle
+- framework
+- prediction
+- warning
+
+The system skips memories that are already high-confidence from strong sources. For weaker or more one-sided memories, it queues a delayed note. The note might ask the user to look for a counterexample, a boundary condition, or stronger evidence.
+
+Example:
+
+```text
+Saved memory:
+Polling is the best way to handle chat notifications in the backend.
+
+Future perspective:
+One thing worth considering: this may depend on how real-time the product needs to feel. Compare polling with WebSockets, Server-Sent Events, or push queues before treating polling as the default.
+```
+
+This is not automatic debunking. It is a future review prompt. The user can accept or dismiss it.

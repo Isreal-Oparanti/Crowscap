@@ -8,7 +8,7 @@ Turn what you save into knowledge you can remember, question, and use.
 
 ## Product Thesis
 
-Most tools help people store information. Crowscap should help saved information become living, source-aware memory. It should not behave like a passive bookmark folder, a generic note app, or a basic RAG chatbot. It should capture learning fragments, extract atomic memories, track source strength, detect tensions, schedule recall, and expose a belief/knowledge audit that helps the user see what they appear to know, where evidence is weak, and what has not been applied. It should also learn the user's explicit preferences for how they want to learn: answer style, evidence strictness, challenge style, review timing, topics of interest, and source preferences.
+Most tools help people store information. Crowscap should help saved information become living, source-aware memory. It should not behave like a passive bookmark folder, a generic note app, or a basic RAG chatbot. It should capture learning fragments, extract atomic memories, track source strength, detect tensions, schedule recall, and expose a belief/knowledge audit that helps the user see what they appear to know, where evidence is weak, and what has not been applied. It should also learn how the user wants to learn: explicit preferences are stored as high-confidence profile settings, while behavior-derived signals from captures, archives, recall reviews, and chat history are stored as lower-confidence adaptation hints.
 
 ## Hackathon Track
 
@@ -81,7 +81,11 @@ Capture -> Extract -> Structure -> Relate -> Recall -> Audit -> Adapt -> Improve
 
 ## Preference Layer
 
-Crowscap keeps preference memory separate from knowledge memory. A normal saved idea becomes a `memory`; an explicit instruction such as "I prefer short answers" or "challenge my assumptions more" updates the durable `user_preferences` profile. That profile is then used by chat, recall, and belief audits without turning casual conversation into memory cards.
+Crowscap keeps preference memory separate from knowledge memory. A normal saved idea becomes a `memory`; an explicit instruction such as "I prefer short answers" or "challenge my assumptions more" updates the durable `user_preferences` profile. The system also accumulates lower-confidence experience signals from behavior, such as recurring topics, archived memory types, and recall review outcomes. That profile is then used by chat, recall, and belief audits without turning casual conversation into memory cards.
+
+## Perspective Notes
+
+Crowscap does not immediately debunk saved ideas. When a claim, principle, framework, prediction, or warning is under-evidenced or one-sided, the backend queues a delayed `memory_perspective_note`. Later, Crowscap can surface a gentle prompt such as "one thing worth considering..." and let the user decide whether to accept, dismiss, or save the refined idea.
 
 ## Documentation Map
 
@@ -101,6 +105,7 @@ Crowscap keeps preference memory separate from knowledge memory. A normal saved 
 - [MCP Contract](docs/15-mcp-contract.md)
 - [ECS MCP Deployment](docs/16-ecs-mcp-deployment.md)
 - [Auth and User Isolation](docs/17-auth-and-user-isolation.md)
+- [Autonomous Preferences and Perspective Notes](docs/18-autonomous-preferences-and-perspectives.md)
 
 ## Verified Sources
 

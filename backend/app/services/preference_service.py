@@ -1,18 +1,42 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
-from app.db.models import UserPreference
+from app.db.models import Memory, MemoryArchiveEvent, RecallReview, Source, UserPreference, utc_now
 from app.schemas.preference import UserPreferenceResponse
 
 logger = get_logger("services.preference")
 
 DEFAULT_PROFILE_KEY = "default"
+AUTONOMOUS_UPDATE_INTERVAL = timedelta(hours=24)
+DOMAIN_TOPIC_KEYWORDS = (
+    "startup",
+    "startups",
+    "distribution",
+    "product",
+    "marketing",
+    "sales",
+    "founder",
+    "cofounder",
+    "leadership",
+    "ai",
+    "backend",
+    "frontend",
+    "engineering",
+    "design",
+    "trading",
+    "risk",
+    "learning",
+    "evidence",
+    "memory",
+)
 
 
 @dataclass(frozen=True)
@@ -43,6 +67,7 @@ def get_or_create_user_preferences(*, db: Session, user_id: str | None = None) -
 
 
 def preference_response(profile: UserPreference) -> UserPreferenceResponse:
+    metadata = dict(profile.metadata_json or {})
     return UserPreferenceResponse(
         id=profile.id,
         user_id=profile.user_id,
@@ -55,6 +80,13 @@ def preference_response(profile: UserPreference) -> UserPreferenceResponse:
         notification_preference=profile.notification_preference,
         topics_of_interest=list(profile.topics_of_interest or []),
         source_preferences=dict(profile.source_preferences or {}),
+        confidence_scores=dict(metadata.get("confidence_scores") or {}),
+        inferred_topics=list(metadata.get("inferred_topics") or []),
+        deprioritized_topics=list(metadata.get("deprioritized_topics") or []),
+        deprioritized_memory_types=list(metadata.get("deprioritized_memory_types") or []),
+        content_affinities=dict(metadata.get("content_affinities") or {}),
+        learning_signals=list(metadata.get("learning_signals") or []),
+        last_autonomous_update_at=metadata.get("last_autonomous_update_at"),
         updated_from_message_id=profile.updated_from_message_id,
         updated_at=profile.updated_at.isoformat(),
     )
@@ -75,6 +107,8 @@ def learn_preferences_from_message(
     labels: list[str] = []
     source_preferences = dict(profile.source_preferences or {})
     topics = list(profile.topics_of_interest or [])
+    existing_meta = dict(profile.metadata_json or {})
+    confidence_scores = dict(existing_meta.get("confidence_scores") or {})
 
     for field_name, value, label in updates:
         if field_name == "topics_of_interest":
@@ -82,24 +116,34 @@ def learn_preferences_from_message(
                 if topic not in topics:
                     topics.append(topic)
             topics = topics[:20]
+            confidence_scores["topics_of_interest"] = max(
+                float(confidence_scores.get("topics_of_interest") or 0),
+                0.9,
+            )
             labels.append(label)
             continue
 
         if field_name == "source_preferences":
             source_preferences = _merge_source_preferences(source_preferences, value)
+            confidence_scores["source_preferences"] = max(
+                float(confidence_scores.get("source_preferences") or 0),
+                0.9,
+            )
             labels.append(label)
             continue
 
         setattr(profile, field_name, value)
+        confidence_scores[field_name] = max(float(confidence_scores.get(field_name) or 0), 0.9)
         labels.append(label)
 
     profile.topics_of_interest = topics
     profile.source_preferences = source_preferences
     profile.updated_from_message_id = message_id
-    existing_meta = dict(profile.metadata_json or {})
     profile.metadata_json = {
         **existing_meta,
+        "confidence_scores": confidence_scores,
         "last_detected_preferences": labels,
+        "last_explicit_preference_message_id": message_id,
     }
     db.flush()
     logger.info("\U0001f9ed preference.learned updates=%s profile_key=%s", len(labels), profile.profile_key)
@@ -127,14 +171,133 @@ def format_preference_context(profile: UserPreference | None) -> str:
         parts.append(f"Notification preference: {profile.notification_preference}.")
     topics = list(profile.topics_of_interest or [])
     if topics:
-        parts.append(f"Topics the user explicitly cares about: {', '.join(topics[:10])}.")
+        parts.append(f"Topics the user cares about: {', '.join(topics[:10])}.")
     source_preferences = dict(profile.source_preferences or {})
     if source_preferences:
         parts.append(f"Source preferences: {source_preferences}.")
+    metadata = dict(profile.metadata_json or {})
+    inferred_topics = list(metadata.get("inferred_topics") or [])
+    if inferred_topics:
+        parts.append(
+            "Inferred recurring topics from behavior: "
+            f"{', '.join(inferred_topics[:8])}. Treat these as lower-confidence than explicit preferences."
+        )
+    deprioritized_memory_types = list(metadata.get("deprioritized_memory_types") or [])
+    if deprioritized_memory_types:
+        parts.append(
+            "The user has tended to archive or ignore these memory types: "
+            f"{', '.join(deprioritized_memory_types[:5])}. Surface them less unless directly relevant."
+        )
 
     if not parts:
         return "No explicit user preferences have been learned yet."
     return "\n".join(parts)
+
+
+def maybe_autonomously_update_preferences(
+    *,
+    db: Session,
+    user_id: str | None = None,
+) -> PreferenceLearningResult:
+    profile = get_or_create_user_preferences(db=db, user_id=user_id)
+    metadata = dict(profile.metadata_json or {})
+    last_update_raw = metadata.get("last_autonomous_update_at")
+    if last_update_raw:
+        try:
+            last_update = datetime.fromisoformat(str(last_update_raw))
+        except ValueError:
+            last_update = None
+        if last_update and utc_now() - last_update < AUTONOMOUS_UPDATE_INTERVAL:
+            return PreferenceLearningResult(profile=profile, updates=[])
+
+    return autonomously_update_preferences(db=db, user_id=user_id, force=False)
+
+
+def autonomously_update_preferences(
+    *,
+    db: Session,
+    user_id: str | None = None,
+    force: bool = True,
+) -> PreferenceLearningResult:
+    profile = get_or_create_user_preferences(db=db, user_id=user_id)
+    metadata = dict(profile.metadata_json or {})
+    if not force:
+        last_update_raw = metadata.get("last_autonomous_update_at")
+        if last_update_raw:
+            try:
+                last_update = datetime.fromisoformat(str(last_update_raw))
+            except ValueError:
+                last_update = None
+            if last_update and utc_now() - last_update < AUTONOMOUS_UPDATE_INTERVAL:
+                return PreferenceLearningResult(profile=profile, updates=[])
+
+    memories = _recent_memories(db=db, user_id=user_id, limit=200)
+    archive_events = _recent_archive_events(db=db, user_id=user_id, limit=120)
+    reviews = _recent_recall_reviews(db=db, user_id=user_id, limit=120)
+
+    topic_counts = _topic_counts_from_memories(memories)
+    inferred_topics = [topic for topic, count in topic_counts.most_common(12) if count >= 2]
+    source_counts = Counter(memory.source.source_type for memory in memories if memory.source is not None)
+    memory_type_counts = Counter(memory.memory_type for memory in memories)
+    deprioritized_memory_types = _deprioritized_memory_types(db=db, archive_events=archive_events)
+    review_affinities = _review_affinities(db=db, reviews=reviews)
+
+    explicit_topics = list(profile.topics_of_interest or [])
+    merged_topics = list(explicit_topics)
+    for topic in inferred_topics:
+        if topic not in merged_topics:
+            merged_topics.append(topic)
+    profile.topics_of_interest = merged_topics[:20]
+
+    confidence_scores = dict(metadata.get("confidence_scores") or {})
+    if inferred_topics:
+        confidence_scores["topics_of_interest"] = max(
+            float(confidence_scores.get("topics_of_interest") or 0),
+            0.55,
+        )
+
+    learning_signals: list[str] = []
+    if inferred_topics:
+        learning_signals.append(f"Recurring topics inferred from saved memories: {', '.join(inferred_topics[:5])}.")
+    if source_counts:
+        source_summary = ", ".join(f"{source}:{count}" for source, count in source_counts.most_common(4))
+        learning_signals.append(f"Source mix observed: {source_summary}.")
+    if deprioritized_memory_types:
+        learning_signals.append(
+            "Archived/ignored content suggests lowering priority for: "
+            f"{', '.join(deprioritized_memory_types[:4])}."
+        )
+    if review_affinities:
+        learning_signals.append(
+            "Recall feedback suggests stronger retention for: "
+            f"{', '.join(review_affinities[:4])}."
+        )
+
+    metadata.update(
+        {
+            "confidence_scores": confidence_scores,
+            "inferred_topics": inferred_topics,
+            "deprioritized_topics": _deprioritized_topics_from_archives(db=db, archive_events=archive_events),
+            "deprioritized_memory_types": deprioritized_memory_types,
+            "content_affinities": {
+                "source_types": dict(source_counts.most_common(8)),
+                "memory_types": dict(memory_type_counts.most_common(8)),
+                "strong_recall_memory_types": review_affinities,
+            },
+            "learning_signals": learning_signals,
+            "last_autonomous_update_at": utc_now().isoformat(),
+        }
+    )
+    profile.metadata_json = metadata
+    db.flush()
+    logger.info(
+        "\U0001f9ed preference.autonomous_updated profile_key=%s topics=%s archive_events=%s reviews=%s",
+        profile.profile_key,
+        len(inferred_topics),
+        len(archive_events),
+        len(reviews),
+    )
+    return PreferenceLearningResult(profile=profile, updates=learning_signals)
 
 
 def is_explicit_preference_statement(message: str) -> bool:
@@ -360,7 +523,6 @@ def _merge_source_preferences(existing: dict[str, object], incoming: dict[str, o
 def _clean_topic(topic: str) -> str:
     cleaned = re.sub(r"[^a-z0-9 +#.-]", " ", topic.lower())
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,:;-")
-    stop_tails = ("and product", "and learning", "and business")
     return cleaned[:80]
 
 
@@ -374,6 +536,100 @@ def _dedupe_updates(updates: list[tuple[str, object, str]]) -> list[tuple[str, o
         seen.add(key)
         deduped.append((field_name, value, label))
     return deduped
+
+
+def _recent_memories(*, db: Session, user_id: str | None, limit: int) -> list[Memory]:
+    query = (
+        select(Memory)
+        .where(Memory.status == "active")
+        .where(Memory.user_id.is_(None) if user_id is None else Memory.user_id == user_id)
+        .order_by(Memory.created_at.desc())
+        .limit(limit)
+    )
+    return list(db.scalars(query).all())
+
+
+def _recent_archive_events(*, db: Session, user_id: str | None, limit: int) -> list[MemoryArchiveEvent]:
+    query = (
+        select(MemoryArchiveEvent)
+        .where(MemoryArchiveEvent.user_id.is_(None) if user_id is None else MemoryArchiveEvent.user_id == user_id)
+        .order_by(MemoryArchiveEvent.created_at.desc())
+        .limit(limit)
+    )
+    return list(db.scalars(query).all())
+
+
+def _recent_recall_reviews(*, db: Session, user_id: str | None, limit: int) -> list[RecallReview]:
+    query = (
+        select(RecallReview)
+        .where(RecallReview.user_id.is_(None) if user_id is None else RecallReview.user_id == user_id)
+        .order_by(RecallReview.created_at.desc())
+        .limit(limit)
+    )
+    return list(db.scalars(query).all())
+
+
+def _topic_counts_from_memories(memories: list[Memory]) -> Counter[str]:
+    counts: Counter[str] = Counter()
+    for memory in memories:
+        text = " ".join(
+            part
+            for part in (
+                memory.content,
+                memory.summary or "",
+                memory.source.title if memory.source is not None and memory.source.title else "",
+            )
+            if part
+        ).lower()
+        for keyword in DOMAIN_TOPIC_KEYWORDS:
+            if re.search(rf"\b{re.escape(keyword)}\b", text):
+                counts[_normalize_topic(keyword)] += 1
+    return counts
+
+
+def _normalize_topic(topic: str) -> str:
+    if topic == "startups":
+        return "startup"
+    if topic == "founder":
+        return "startup"
+    return topic
+
+
+def _deprioritized_memory_types(*, db: Session, archive_events: list[MemoryArchiveEvent]) -> list[str]:
+    counts: Counter[str] = Counter()
+    for event in archive_events:
+        if event.reason not in {"not_useful", "user_dismissed", "weak_evidence", "stale"}:
+            continue
+        memory = db.get(Memory, event.memory_id)
+        if memory is not None:
+            counts[memory.memory_type] += 1
+    return [memory_type for memory_type, count in counts.most_common(6) if count >= 2]
+
+
+def _deprioritized_topics_from_archives(
+    *,
+    db: Session,
+    archive_events: list[MemoryArchiveEvent],
+) -> list[str]:
+    archived_memories: list[Memory] = []
+    for event in archive_events:
+        if event.reason not in {"not_useful", "user_dismissed", "weak_evidence", "stale"}:
+            continue
+        memory = db.get(Memory, event.memory_id)
+        if memory is not None:
+            archived_memories.append(memory)
+    return [topic for topic, count in _topic_counts_from_memories(archived_memories).most_common(8) if count >= 2]
+
+
+def _review_affinities(*, db: Session, reviews: list[RecallReview]) -> list[str]:
+    counts: Counter[str] = Counter()
+    for review in reviews:
+        if review.evaluation_score < 0.7:
+            continue
+        memory = db.get(Memory, review.memory_id)
+        if memory is not None:
+            counts[memory.memory_type] += 1
+    return [memory_type for memory_type, count in counts.most_common(6) if count >= 2]
 
 
 def _profile_key(user_id: str | None) -> str:
