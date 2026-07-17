@@ -221,6 +221,7 @@ export type DueRecall = {
   overdue_seconds: number;
   recall_prompt: string;
   epistemic_caution: string | null;
+  surface_reason: string | null;
   relationships: RecallRelationship[];
 };
 

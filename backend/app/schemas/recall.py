@@ -33,6 +33,7 @@ class DueRecallMemoryResponse(BaseModel):
     overdue_seconds: int
     recall_prompt: str
     epistemic_caution: str | None = None
+    surface_reason: str | None = None
     relationships: list[RecallRelationshipResponse] = Field(default_factory=list)
 
 

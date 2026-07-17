@@ -130,14 +130,18 @@ Phase 0 recall behavior:
 - Medium-confidence memories are first reviewed after 12 hours.
 - Low or unknown confidence memories are first reviewed after 6 hours.
 - `GET /api/v1/recalls/due` returns active memories where `next_review_at` is in the past.
-- Due memories are ordered by oldest `next_review_at` first, which means most overdue first.
+- Due memories first enter an eligible pool by schedule, then Crowscap ranks them by recent context, overdue age, recall score, and evidence fragility.
+- The goal is to surface one timely thought, not an inbox-like queue.
+- Each due memory includes a `surface_reason` explaining why it appeared now.
 - Due memories include relationship context so review can show connected ideas and tensions.
-- Due memories include an adaptive prompt and an epistemic caution where appropriate.
+- Due memories include an adaptive prompt based on `memory_type` and an epistemic caution where appropriate.
 - Recall answers are evaluated against the memory, source metadata, and related memories.
 - Evaluations are persisted in `recall_reviews`.
 - Evaluation returns an understanding synthesis, missing knowledge, context boundaries,
   and a deeper question rather than only a numeric score.
 - Review performance and optional self-rating update `recall_score` and the next interval.
+
+Recall selection is intentionally deterministic for now. It does not call Qwen for every due item because recall needs to stay fast and explainable. The scoring function uses recent user chat and recently saved memories as a lightweight context signal, then combines that with spaced-repetition due state.
 
 explain:
 "Explain this idea in your own words."
