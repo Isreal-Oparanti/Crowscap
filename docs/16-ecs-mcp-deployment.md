@@ -12,7 +12,9 @@ what is running and how to verify it without reading server history.
 - MCP service: `crowscap-mcp.service`
 - FastAPI local port: `127.0.0.1:8000`
 - MCP local port: `127.0.0.1:8010`
-- Nginx public port: `80`
+- Nginx public ports: `80`, `443`
+- API domain: `api.crowscap.xyz`
+- TLS: Let's Encrypt certificate managed by Certbot
 
 The backend and MCP server are separate processes. Nginx proxies normal API
 traffic to FastAPI and MCP SSE traffic to the MCP process.
@@ -26,7 +28,7 @@ http://47.85.81.243/api/v1/health
 http://47.85.81.243/mcp/sse
 ```
 
-After DNS and TLS are ready:
+Production custom-domain URLs:
 
 ```text
 https://api.crowscap.xyz/api/v1/health
@@ -80,6 +82,16 @@ Run from your local machine:
 ```powershell
 curl.exe -sS http://47.85.81.243/api/v1/health
 curl.exe -sS -N --max-time 4 http://47.85.81.243/mcp/sse
+curl.exe -sS https://api.crowscap.xyz/api/v1/health
+curl.exe -sS -N --max-time 4 https://api.crowscap.xyz/mcp/sse
+```
+
+If local DNS still has an old cached value, pin the domain to the ECS IP while
+testing:
+
+```powershell
+curl.exe -sS --resolve api.crowscap.xyz:443:47.85.81.243 https://api.crowscap.xyz/api/v1/health
+curl.exe -sS -N --max-time 4 --resolve api.crowscap.xyz:443:47.85.81.243 https://api.crowscap.xyz/mcp/sse
 ```
 
 Run from inside the server:
@@ -133,8 +145,33 @@ TCP 443  from 0.0.0.0/0 after TLS is configured
 Do not expose FastAPI port `8000` or MCP port `8010` directly. They should stay
 bound to `127.0.0.1`; only Nginx should face the public internet.
 
-## TLS Later
+## DNS and TLS
 
-After `api.crowscap.xyz` resolves to `47.85.81.243`, install TLS with Certbot
-or another ACME client. Until DNS resolves, HTTP by public IP is enough to prove
-the backend and MCP services are running.
+The registrar nameservers for `crowscap.xyz` point to Vercel DNS:
+
+```text
+ns1.vercel-dns.com
+ns2.vercel-dns.com
+```
+
+Vercel DNS owns the records for the apex/frontend and the backend subdomain:
+
+```text
+crowscap.xyz       -> Vercel frontend
+www.crowscap.xyz   -> Vercel frontend
+api.crowscap.xyz   -> 47.85.81.243
+```
+
+TLS was installed on ECS with Certbot:
+
+```bash
+apt-get install -y certbot python3-certbot-nginx
+certbot --nginx -d api.crowscap.xyz --non-interactive --agree-tos --redirect --register-unsafely-without-email
+```
+
+Certbot installed an auto-renewal timer. Check it with:
+
+```bash
+systemctl status certbot.timer
+certbot certificates
+```

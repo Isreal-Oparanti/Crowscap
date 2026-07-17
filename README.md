@@ -41,6 +41,17 @@ Infrastructure:
 - Object storage for uploaded files and raw extraction artifacts
 - Public open-source repository with LICENSE
 
+## Live Surfaces
+
+```text
+Frontend: https://crowscap.xyz
+API:      https://api.crowscap.xyz/api/v1/health
+MCP SSE:  https://api.crowscap.xyz/mcp/sse
+```
+
+The MCP SSE endpoint is a long-running stream. A successful quick check returns
+an `event: endpoint` line and then keeps the connection open.
+
 ## Repository Layout
 
 ```text
