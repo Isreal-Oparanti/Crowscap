@@ -93,6 +93,56 @@ function openingMessagesFor(user: AppShellUser): ChatMessage[] {
   ];
 }
 
+const chatActions: ChatResponse["action"][] = [
+  "acknowledge",
+  "conversation",
+  "capture",
+  "answer",
+  "audit",
+  "forget",
+  "reminder",
+  "self",
+];
+
+function normalizeChatResponse(
+  raw: Partial<ChatResponse> | null | undefined,
+  fallbackMessage: string,
+): ChatResponse {
+  const action = chatActions.includes(raw?.action as ChatResponse["action"])
+    ? (raw?.action as ChatResponse["action"])
+    : "conversation";
+
+  return {
+    action,
+    message:
+      typeof raw?.message === "string" && raw.message.trim()
+        ? raw.message
+        : fallbackMessage,
+    conversation_id:
+      typeof raw?.conversation_id === "string" ? raw.conversation_id : null,
+    user_message_id:
+      typeof raw?.user_message_id === "string" ? raw.user_message_id : null,
+    assistant_message_id:
+      typeof raw?.assistant_message_id === "string"
+        ? raw.assistant_message_id
+        : null,
+    saved: Boolean(raw?.saved),
+    capture: raw?.capture ?? null,
+    evidence: Array.isArray(raw?.evidence) ? raw.evidence : [],
+    knowledge_gaps: Array.isArray(raw?.knowledge_gaps)
+      ? raw.knowledge_gaps
+      : [],
+    tensions: Array.isArray(raw?.tensions) ? raw.tensions : [],
+    next_step: typeof raw?.next_step === "string" ? raw.next_step : null,
+    audit: raw?.audit ?? null,
+    reminder: raw?.reminder ?? null,
+    preference_updates: Array.isArray(raw?.preference_updates)
+      ? raw.preference_updates
+      : [],
+    preferences: raw?.preferences ?? null,
+  };
+}
+
 export function ChatWorkspace({ user }: { user: AppShellUser }) {
   const openingMessages = useMemo(() => openingMessagesFor(user), [user]);
   const [messages, setMessages] = useState<ChatMessage[]>(openingMessages);
@@ -181,7 +231,10 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
           content: message.text,
         }))
         .slice(-12);
-      const response = await sendChatMessage(text, history, conversationId);
+      const response = normalizeChatResponse(
+        await sendChatMessage(text, history, conversationId),
+        "I heard you.",
+      );
       if (response.conversation_id) {
         setConversationId(response.conversation_id);
       }
@@ -289,7 +342,10 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
     setWorking(true);
 
     try {
-      const response = await uploadPdfToChat(file, conversationId);
+      const response = normalizeChatResponse(
+        await uploadPdfToChat(file, conversationId),
+        "I processed the PDF.",
+      );
       if (response.conversation_id) {
         setConversationId(response.conversation_id);
       }
@@ -378,8 +434,7 @@ function hydratePersistedMessage(message: PersistedChatMessage): ChatMessage {
     };
   }
 
-  const metadata = message.metadata_json;
-  if (!metadata) {
+  if (!message.metadata_json) {
     return {
       id: message.id,
       role: "assistant",
@@ -387,6 +442,8 @@ function hydratePersistedMessage(message: PersistedChatMessage): ChatMessage {
       text: message.content,
     };
   }
+
+  const metadata = normalizeChatResponse(message.metadata_json, message.content);
 
   if (metadata.action === "capture" && metadata.capture) {
     return {
