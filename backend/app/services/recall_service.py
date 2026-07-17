@@ -29,7 +29,7 @@ def get_due_recalls(
 
     rows = _load_due_memories(db=db, now=now, limit=limit, user_id=user_id)
     memories = [memory for memory, _source in rows]
-    relationships = _relationships_for_recall_memories(db=db, memories=memories)
+    relationships = _relationships_for_recall_memories(db=db, memories=memories, user_id=user_id)
     preferences = get_or_create_user_preferences(db=db, user_id=user_id)
 
     response_memories = [
@@ -137,6 +137,7 @@ def _relationships_for_recall_memories(
     *,
     db: Session,
     memories: list[Memory],
+    user_id: str | None = None,
 ) -> dict[str, list[RecallRelationshipResponse]]:
     memory_ids = [memory.id for memory in memories]
     if not memory_ids:
@@ -148,6 +149,10 @@ def _relationships_for_recall_memories(
             MemoryRelation.target_memory_id.in_(memory_ids),
         )
     )
+    if user_id is None:
+        relation_query = relation_query.where(MemoryRelation.user_id.is_(None))
+    else:
+        relation_query = relation_query.where(MemoryRelation.user_id == user_id)
     relation_rows = list(db.scalars(relation_query).all())
     related_ids = {
         relation.target_memory_id

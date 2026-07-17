@@ -26,6 +26,7 @@ import {
   uploadPdfToChat,
 } from "@/lib/api";
 import { formatFriendlyDateTime, humanizeRelationshipText } from "@/lib/chat";
+import type { AppShellUser } from "@/components/shell/app-shell";
 import type {
   BeliefAuditResponse,
   CaptureResponse,
@@ -80,16 +81,20 @@ type ChatMessage =
       text: string;
     };
 
-const openingMessages: ChatMessage[] = [
-  {
-    id: "opening",
-    role: "assistant",
-    kind: "text",
-    text: "Welcome back, Json. What has your attention today?",
-  },
-];
+function openingMessagesFor(user: AppShellUser): ChatMessage[] {
+  const name = user.name?.split(/\s+/)[0] ?? "there";
+  return [
+    {
+      id: "opening",
+      role: "assistant",
+      kind: "text",
+      text: `Welcome back, ${name}. What has your attention today?`,
+    },
+  ];
+}
 
-export function ChatWorkspace() {
+export function ChatWorkspace({ user }: { user: AppShellUser }) {
+  const openingMessages = useMemo(() => openingMessagesFor(user), [user]);
   const [messages, setMessages] = useState<ChatMessage[]>(openingMessages);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -329,6 +334,7 @@ export function ChatWorkspace() {
       dueCount={due?.due_count ?? 0}
       title="New thought"
       subtitle="Crowscap is listening"
+      user={user}
       context={<ChatContext memories={contextMemories} due={due} />}
     >
       <div className="conversation-scroll min-w-0 flex-1 overflow-y-auto overflow-x-hidden">

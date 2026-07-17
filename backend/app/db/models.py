@@ -32,6 +32,17 @@ class TimestampMixin:
     )
 
 
+class User(Base, TimestampMixin):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
+    name: Mapped[str | None] = mapped_column(String(255))
+    image_url: Mapped[str | None] = mapped_column(Text)
+    provider: Mapped[str] = mapped_column(String(40), default="google", nullable=False)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class Conversation(Base, TimestampMixin):
     __tablename__ = "conversations"
 

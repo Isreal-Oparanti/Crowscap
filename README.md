@@ -100,6 +100,7 @@ Crowscap keeps preference memory separate from knowledge memory. A normal saved 
 - [Alibaba ECS Backend Deployment](docs/14-alibaba-ecs-deployment.md)
 - [MCP Contract](docs/15-mcp-contract.md)
 - [ECS MCP Deployment](docs/16-ecs-mcp-deployment.md)
+- [Auth and User Isolation](docs/17-auth-and-user-isolation.md)
 
 ## Verified Sources
 

@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+
+import { authOptions } from "@/lib/auth";
 
 const BACKEND_URL = (
   process.env.CROWSCAP_BACKEND_URL ?? "http://127.0.0.1:8000"
@@ -8,6 +11,19 @@ async function proxy(
   request: NextRequest,
   context: { params: Promise<{ path: string[] }> },
 ) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id || !session.user.email) {
+    return NextResponse.json({ detail: "Authentication required." }, { status: 401 });
+  }
+
+  const proxySecret = process.env.CROWSCAP_PROXY_SECRET;
+  if (!proxySecret) {
+    return NextResponse.json(
+      { detail: "Crowscap authentication is not configured." },
+      { status: 500 },
+    );
+  }
+
   const { path } = await context.params;
   const target = new URL(
     `${BACKEND_URL}/api/v1/${path.join("/")}${request.nextUrl.search}`,
@@ -24,6 +40,13 @@ async function proxy(
       headers: {
         Accept: "application/json",
         ...(body && contentType ? { "Content-Type": contentType } : {}),
+        "X-Crowscap-Proxy-Secret": proxySecret,
+        "X-Crowscap-User-Id": session.user.id,
+        "X-Crowscap-User-Email": session.user.email,
+        ...(session.user.name ? { "X-Crowscap-User-Name": session.user.name } : {}),
+        ...(session.user.image
+          ? { "X-Crowscap-User-Image": session.user.image }
+          : {}),
       },
       body,
       cache: "no-store",
@@ -50,3 +73,6 @@ async function proxy(
 
 export const GET = proxy;
 export const POST = proxy;
+export const PATCH = proxy;
+export const PUT = proxy;
+export const DELETE = proxy;

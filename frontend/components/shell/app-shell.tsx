@@ -6,12 +6,19 @@ import {
   MessageCircle,
   Plus,
   Search,
-  Settings,
   Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+
+import { SignOutButton } from "@/components/auth/sign-out-button";
+
+export type AppShellUser = {
+  name?: string | null;
+  email?: string | null;
+  image?: string | null;
+};
 
 type AppShellProps = {
   children: ReactNode;
@@ -19,6 +26,7 @@ type AppShellProps = {
   dueCount?: number;
   title?: string;
   subtitle?: string;
+  user: AppShellUser;
 };
 
 const navigation = [
@@ -33,8 +41,18 @@ export function AppShell({
   dueCount = 0,
   title = "Crowscap",
   subtitle = "Your thinking, still within reach",
+  user,
 }: AppShellProps) {
   const pathname = usePathname();
+  const displayName = user.name ?? user.email?.split("@")[0] ?? "Crowscap user";
+  const workspaceLabel = user.email ?? "Private workspace";
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
 
   return (
     <div className="app-grid">
@@ -90,16 +108,26 @@ export function AppShell({
         <div className="mt-auto">
           <div className="mb-4 border-t border-[#e0e2e4] pt-4">
             <div className="flex items-center gap-3 rounded-md px-3 py-2">
-              <div className="flex size-8 items-center justify-center rounded-full bg-[#dfe7e3] text-[11px] font-extrabold text-[#275d4b]">
-                JO
-              </div>
+              {user.image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={user.image}
+                  alt=""
+                  className="size-8 rounded-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="flex size-8 items-center justify-center rounded-full bg-[#dfe7e3] text-[11px] font-extrabold text-[#275d4b]">
+                  {initials || "C"}
+                </div>
+              )}
               <div className="min-w-0">
-                <p className="truncate text-[12px] font-bold">Json O.</p>
+                <p className="truncate text-[12px] font-bold">{displayName}</p>
                 <p className="truncate text-[10px] text-[#85888b]">
-                  Learning workspace
+                  {workspaceLabel}
                 </p>
               </div>
-              <Settings className="ml-auto text-[#7c7f82]" size={16} />
+              <SignOutButton />
             </div>
           </div>
         </div>

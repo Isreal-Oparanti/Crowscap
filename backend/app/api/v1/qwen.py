@@ -1,7 +1,8 @@
 from pydantic import BaseModel
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.ai.qwen_client import QwenClient, QwenClientError
+from app.core.auth import CurrentUser, require_current_user
 from app.core.config import get_settings
 
 router = APIRouter(tags=["qwen"])
@@ -27,7 +28,7 @@ class QwenSmokeResponse(BaseModel):
 
 
 @router.get("/status", response_model=QwenStatusResponse)
-def qwen_status() -> QwenStatusResponse:
+def qwen_status(_current_user: CurrentUser = Depends(require_current_user)) -> QwenStatusResponse:
     settings = get_settings()
     return QwenStatusResponse(
         configured=settings.has_qwen_key,
@@ -41,7 +42,10 @@ def qwen_status() -> QwenStatusResponse:
 
 
 @router.post("/smoke", response_model=QwenSmokeResponse)
-def qwen_smoke(payload: QwenSmokeRequest) -> QwenSmokeResponse:
+def qwen_smoke(
+    payload: QwenSmokeRequest,
+    _current_user: CurrentUser = Depends(require_current_user),
+) -> QwenSmokeResponse:
     client = QwenClient()
     try:
         content = client.chat_once(payload.prompt)

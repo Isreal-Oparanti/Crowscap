@@ -5,10 +5,11 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { MemoryCardView } from "@/components/memory/memory-card";
 import { AppShell } from "@/components/shell/app-shell";
+import type { AppShellUser } from "@/components/shell/app-shell";
 import { getDueRecalls, searchMemories } from "@/lib/api";
 import type { SearchResponse } from "@/lib/types";
 
-export function SearchWorkspace() {
+export function SearchWorkspace({ user }: { user: AppShellUser }) {
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -44,6 +45,7 @@ export function SearchWorkspace() {
       dueCount={dueCount}
       title="Search memory"
       subtitle="Find meaning, not just matching words"
+      user={user}
       context={
         <SearchContext
           query={result?.query ?? null}

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.ai.qwen_client import QwenClientError
+from app.core.auth import CurrentUser, require_current_user
 from app.core.logging import get_logger
 from app.db.session import get_db
 from app.schemas.capture import TextCaptureRequest, TextCaptureResponse, UrlCaptureRequest
@@ -26,6 +27,7 @@ def capture_text(
     extractor: MemoryExtractor = Depends(get_memory_extractor),
     embedder: MemoryEmbedder = Depends(get_memory_embedder),
     relation_detector: MemoryRelationDetector = Depends(get_memory_relation_detector),
+    current_user: CurrentUser = Depends(require_current_user),
 ) -> TextCaptureResponse:
     try:
         return create_text_capture(
@@ -34,6 +36,7 @@ def capture_text(
             extractor=extractor,
             embedder=embedder,
             relation_detector=relation_detector,
+            user_id=current_user.id,
         )
     except QwenClientError as exc:
         logger.warning("\u26a0\ufe0f capture.text.unavailable reason=%s", exc)
@@ -53,6 +56,7 @@ def capture_url(
     extractor: MemoryExtractor = Depends(get_memory_extractor),
     embedder: MemoryEmbedder = Depends(get_memory_embedder),
     relation_detector: MemoryRelationDetector = Depends(get_memory_relation_detector),
+    current_user: CurrentUser = Depends(require_current_user),
 ) -> TextCaptureResponse:
     try:
         return create_url_capture(
@@ -61,6 +65,7 @@ def capture_url(
             extractor=extractor,
             embedder=embedder,
             relation_detector=relation_detector,
+            user_id=current_user.id,
         )
     except QwenClientError as exc:
         logger.warning("\u26a0\ufe0f capture.url.unavailable reason=%s", exc)
@@ -82,6 +87,7 @@ async def capture_pdf(
     extractor: MemoryExtractor = Depends(get_memory_extractor),
     embedder: MemoryEmbedder = Depends(get_memory_embedder),
     relation_detector: MemoryRelationDetector = Depends(get_memory_relation_detector),
+    current_user: CurrentUser = Depends(require_current_user),
 ) -> TextCaptureResponse:
     try:
         file_bytes = await file.read()
@@ -94,6 +100,7 @@ async def capture_pdf(
             extractor=extractor,
             embedder=embedder,
             relation_detector=relation_detector,
+            user_id=current_user.id,
         )
     except QwenClientError as exc:
         logger.warning("\u26a0\ufe0f capture.pdf.unavailable reason=%s", exc)

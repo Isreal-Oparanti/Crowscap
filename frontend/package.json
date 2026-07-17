@@ -12,6 +12,7 @@
     "@fontsource-variable/manrope": "latest",
     "lucide-react": "latest",
     "next": "latest",
+    "next-auth": "^4.24.14",
     "react": "latest",
     "react-dom": "latest"
   },

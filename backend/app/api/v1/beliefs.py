@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.ai.qwen_client import QwenClientError
+from app.core.auth import CurrentUser, require_current_user
 from app.core.logging import get_logger
 from app.db.session import get_db
 from app.schemas.belief import BeliefAuditRequest, BeliefAuditResponse
@@ -21,9 +22,10 @@ def audit_belief(
     payload: BeliefAuditRequest,
     db: Session = Depends(get_db),
     auditor: BeliefAuditor = Depends(get_belief_auditor),
+    current_user: CurrentUser = Depends(require_current_user),
 ) -> BeliefAuditResponse:
     try:
-        return auditor.audit(db=db, payload=payload)
+        return auditor.audit(db=db, payload=payload, user_id=current_user.id)
     except (QwenClientError, EmbeddingError) as exc:
         logger.warning("⚠️ belief.audit.unavailable reason=%s", exc)
         raise HTTPException(status_code=503, detail=str(exc)) from exc

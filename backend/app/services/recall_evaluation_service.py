@@ -106,7 +106,7 @@ def answer_recall(
         raise LookupError("Memory not found.")
     memory, source = row
 
-    relationship_map = _relationships_for_recall_memories(db=db, memories=[memory])
+    relationship_map = _relationships_for_recall_memories(db=db, memories=[memory], user_id=user_id)
     relationships = relationship_map.get(memory.id, [])
     evaluation = evaluator.evaluate(
         memory=memory,

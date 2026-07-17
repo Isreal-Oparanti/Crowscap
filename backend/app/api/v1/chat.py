@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.ai.qwen_client import QwenClientError
+from app.core.auth import CurrentUser, require_current_user
 from app.core.logging import get_logger
 from app.db.session import get_db
 from app.schemas.chat import ChatRequest, ChatResponse, ConversationResponse
@@ -30,16 +31,20 @@ logger = get_logger("api.chat")
 
 
 @router.get("/conversations/current", response_model=ConversationResponse | None)
-def current_conversation(db: Session = Depends(get_db)) -> ConversationResponse | None:
-    return get_current_conversation(db=db)
+def current_conversation(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_current_user),
+) -> ConversationResponse | None:
+    return get_current_conversation(db=db, user_id=current_user.id)
 
 
 @router.get("/conversations/{conversation_id}", response_model=ConversationResponse)
 def conversation(
     conversation_id: str,
     db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_current_user),
 ) -> ConversationResponse:
-    found = get_conversation(db=db, conversation_id=conversation_id)
+    found = get_conversation(db=db, conversation_id=conversation_id, user_id=current_user.id)
     if found is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     return found
@@ -56,6 +61,7 @@ def chat(
     extractor: MemoryExtractor = Depends(get_memory_extractor),
     embedder: MemoryEmbedder = Depends(get_memory_embedder),
     relation_detector: MemoryRelationDetector = Depends(get_memory_relation_detector),
+    current_user: CurrentUser = Depends(require_current_user),
 ) -> ChatResponse:
     try:
         return process_chat_message(
@@ -68,6 +74,7 @@ def chat(
             extractor=extractor,
             embedder=embedder,
             relation_detector=relation_detector,
+            user_id=current_user.id,
         )
     except (QwenClientError, EmbeddingError) as exc:
         logger.warning("\u26a0\ufe0f chat.unavailable reason=%s", exc)
@@ -93,6 +100,7 @@ async def chat_pdf(
     extractor: MemoryExtractor = Depends(get_memory_extractor),
     embedder: MemoryEmbedder = Depends(get_memory_embedder),
     relation_detector: MemoryRelationDetector = Depends(get_memory_relation_detector),
+    current_user: CurrentUser = Depends(require_current_user),
 ) -> ChatResponse:
     try:
         file_bytes = await file.read()
@@ -106,6 +114,7 @@ async def chat_pdf(
             extractor=extractor,
             embedder=embedder,
             relation_detector=relation_detector,
+            user_id=current_user.id,
         )
     except (QwenClientError, EmbeddingError) as exc:
         logger.warning("\u26a0\ufe0f chat.pdf.unavailable reason=%s", exc)

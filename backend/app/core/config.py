@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     crowscap_mcp_sse_path: str = "/mcp/sse"
     crowscap_mcp_message_path: str = "/mcp/messages/"
     crowscap_mcp_streamable_http_path: str = "/mcp"
+    crowscap_proxy_secret: SecretStr | None = Field(default=None)
+    crowscap_auth_required: bool = True
+    crowscap_dev_user_id: str = "dev_local_user"
+    crowscap_dev_user_email: str = "dev@crowscap.local"
 
     @property
     def has_qwen_key(self) -> bool:
@@ -63,6 +67,13 @@ class Settings(BaseSettings):
         if self.dashscope_api_key is None:
             return None
         value = self.dashscope_api_key.get_secret_value().strip()
+        return value or None
+
+    @property
+    def crowscap_proxy_secret_value(self) -> str | None:
+        if self.crowscap_proxy_secret is None:
+            return None
+        value = self.crowscap_proxy_secret.get_secret_value().strip()
         return value or None
 
 

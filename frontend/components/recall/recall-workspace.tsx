@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { AppShell } from "@/components/shell/app-shell";
+import type { AppShellUser } from "@/components/shell/app-shell";
 import {
   completeReminder,
   getDueRecalls,
@@ -39,8 +40,10 @@ import type {
 
 export function RecallWorkspace({
   requestedMemoryId,
+  user,
 }: {
   requestedMemoryId?: string;
+  user: AppShellUser;
 }) {
   const [data, setData] = useState<DueRecallsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -282,6 +285,7 @@ export function RecallWorkspace({
     <AppShell
       dueCount={data?.due_count ?? 0}
       title="Recall"
+      user={user}
       subtitle={
         selected
           ? "One useful nudge, not a queue"
