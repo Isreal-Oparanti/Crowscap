@@ -53,11 +53,19 @@ SESSION_CONVERSATION_MARKERS = (
     "this conversation",
     "current chat",
     "this session",
+    "beginning of our chat",
+    "beginning of this chat",
+    "start of our chat",
+    "start of this chat",
     "earlier here",
     "earlier in chat",
     "earlier in this chat",
     "have i thanked",
     "did i thank",
+    "first thing i said",
+    "very first thing",
+    "first message",
+    "first thing",
     "what did i just say",
     "what was my last message",
     "last message",
@@ -172,7 +180,7 @@ class QwenChatIntentRouter:
         self.settings = get_settings()
 
     def route(self, *, message: str, history: list[ConversationTurn]) -> ChatRoute:
-        deterministic = _deterministic_route(message)
+        deterministic = _deterministic_route(message, history=history)
         if deterministic is not None:
             logger.info(
                 "\U0001f9ed chat.route.deterministic action=%s chars=%s",
@@ -370,7 +378,7 @@ def process_chat_message(
         if _is_session_conversation(normalized_message=payload.message.lower()):
             reply = route.reply or _conversation_reply(
                 message=payload.message,
-                history=effective_history,
+                previous_user_turns=_conversation_user_messages(conversation),
             )
         else:
             high_confidence_context = _search_for_conversation_context(
@@ -487,11 +495,58 @@ def process_chat_message(
     if route.action == "capture":
         if url := _first_url(payload.message):
             intent_text = _message_without_url(payload.message, url)
+            if not _has_explicit_url_capture_intent(payload.message):
+                response = ChatResponse(
+                    action="conversation",
+                    message=_url_capture_confirmation_prompt(url=url),
+                    saved=False,
+                    next_step="Reply with \"save this link\" if you want Crowscap to read and remember it.",
+                )
+                response = _with_preference_learning(response, preference_learning)
+                logger.info("\u2705 chat.message.complete action=url_confirmation saved=False")
+                return _persist_assistant_response(
+                    db=db,
+                    conversation=conversation,
+                    user_message=user_message,
+                    response=response,
+                    user_id=user_id,
+                )
             capture = create_url_capture(
                 db=db,
                 payload=UrlCaptureRequest(
                     url=url,
                     intent_text=intent_text or None,
+                ),
+                extractor=extractor,
+                embedder=embedder,
+                relation_detector=relation_detector,
+                user_id=user_id,
+            )
+        elif _is_url_capture_confirmation(payload.message):
+            pending_url = _pending_url_from_history(effective_history)
+            if pending_url is None:
+                response = ChatResponse(
+                    action="conversation",
+                    message=(
+                        "I do not see a pending link in this chat. Send the link again with "
+                        "\"save this\" and I will capture it."
+                    ),
+                    saved=False,
+                )
+                response = _with_preference_learning(response, preference_learning)
+                logger.info("\u2705 chat.message.complete action=url_confirmation_missing saved=False")
+                return _persist_assistant_response(
+                    db=db,
+                    conversation=conversation,
+                    user_message=user_message,
+                    response=response,
+                    user_id=user_id,
+                )
+            capture = create_url_capture(
+                db=db,
+                payload=UrlCaptureRequest(
+                    url=pending_url,
+                    intent_text="Confirmed from a previous link in chat.",
                 ),
                 extractor=extractor,
                 embedder=embedder,
@@ -712,14 +767,25 @@ def _conversation_title(message: str) -> str:
     return compact[:70].rstrip(" .,;:") or "New thought"
 
 
-def _conversation_turns(conversation: Conversation) -> list[ConversationTurn]:
-    return [
-        ConversationTurn(role=message.role, content=message.content)
+def _conversation_turns(conversation: Conversation, *, limit: int | None = 12) -> list[ConversationTurn]:
+    turns = [
+        ConversationTurn(role=message.role, content=message.content.strip()[:4000])
         for message in conversation.messages
         if message.role in {"user", "assistant"}
         and message.content.strip()
         and _message_belongs_to_conversation_owner(conversation, message)
-    ][-12:]
+    ]
+    return turns if limit is None else turns[-limit:]
+
+
+def _conversation_user_messages(conversation: Conversation) -> list[str]:
+    return [
+        message.content.strip()
+        for message in conversation.messages
+        if message.role == "user"
+        and message.content.strip()
+        and _message_belongs_to_conversation_owner(conversation, message)
+    ]
 
 
 def _conversation_response(conversation: Conversation) -> ConversationResponse:
@@ -841,9 +907,13 @@ def _is_session_conversation(*, normalized_message: str) -> bool:
     return any(marker in normalized for marker in SESSION_CONVERSATION_MARKERS)
 
 
-def _conversation_reply(*, message: str, history: list[ConversationTurn]) -> str:
+def _conversation_reply(*, message: str, previous_user_turns: list[str]) -> str:
     normalized = re.sub(r"\s+", " ", message.strip().lower())
-    previous_user_turns = [turn.content for turn in history if turn.role == "user"]
+
+    if _is_first_message_question(normalized):
+        if not previous_user_turns:
+            return "I cannot find an earlier user message in this conversation."
+        return f'Your first message in this chat was: "{previous_user_turns[0]}"'
 
     if "thank" in normalized and (
         "before" in normalized
@@ -868,6 +938,20 @@ def _conversation_reply(*, message: str, history: list[ConversationTurn]) -> str
         return f'Your last message was: "{previous_user_turns[-1]}"'
 
     return "I am with you. This part is just normal conversation, so I am not saving it as a memory."
+
+
+def _is_first_message_question(normalized: str) -> bool:
+    first_markers = (
+        "first thing i said",
+        "very first thing",
+        "first message",
+        "first thing",
+        "beginning of our chat",
+        "beginning of this chat",
+        "start of our chat",
+        "start of this chat",
+    )
+    return any(marker in normalized for marker in first_markers)
 
 
 def _process_self_question(message: str) -> ChatResponse:
@@ -1266,7 +1350,7 @@ def _reminder_content(*, message: str, time_phrase: str) -> str:
     return re.sub(r"\s+", " ", cleaned).strip(" .,:;?")
 
 
-def _deterministic_route(message: str) -> ChatRoute | None:
+def _deterministic_route(message: str, *, history: list[ConversationTurn]) -> ChatRoute | None:
     normalized = re.sub(r"\s+", " ", message.strip().lower())
     words = re.findall(r"[a-z0-9']+", normalized)
 
@@ -1286,6 +1370,18 @@ def _deterministic_route(message: str) -> ChatRoute | None:
         return ChatRoute(
             action="self",
             reason="The user is asking about Crowscap's identity, capabilities, or limits.",
+        )
+
+    if _is_url_capture_confirmation(message):
+        if _pending_url_from_history(history) is not None:
+            return ChatRoute(
+                action="capture",
+                reason="The user confirmed that a previously pasted link should be saved.",
+            )
+        return ChatRoute(
+            action="conversation",
+            reply="I do not see a pending link in this chat. Send the link again with \"save this\" and I will capture it.",
+            reason="The user appears to confirm a link capture, but there is no pending link.",
         )
 
     if is_explicit_preference_statement(message):
@@ -1405,8 +1501,7 @@ def _deterministic_route(message: str) -> ChatRoute | None:
             reason="The message is a short acknowledgement and contains no learning to store.",
         )
 
-    greeting_words = {"hello", "hi", "hey", "yo", "morning", "afternoon", "evening"}
-    if words and len(words) <= 4 and any(word in greeting_words for word in words):
+    if words and len(words) <= 4 and any(_is_greeting_word(word) for word in words):
         return ChatRoute(
             action="acknowledge",
             reply="Hey. What are you thinking about?",
@@ -1414,6 +1509,11 @@ def _deterministic_route(message: str) -> ChatRoute | None:
         )
 
     return None
+
+
+def _is_greeting_word(word: str) -> bool:
+    greeting_words = {"hello", "hi", "hey", "yo", "morning", "afternoon", "evening"}
+    return word in greeting_words or re.fullmatch(r"he+y+|hello+", word) is not None
 
 
 def _is_forget_command(normalized: str) -> bool:
@@ -1576,6 +1676,84 @@ def _message_without_url(message: str, url: str) -> str:
     return re.sub(r"\s+", " ", message.replace(url, " ")).strip()
 
 
+def _has_explicit_url_capture_intent(message: str) -> bool:
+    normalized = re.sub(r"\s+", " ", message.strip().lower())
+    intent_markers = (
+        "save this",
+        "save the",
+        "save it",
+        "save link",
+        "save this link",
+        "remember this",
+        "remember the",
+        "capture this",
+        "capture the",
+        "keep this",
+        "keep the",
+        "store this",
+        "store the",
+        "add this to memory",
+        "add to memory",
+        "read this",
+        "read later",
+        "watch later",
+        "process this",
+        "extract this",
+        "summarize this",
+        "summarise this",
+        "analyze this",
+        "analyse this",
+        "learn from this",
+    )
+    return any(marker in normalized for marker in intent_markers)
+
+
+def _is_url_capture_confirmation(message: str) -> bool:
+    normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
+    confirmation_phrases = {
+        "save it",
+        "save this link",
+        "yes save it",
+        "yes save this link",
+        "yeah save it",
+        "yep save it",
+        "capture it",
+        "capture this link",
+        "remember it",
+        "remember this link",
+        "read it",
+        "read this link",
+        "process it",
+        "process this link",
+    }
+    return normalized in confirmation_phrases
+
+
+def _pending_url_from_history(history: list[ConversationTurn]) -> str | None:
+    assistant_asked_confirmation = False
+    for turn in reversed(history[-8:]):
+        if turn.role == "assistant" and "I have not saved it yet" in turn.content:
+            assistant_asked_confirmation = True
+            continue
+        if turn.role != "user":
+            continue
+        url = _first_url(turn.content)
+        if not url:
+            continue
+        if assistant_asked_confirmation or not _has_explicit_url_capture_intent(turn.content):
+            return url
+    return None
+
+
+def _url_capture_confirmation_prompt(*, url: str) -> str:
+    return (
+        f"I found this link: {url}\n\n"
+        "I have not saved it yet. If this is something you want in memory, reply "
+        "\"save this link\" and I will read it, preserve the source, and extract memory cards. "
+        "If it was accidental, you can ignore this and keep chatting."
+    )
+
+
 def _retrieval_query(*, message: str, history: list[ConversationTurn]) -> str:
     normalized = re.sub(r"\s+", " ", message.strip().lower())
     follow_up_phrases = {
@@ -1678,12 +1856,13 @@ Definitions:
 - self: the user asks what Crowscap is, what it can do, how it works, whether it is just a chatbot, or what its current limitations are.
 
 Never classify thanks, "okay", "this makes sense", or simple agreement as capture.
-Never run saved-memory search for questions about only the current chat, such as "have I thanked you before in this chat?"
+Never run saved-memory search for questions about only the current chat, such as "have I thanked you before in this chat?" or "what was the first thing I said?"
 Do not classify ordinary advice questions as answer just because they are questions.
 Do not classify ordinary memory questions as audit unless the user explicitly asks for an audit, challenge, evidence check, reliability check, or public evidence comparison.
 Do classify "forget what I know about X" as forget, not audit.
 Do classify "remind me in 1 hour" as reminder, not capture.
 Do classify "what are you?" and "what can you do?" as self.
+Do not treat a bare URL as intentional long-term memory unless the surrounding words clearly ask to save, remember, read, or capture it.
 Do not save every user message. Capture only when there is durable informational content or explicit saving intent.
 
 Recent conversation:
