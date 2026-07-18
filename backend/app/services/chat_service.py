@@ -1366,12 +1366,6 @@ def _deterministic_route(message: str, *, history: list[ConversationTurn]) -> Ch
             reason="The user is asking for time-based resurfacing.",
         )
 
-    if _is_self_question(normalized):
-        return ChatRoute(
-            action="self",
-            reason="The user is asking about Crowscap's identity, capabilities, or limits.",
-        )
-
     if _is_url_capture_confirmation(message):
         if _pending_url_from_history(history) is not None:
             return ChatRoute(
@@ -1434,32 +1428,6 @@ def _deterministic_route(message: str, *, history: list[ConversationTurn]) -> Ch
         return ChatRoute(
             action="conversation",
             reason="The user is opening a normal conversation topic.",
-        )
-
-    question_starts = (
-        "what ",
-        "why ",
-        "how ",
-        "when ",
-        "where ",
-        "who ",
-        "which ",
-        "can you ",
-        "could you ",
-        "would you ",
-        "tell me ",
-        "show me ",
-        "find ",
-        "search ",
-        "do i ",
-        "did i ",
-        "have i ",
-        "explain ",
-    )
-    if normalized.endswith("?") or normalized.startswith(question_starts):
-        return ChatRoute(
-            action="conversation",
-            reason="The user is asking a normal question, not explicitly asking for saved memories.",
         )
 
     acknowledgement_words = {
@@ -1551,37 +1519,6 @@ def _is_reminder_command(normalized: str) -> bool:
             "reminder for me",
         )
     )
-
-
-def _is_self_question(normalized: str) -> bool:
-    direct_self_questions = {
-        "what are you",
-        "who are you",
-        "what is crowscap",
-        "what are you?",
-        "who are you?",
-        "what is crowscap?",
-    }
-    stripped = normalized.strip(" ?.")
-    if stripped in {item.strip(" ?.") for item in direct_self_questions}:
-        return True
-
-    self_markers = (
-        "what can you do",
-        "what do you do",
-        "what can crowscap do",
-        "how does crowscap work",
-        "how do you work",
-        "what are your limitations",
-        "what are your limits",
-        "what can't you do",
-        "what can you not do",
-        "are you just chatgpt",
-        "are you a chatbot",
-        "are you an assistant",
-        "explain crowscap",
-    )
-    return any(marker in normalized for marker in self_markers)
 
 
 def _is_explicit_memory_query(normalized: str) -> bool:
@@ -1853,7 +1790,7 @@ Definitions:
 - audit: the user explicitly asks Crowscap to challenge, audit, evidence-check, or compare a belief against public evidence.
 - forget: the user asks to forget, archive, stop showing, stop reminding, remove, or delete a memory or topic from active memory.
 - reminder: the user asks to remind them at a specific later time, with or without saving the content as memory.
-- self: the user asks what Crowscap is, what it can do, how it works, whether it is just a chatbot, or what its current limitations are.
+- self: the user asks what Crowscap is, what it does, how it works, who built it, what its purpose is, whether it is just a chatbot, or what its current limitations are.
 
 Never classify thanks, "okay", "this makes sense", or simple agreement as capture.
 Never run saved-memory search for questions about only the current chat, such as "have I thanked you before in this chat?" or "what was the first thing I said?"
@@ -1861,7 +1798,7 @@ Do not classify ordinary advice questions as answer just because they are questi
 Do not classify ordinary memory questions as audit unless the user explicitly asks for an audit, challenge, evidence check, reliability check, or public evidence comparison.
 Do classify "forget what I know about X" as forget, not audit.
 Do classify "remind me in 1 hour" as reminder, not capture.
-Do classify "what are you?" and "what can you do?" as self.
+Do classify identity/capability questions as self regardless of exact phrasing, typos, informal language, or indirect wording. Examples: "what are you?", "what is you?", "can you explain yourself?", "what's your purpose?", "I don't understand this app", "what can you do?", "how does Crowscap work?"
 Do not treat a bare URL as intentional long-term memory unless the surrounding words clearly ask to save, remember, read, or capture it.
 Do not save every user message. Capture only when there is durable informational content or explicit saving intent.
 

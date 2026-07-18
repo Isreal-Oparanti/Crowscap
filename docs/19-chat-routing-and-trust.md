@@ -6,6 +6,16 @@ Crowscap should not treat every message as a memory operation. The chat layer ha
 2. Factual questions about the current chat are answered from stored chat messages, not generated from memory search.
 3. External sources are saved only when the user clearly intends to save them.
 
+## Intent Routing
+
+Routing is deliberately hybrid.
+
+Deterministic routing is used only for high-confidence commands and safety-sensitive cases: greetings, acknowledgements, reminders, forget/archive commands, current-chat facts, explicit memory queries, explicit audits, explicit saves, and URL confirmation.
+
+Open-ended natural-language questions are routed by the Qwen classifier. This includes identity and capability questions such as "what are you?", "what is you?", "can you explain yourself?", "what's your purpose?", and "I don't understand this app." These should not depend on a hardcoded list of exact phrases.
+
+When a message is classified as `self`, Crowscap answers from its fixed product knowledge. It must not improvise a generic assistant identity or say it lacks cross-session memory.
+
 ## Current-Chat Facts
 
 Questions such as "what was my first message?", "what did I just say?", and "have I thanked you in this chat?" are session facts. They are resolved from the persisted `messages` rows for the active conversation.

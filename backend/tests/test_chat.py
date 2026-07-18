@@ -7,6 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.ai.structured_outputs import (
     CaptureExtraction,
+    ChatRoute,
     ExtractedMemoryAtom,
     GroundedChatSynthesis,
 )
@@ -19,7 +20,12 @@ from app.schemas.belief import BeliefAuditResponse, PublicEvidenceResult
 from app.schemas.capture import MemoryCardResponse, TextCaptureResponse
 from app.schemas.search import SearchResult
 from app.services.belief_audit_service import get_belief_auditor
-from app.services.chat_service import get_chat_conversation_responder, get_chat_synthesizer
+from app.services.chat_service import (
+    QwenChatIntentRouter,
+    get_chat_conversation_responder,
+    get_chat_router,
+    get_chat_synthesizer,
+)
 from app.services.embedding_service import get_memory_embedder
 from app.services.extraction_service import get_memory_extractor
 from app.services.relationship_service import get_memory_relation_detector
@@ -152,6 +158,29 @@ class FakeBeliefAuditor:
             public_search_status="searched",
             public_search_message=None,
         )
+
+
+class FixedRouter:
+    def __init__(self, action: str, *, reply: str | None = None) -> None:
+        self.action = action
+        self.reply = reply
+
+    def route(self, **kwargs) -> ChatRoute:
+        return ChatRoute(
+            action=self.action,
+            reply=self.reply,
+            reason=f"Fixed test route: {self.action}.",
+        )
+
+
+class FakeRoutingClient:
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+        self.calls: list[dict] = []
+
+    def chat_json(self, **kwargs) -> dict:
+        self.calls.append(kwargs)
+        return self.payload
 
 
 def build_chat_db_override():
@@ -460,6 +489,7 @@ def test_confirmed_pending_url_is_captured(monkeypatch) -> None:
 def test_self_question_uses_crowscap_capability_knowledge() -> None:
     override_db, testing_session = build_chat_db_override()
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter("self")
 
     try:
         client = TestClient(app)
@@ -483,6 +513,54 @@ def test_self_question_uses_crowscap_capability_knowledge() -> None:
         db.close()
     finally:
         app.dependency_overrides.clear()
+
+
+def test_typo_self_question_still_uses_crowscap_identity() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter("self")
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "what is you?", "history": []},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "self"
+        assert payload["saved"] is False
+        assert "private memory intelligence system" in payload["message"]
+        assert "I don’t have memory between conversations" not in payload["message"]
+        assert "I don't have memory between conversations" not in payload["message"]
+        assert "generic chat assistant" not in payload["message"].lower()
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Memory.id))) == 0
+        assert db.scalar(select(func.count(Capture.id))) == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_semantic_router_handles_indirect_identity_questions() -> None:
+    fake_client = FakeRoutingClient(
+        {
+            "action": "self",
+            "reply": None,
+            "reason": "The user is asking what Crowscap is despite informal wording.",
+        }
+    )
+    router = QwenChatIntentRouter(client=fake_client)
+
+    route = router.route(message="can you explain yourself a bit?", history=[])
+
+    assert route.action == "self"
+    assert len(fake_client.calls) == 1
+    prompt = fake_client.calls[0]["user_prompt"]
+    assert "regardless of exact phrasing, typos, informal language" in prompt
+    assert "what's your purpose?" in prompt
 
 
 def test_explicit_memory_message_uses_capture_pipeline() -> None:
@@ -545,6 +623,7 @@ def test_question_returns_synthesis_gaps_and_evidence_without_saving() -> None:
 
     embedder = FakeEmbedder()
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter("conversation")
     app.dependency_overrides[get_memory_embedder] = lambda: embedder
     app.dependency_overrides[get_chat_synthesizer] = lambda: FakeSynthesizer()
 
@@ -601,6 +680,7 @@ def test_normal_advice_question_does_not_pull_weak_unrelated_memories() -> None:
     db.close()
 
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter("conversation")
     app.dependency_overrides[get_memory_embedder] = lambda: OrthogonalFakeEmbedder()
     app.dependency_overrides[get_chat_conversation_responder] = lambda: FakeConversationResponder()
 
