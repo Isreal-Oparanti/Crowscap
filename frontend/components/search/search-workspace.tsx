@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Search, Sparkles, X } from "lucide-react";
+import { ArrowRight, BrainCircuit, Search, X } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 
 import { MemoryCardView } from "@/components/memory/memory-card";
@@ -101,7 +101,7 @@ export function SearchWorkspace({ user }: { user: AppShellUser }) {
 
           {loading ? (
             <div className="mt-12 flex items-center gap-3 text-[#6f7376]">
-              <Sparkles size={16} />
+              <BrainCircuit size={16} />
               <span className="text-[12px] font-semibold">
                 Reaching across your memory
               </span>

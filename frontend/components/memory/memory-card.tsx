@@ -1,11 +1,12 @@
 import {
   ArrowUpRight,
   CircleAlert,
+  ListChecks,
   GitCompareArrows,
   Lightbulb,
   Quote,
-  Sparkles,
 } from "lucide-react";
+import { MarkdownText } from "@/components/ui/markdown-text";
 import { humanizeRelationshipText } from "@/lib/chat";
 import type { MemoryCard, SearchResult } from "@/lib/types";
 
@@ -50,13 +51,13 @@ export function MemoryCardView({
               </span>
             ) : null}
           </div>
-          <p
+          <MarkdownText
+            text={memory.content}
             className={`mt-2 font-semibold leading-relaxed text-[#1d1e1f] ${
               compact ? "text-[13px]" : "text-[14px]"
             }`}
-          >
-            {memory.content}
-          </p>
+            compact
+          />
           {sourceTitle ? (
             <div className="mt-3 flex items-center gap-1.5 text-[10px] font-medium text-[#7d8083]">
               <Quote size={12} />
@@ -76,9 +77,11 @@ export function MemoryCardView({
                 {relationshipLabel(relationships[0].relationship_type)}
               </p>
               {relationships[0].explanation ? (
-                <p className="mt-1 text-[10px] font-semibold leading-relaxed">
-                  {humanizeRelationshipText(relationships[0].explanation)}
-                </p>
+                <MarkdownText
+                  text={humanizeRelationshipText(relationships[0].explanation)}
+                  className="mt-1 text-[10px] font-semibold leading-relaxed"
+                  compact
+                />
               ) : null}
             </div>
           </div>
@@ -104,7 +107,7 @@ function MemoryIcon({ type }: { type: string }) {
     type === "warning"
       ? CircleAlert
       : type === "action"
-        ? Sparkles
+        ? ListChecks
         : Lightbulb;
   const colors =
     type === "warning"

@@ -10,6 +10,7 @@ from app.ai.structured_outputs import (
     ExtractedMemoryAtom,
     GroundedChatSynthesis,
 )
+from app.core.auth import CurrentUser, require_current_user
 from app.db.base import Base
 from app.db.models import Capture, ChatMessage, Conversation, Memory, Reminder, Source, UserPreference
 from app.db.session import get_db
@@ -168,6 +169,12 @@ def build_chat_db_override():
         finally:
             db.close()
 
+    app.dependency_overrides[require_current_user] = lambda: CurrentUser(
+        id="test-user",
+        email="test@example.com",
+        name="Test User",
+    )
+
     return override_db, testing_session
 
 
@@ -323,8 +330,9 @@ def test_self_question_uses_crowscap_capability_knowledge() -> None:
         assert payload["action"] == "self"
         assert payload["saved"] is False
         assert payload["capture"] is None
-        assert "conversational memory intelligence system" in payload["message"]
-        assert "generic chat assistant" in payload["message"]
+        assert "private memory intelligence system" in payload["message"]
+        assert "source-aware knowledge" in payload["message"]
+        assert "I should stay quiet" not in payload["message"]
 
         db = testing_session()
         assert db.scalar(select(func.count(Memory.id))) == 0
@@ -366,15 +374,21 @@ def test_explicit_memory_message_uses_capture_pipeline() -> None:
 def test_question_returns_synthesis_gaps_and_evidence_without_saving() -> None:
     override_db, testing_session = build_chat_db_override()
     db = testing_session()
-    source = Source(source_type="text", title="Distribution note")
+    source = Source(source_type="text", title="Distribution note", user_id="test-user")
     db.add(source)
     db.flush()
-    capture = Capture(source_id=source.id, status="ready", inferred_intents=["remember"])
+    capture = Capture(
+        source_id=source.id,
+        user_id="test-user",
+        status="ready",
+        inferred_intents=["remember"],
+    )
     db.add(capture)
     db.flush()
     memory = Memory(
         source_id=source.id,
         capture_id=capture.id,
+        user_id="test-user",
         memory_type="principle",
         epistemic_label="advice",
         content="Test distribution channels early to learn how customers discover the product.",
@@ -417,15 +431,21 @@ def test_question_returns_synthesis_gaps_and_evidence_without_saving() -> None:
 def test_normal_advice_question_does_not_pull_weak_unrelated_memories() -> None:
     override_db, testing_session = build_chat_db_override()
     db = testing_session()
-    source = Source(source_type="text", title="FoundrGeeks note")
+    source = Source(source_type="text", title="FoundrGeeks note", user_id="test-user")
     db.add(source)
     db.flush()
-    capture = Capture(source_id=source.id, status="ready", inferred_intents=["remember"])
+    capture = Capture(
+        source_id=source.id,
+        user_id="test-user",
+        status="ready",
+        inferred_intents=["remember"],
+    )
     db.add(capture)
     db.flush()
     memory = Memory(
         source_id=source.id,
         capture_id=capture.id,
+        user_id="test-user",
         memory_type="principle",
         epistemic_label="advice",
         content="FoundrGeeks matches founders with compatible co-founders and builders.",
@@ -521,16 +541,22 @@ def test_forget_capability_question_is_self_aware_without_searching() -> None:
 def test_topic_forget_returns_confirmation_candidates_not_audit() -> None:
     override_db, testing_session = build_chat_db_override()
     db = testing_session()
-    source = Source(source_type="text", title="Distribution note")
+    source = Source(source_type="text", title="Distribution note", user_id="test-user")
     db.add(source)
     db.flush()
-    capture = Capture(source_id=source.id, status="ready", inferred_intents=["remember"])
+    capture = Capture(
+        source_id=source.id,
+        user_id="test-user",
+        status="ready",
+        inferred_intents=["remember"],
+    )
     db.add(capture)
     db.flush()
     db.add(
         Memory(
             source_id=source.id,
             capture_id=capture.id,
+            user_id="test-user",
             memory_type="principle",
             epistemic_label="advice",
             content="Distribution should be tested while shaping the product.",

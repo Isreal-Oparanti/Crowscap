@@ -679,12 +679,20 @@ def _get_or_create_conversation(
 ) -> Conversation:
     if conversation_id:
         conversation = db.get(Conversation, conversation_id)
-        if conversation is not None and (user_id is None or conversation.user_id == user_id):
+        if conversation is not None and user_id is not None and conversation.user_id != user_id:
+            logger.warning(
+                "🔒 chat.conversation.cross_user_rejected requested_id=%s owner=%s user_id=%s action=create_new",
+                conversation_id,
+                conversation.user_id,
+                user_id,
+            )
+        elif conversation is not None:
             return conversation
-        logger.info(
-            "\U0001f4ac chat.conversation.missing requested_id=%s action=create_new",
-            conversation_id,
-        )
+        else:
+            logger.info(
+                "💬 chat.conversation.missing requested_id=%s action=create_new",
+                conversation_id,
+            )
 
     conversation = Conversation(
         user_id=user_id,
@@ -708,7 +716,9 @@ def _conversation_turns(conversation: Conversation) -> list[ConversationTurn]:
     return [
         ConversationTurn(role=message.role, content=message.content)
         for message in conversation.messages
-        if message.role in {"user", "assistant"} and message.content.strip()
+        if message.role in {"user", "assistant"}
+        and message.content.strip()
+        and _message_belongs_to_conversation_owner(conversation, message)
     ][-12:]
 
 
@@ -731,8 +741,16 @@ def _conversation_response(conversation: Conversation) -> ConversationResponse:
             )
             for message in conversation.messages
             if message.role in {"user", "assistant"}
+            and _message_belongs_to_conversation_owner(conversation, message)
         ],
     )
+
+
+def _message_belongs_to_conversation_owner(
+    conversation: Conversation,
+    message: ChatMessage,
+) -> bool:
+    return conversation.user_id is None or message.user_id == conversation.user_id
 
 
 def _persist_assistant_response(
@@ -745,6 +763,9 @@ def _persist_assistant_response(
 ) -> ChatResponse:
     response.conversation_id = conversation.id
     response.user_message_id = user_message.id
+
+    if conversation.user_id is None and user_id is not None:
+        conversation.user_id = user_id
 
     assistant_message = ChatMessage(
         conversation_id=conversation.id,
@@ -850,40 +871,30 @@ def _conversation_reply(*, message: str, history: list[ConversationTurn]) -> str
 
 
 def _process_self_question(message: str) -> ChatResponse:
-    chunks = _retrieve_self_knowledge(message)
-    chunk_text = " ".join(chunk.body for chunk in chunks)
     normalized = re.sub(r"\s+", " ", message.strip().lower())
 
     if any(marker in normalized for marker in ("what can", "can you do", "features", "capabilities")):
         answer = (
-            "Crowscap is a conversational memory intelligence system, not just a generic chat assistant. "
-            "Its job is to help you capture learning fragments, turn them into atomic memories, search "
-            "them by meaning, schedule recall, compare ideas, audit beliefs with evidence, and create "
-            "reminders with or without saving the content as long-term memory.\n\n"
-            "What I can do right now: chat normally without saving everything, capture text/URLs/YouTube/"
-            "PDFs, preserve originals, extract memory cards, search your memory, run belief audits, schedule "
-            "recall, create plain reminders, and archive memories. What is still limited: native push "
-            "notifications, passive ambient capture, and full social-platform integrations."
+            "Crowscap turns scattered learning into private, source-aware memory. You can give it notes, "
+            "links, YouTube videos, PDFs, or useful conversation fragments, and it organizes them into "
+            "memories you can search, revisit, compare, and use.\n\n"
+            "Right now it supports semantic memory search, original-source viewing, recall scheduling, "
+            "lightweight reminders, belief audits with public source leads, preference learning, and "
+            "archiving memories you no longer want surfaced."
         )
     elif any(marker in normalized for marker in ("limit", "can't", "cannot", "not do", "what can't")):
         answer = (
-            "Crowscap should be honest about its limits. I am not a truth oracle, and I should not pretend "
-            "your saved notes are automatically correct. I can surface your saved evidence, compare ideas, "
-            "pull public source leads during audits, and show uncertainty, but final judgment still needs "
-            "context.\n\n"
-            "Product limits today: reminders surface inside the app rather than as native push notifications; "
-            "passive browser capture is not built; social-platform integrations are not production-ready; and "
-            "public evidence search gives source leads, not final truth."
+            "Crowscap helps you reason with your saved knowledge; it does not replace your judgment. "
+            "Public evidence in audits is treated as source leads, not final truth, and sensitive decisions "
+            "still need context from the user.\n\n"
+            "Current limits: reminders surface inside the app, native push notifications are not complete, "
+            "passive capture from other apps is not built, and social-platform integrations are still future work."
         )
     else:
         answer = (
-            "I am Crowscap: a conversational memory intelligence system, not just a generic chat assistant. "
-            "I am here to help your learning survive past the moment you saved it. I can talk normally, but "
-            "my deeper job is to turn sources, notes, videos, PDFs, and fragments into structured memories "
-            "you can recall, search, question, compare, and use.\n\n"
-            "I should stay quiet when a message is just conversation, save only when there is durable learning "
-            "or explicit intent, and be clear about what I can and cannot do. "
-            f"{chunk_text}"
+            "Crowscap is a private memory intelligence system for your learning. It helps turn notes, "
+            "links, videos, PDFs, and conversations into source-aware knowledge you can find again, "
+            "revisit at the right time, compare against other ideas, and use in real decisions."
         )
 
     return ChatResponse(
@@ -891,8 +902,7 @@ def _process_self_question(message: str) -> ChatResponse:
         message=answer,
         saved=False,
         next_step=(
-            "Ask me to save a source, search your memory, audit a belief, set a reminder, "
-            "or explain a limitation."
+            "Save a source, search your memory, audit an idea, set a reminder, or tell Crowscap how you prefer to learn."
         ),
     )
 

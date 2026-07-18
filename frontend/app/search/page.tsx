@@ -6,5 +6,6 @@ import { getServerSession } from "next-auth";
 export default async function SearchPage() {
   const session = await getServerSession(authOptions);
   if (!session?.user) return <SignInScreen />;
-  return <SearchWorkspace user={session.user} />;
+  const userKey = session.user.id ?? session.user.email ?? "signed-in";
+  return <SearchWorkspace key={userKey} user={session.user} />;
 }

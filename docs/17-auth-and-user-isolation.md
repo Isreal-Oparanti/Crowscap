@@ -70,11 +70,12 @@ CROWSCAP_PROXY_SECRET=<same secret as backend>
 Backend:
 
 ```text
+APP_ENV=production
 CROWSCAP_PROXY_SECRET=<same secret as frontend>
 CROWSCAP_AUTH_REQUIRED=true
 ```
 
-Local development can still run without auth headers when `APP_ENV=development`, but production must use the proxy secret.
+Local development can still run without auth headers when `APP_ENV=development`, but production must use `APP_ENV=production` and the proxy secret. If the backend is deployed with `APP_ENV=development` and no `CROWSCAP_PROXY_SECRET`, every proxied request can fall back to the shared `dev_local_user`, which makes different Google users appear to share one memory workspace.
 
 ## Google OAuth Setup
 

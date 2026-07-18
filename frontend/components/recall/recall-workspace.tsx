@@ -2,18 +2,19 @@
 
 import {
   ArrowUp,
+  BookOpenCheck,
   ChevronRight,
   CircleAlert,
   CircleCheck,
   Clock3,
   FileText,
   GitCompareArrows,
-  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { AppShell } from "@/components/shell/app-shell";
+import { MarkdownText } from "@/components/ui/markdown-text";
 import type { AppShellUser } from "@/components/shell/app-shell";
 import {
   completeReminder,
@@ -330,7 +331,7 @@ export function RecallWorkspace({
           {selected ? (
             <div className="rise-in">
               <div className="flex items-center gap-2 text-[#2d7058]">
-                <Sparkles size={15} />
+                <BookOpenCheck size={15} />
                 <span className="text-[10px] font-extrabold uppercase">
                   A thought is ready
                 </span>
@@ -373,9 +374,10 @@ export function RecallWorkspace({
                     </p>
                   )
                 ) : (
-                  <p className="mt-3 text-[15px] font-semibold leading-relaxed">
-                    {selected.content}
-                  </p>
+                  <MarkdownText
+                    text={selected.content}
+                    className="mt-3 text-[15px] font-semibold leading-relaxed"
+                  />
                 )}
               </div>
 
@@ -393,9 +395,11 @@ export function RecallWorkspace({
                   <p className="text-[10px] font-extrabold uppercase text-[#2d7058]">
                     Why this now
                   </p>
-                  <p className="mt-1 text-[12px] font-semibold leading-relaxed text-[#3f5d51]">
-                    {selected.surface_reason}
-                  </p>
+                  <MarkdownText
+                    text={selected.surface_reason}
+                    className="mt-1 text-[12px] font-semibold leading-relaxed text-[#3f5d51]"
+                    compact
+                  />
                 </div>
               ) : null}
 
@@ -522,9 +526,11 @@ export function RecallWorkspace({
                     <p className="text-[10px] font-extrabold uppercase text-[#85888b]">
                       Optional reflection
                     </p>
-                    <p className="mt-1 text-[12px] font-semibold leading-relaxed text-[#606568]">
-                      {selected.recall_prompt}
-                    </p>
+                    <MarkdownText
+                      text={selected.recall_prompt}
+                      className="mt-1 text-[12px] font-semibold leading-relaxed text-[#606568]"
+                      compact
+                    />
                   </div>
                   <textarea
                     rows={5}
@@ -557,16 +563,16 @@ export function RecallWorkspace({
                     <button
                       type="button"
                       onClick={submitAnswer}
-                      disabled={
-                        answer.trim().length < 3 ||
-                        submitting ||
-                        Boolean(evaluation)
-                      }
-                      aria-label="Reflect on answer"
-                      className="ml-auto flex size-9 items-center justify-center rounded-md bg-[#111111] text-white disabled:bg-[#d2d4d5]"
-                    >
-                      <ArrowUp size={17} />
-                    </button>
+                  disabled={
+                    answer.trim().length < 3 ||
+                    submitting ||
+                    Boolean(evaluation)
+                  }
+                  aria-label="Reflect on answer"
+                  className="ml-auto flex size-9 items-center justify-center rounded-md bg-[#111111] text-white disabled:bg-[#d2d4d5] [&_svg]:stroke-white"
+                >
+                  <ArrowUp size={17} />
+                </button>
                   </div>
                 </div>
               ) : null}
@@ -583,13 +589,17 @@ export function RecallWorkspace({
                     <p className="text-[10px] font-extrabold uppercase text-[#9a611e]">
                       Another saved idea may help
                     </p>
-                    <p className="mt-1 text-[11px] font-semibold leading-relaxed text-[#6f6253]">
-                      {selected.relationships[0].explanation
-                        ? humanizeRelationshipText(
-                            selected.relationships[0].explanation,
-                          )
-                        : "This idea is worth comparing with something else you saved."}
-                    </p>
+                    <MarkdownText
+                      text={
+                        selected.relationships[0].explanation
+                          ? humanizeRelationshipText(
+                              selected.relationships[0].explanation,
+                            )
+                          : "This idea is worth comparing with something else you saved."
+                      }
+                      className="mt-1 text-[11px] font-semibold leading-relaxed text-[#6f6253]"
+                      compact
+                    />
                   </div>
                 </div>
               ) : null}
@@ -645,9 +655,11 @@ function QuickRecallResult({
           <p className="text-[10px] font-extrabold uppercase text-[#2d7058]">
             Noted
           </p>
-          <p className="mt-1 text-[12px] font-semibold leading-relaxed text-[#43564e]">
-            {result.feedback}
-          </p>
+          <MarkdownText
+            text={result.feedback}
+            className="mt-1 text-[12px] font-semibold leading-relaxed text-[#43564e]"
+            compact
+          />
           <p className="mt-2 text-[10px] font-bold uppercase text-[#759084]">
             Back again {formatFriendlyDateTime(result.next_due_at)}
           </p>
@@ -739,16 +751,20 @@ function Reflection({
         <CircleCheck size={16} />
         <p className="text-[10px] font-extrabold uppercase">Reflection saved</p>
       </div>
-      <p className="mt-3 text-[12px] font-semibold leading-relaxed text-[#43564e]">
-        {evaluation.feedback}
-      </p>
+      <MarkdownText
+        text={evaluation.feedback}
+        className="mt-3 text-[12px] font-semibold leading-relaxed text-[#43564e]"
+        compact
+      />
       <div className="mt-4 border-t border-[#d8e7de] pt-4">
         <p className="text-[9px] font-extrabold uppercase text-[#2d7058]">
           What this idea means
         </p>
-        <p className="mt-2 text-[11px] font-semibold leading-relaxed text-[#4b6258]">
-          {evaluation.understanding_summary}
-        </p>
+        <MarkdownText
+          text={evaluation.understanding_summary}
+          className="mt-2 text-[11px] font-semibold leading-relaxed text-[#4b6258]"
+          compact
+        />
       </div>
       {evaluation.knowledge_gaps.length > 0 ? (
         <FeedbackList
@@ -767,9 +783,11 @@ function Reflection({
           <p className="text-[9px] font-extrabold uppercase text-[#2d7058]">
             Think one step further
           </p>
-          <p className="mt-2 text-[11px] font-semibold leading-relaxed text-[#4b6258]">
-            {evaluation.next_question}
-          </p>
+          <MarkdownText
+            text={evaluation.next_question}
+            className="mt-2 text-[11px] font-semibold leading-relaxed text-[#4b6258]"
+            compact
+          />
         </div>
       ) : null}
       <p className="mt-4 text-[9px] font-bold uppercase text-[#759084]">
@@ -791,7 +809,7 @@ function FeedbackList({ label, items }: { label: string; items: string[] }) {
             key={item}
             className="text-[11px] font-medium leading-relaxed text-[#53685f]"
           >
-            {item}
+            <MarkdownText text={item} compact />
           </li>
         ))}
       </ul>

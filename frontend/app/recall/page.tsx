@@ -6,5 +6,6 @@ import { getServerSession } from "next-auth";
 export default async function RecallPage() {
   const session = await getServerSession(authOptions);
   if (!session?.user) return <SignInScreen />;
-  return <RecallWorkspace user={session.user} />;
+  const userKey = session.user.id ?? session.user.email ?? "signed-in";
+  return <RecallWorkspace key={userKey} user={session.user} />;
 }

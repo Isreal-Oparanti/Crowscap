@@ -2,16 +2,19 @@
 
 import {
   ArrowUp,
+  BadgeCheck,
+  BookOpenCheck,
   Check,
   ChevronRight,
   Clock3,
   CircleAlert,
+  Feather,
   FileText,
   GitCompareArrows,
   Link2,
   Paperclip,
   Search,
-  Sparkles,
+  SlidersHorizontal,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -19,6 +22,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { MemoryCardView } from "@/components/memory/memory-card";
 import { AppShell } from "@/components/shell/app-shell";
+import { MarkdownText } from "@/components/ui/markdown-text";
 import {
   getCurrentConversation,
   getDueRecalls,
@@ -144,7 +148,12 @@ function normalizeChatResponse(
 }
 
 export function ChatWorkspace({ user }: { user: AppShellUser }) {
-  const openingMessages = useMemo(() => openingMessagesFor(user), [user]);
+  const userKey = user.id ?? user.email ?? user.name ?? "anonymous";
+  const openingMessages = useMemo(() => openingMessagesFor(user), [
+    userKey,
+    user.name,
+    user.email,
+  ]);
   const [messages, setMessages] = useState<ChatMessage[]>(openingMessages);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -155,6 +164,12 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
 
   useEffect(() => {
     let cancelled = false;
+    setMessages(openingMessages);
+    setConversationId(null);
+    setDraft("");
+    setWorking(false);
+    setDue(null);
+
     const refreshDue = () => {
       getDueRecalls(8)
         .then((response) => {
@@ -185,7 +200,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, []);
+  }, [openingMessages, userKey]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -513,12 +528,13 @@ function ChatTurn({ message }: { message: ChatMessage }) {
     <div className="rise-in min-w-0">
       <div className="flex min-w-0 items-start gap-3">
         <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-[#111111] text-white">
-          <Sparkles size={14} />
+          <Feather size={14} />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="max-w-[620px] break-words text-[14px] font-semibold leading-relaxed text-[#252627]">
-            {message.text}
-          </p>
+          <MarkdownText
+            text={message.text}
+            className="max-w-[620px] break-words text-[14px] font-semibold leading-relaxed text-[#252627]"
+          />
 
           {message.kind === "capture" ? (
             <div className="mt-4">
@@ -668,7 +684,7 @@ function GroundedAnswer({ data }: { data: ChatResponse }) {
     <div className="mt-5 space-y-3">
       {data.preference_updates.length > 0 ? (
         <InsightBlock
-          icon={Sparkles}
+          icon={SlidersHorizontal}
           label="Preference learned"
           items={data.preference_updates}
           tone="green"
@@ -695,9 +711,11 @@ function GroundedAnswer({ data }: { data: ChatResponse }) {
           <p className="text-[9px] font-extrabold uppercase text-[#2d7058]">
             Useful next move
           </p>
-          <p className="mt-1 text-[11px] font-semibold leading-relaxed text-[#3f5d51]">
-            {data.next_step}
-          </p>
+          <MarkdownText
+            text={data.next_step}
+            className="mt-1 text-[11px] font-semibold leading-relaxed text-[#3f5d51]"
+            compact
+          />
         </div>
       ) : null}
       {data.evidence.length > 0 ? (
@@ -749,17 +767,19 @@ function BeliefAudit({ data }: { data: BeliefAuditResponse }) {
         <h3 className="mt-2 text-[16px] font-[760] leading-tight text-[#111111]">
           {data.topic}
         </h3>
-        <p className="mt-3 text-[12px] font-semibold leading-6 text-[#3e4143]">
-          {data.current_understanding}
-        </p>
-        <p className="mt-3 rounded-md bg-[#f6f7f7] px-3 py-2 text-[11px] font-semibold leading-relaxed text-[#5f6366]">
-          {data.confidence_reason}
-        </p>
+        <MarkdownText
+          text={data.current_understanding}
+          className="mt-3 text-[12px] font-semibold leading-6 text-[#3e4143]"
+        />
+        <MarkdownText
+          text={data.confidence_reason}
+          className="mt-3 rounded-md bg-[#f6f7f7] px-3 py-2 text-[11px] font-semibold leading-relaxed text-[#5f6366]"
+        />
       </div>
 
       {data.strongest_saved_ideas.length > 0 ? (
         <InsightBlock
-          icon={Sparkles}
+          icon={BadgeCheck}
           label="Strongest saved ideas"
           items={data.strongest_saved_ideas}
           tone="green"
@@ -773,9 +793,10 @@ function BeliefAudit({ data }: { data: BeliefAuditResponse }) {
             Public source leads
           </p>
         </div>
-        <p className="mt-2 text-[11px] font-semibold leading-relaxed">
-          {data.public_evidence_summary}
-        </p>
+        <MarkdownText
+          text={data.public_evidence_summary}
+          className="mt-2 text-[11px] font-semibold leading-relaxed"
+        />
         {data.public_search_message ? (
           <p className="mt-2 text-[10px] font-bold text-[#6f7d86]">
             {data.public_search_message}
@@ -902,7 +923,7 @@ function InsightBlock({
       <ul className="mt-2 space-y-1.5">
         {items.map((item) => (
           <li key={item} className="text-[11px] font-semibold leading-relaxed">
-            {item}
+            <MarkdownText text={item} compact />
           </li>
         ))}
       </ul>
@@ -931,7 +952,7 @@ function RecallNotice({
       className="fade-in flex items-center gap-3 rounded-lg border border-[#d7e5dc] bg-[#f1f7f4] px-4 py-3 transition hover:border-[#b9d2c3]"
     >
       <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-white text-[#2d7058] shadow-sm">
-        {memory ? <Sparkles size={17} /> : <Clock3 size={17} />}
+        {memory ? <BookOpenCheck size={17} /> : <Clock3 size={17} />}
       </div>
       <div className="min-w-0">
         <p className="text-[11px] font-extrabold text-[#245e4b]">
@@ -953,7 +974,7 @@ function ThinkingTurn() {
   return (
     <div className="flex items-center gap-3 text-[#6f7376]">
       <div className="flex size-7 items-center justify-center rounded-md bg-[#111111] text-white">
-        <Sparkles size={14} />
+        <Feather size={14} />
       </div>
       <div className="flex gap-1">
         {[0, 1, 2].map((dot) => (
@@ -1034,10 +1055,6 @@ function Composer({
             >
               <Link2 size={16} />
             </button>
-            <span className="ml-1 hidden items-center gap-1.5 text-[9px] font-bold uppercase text-[#8a8d90] sm:flex">
-              <Sparkles size={11} />
-              Auto
-            </span>
             <button
               type="button"
               aria-label="Send"

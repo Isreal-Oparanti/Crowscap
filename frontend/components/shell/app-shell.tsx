@@ -1,12 +1,13 @@
 "use client";
 
 import {
+  BookOpenCheck,
   Bell,
+  BrainCircuit,
   Feather,
   MessageCircle,
   Plus,
   Search,
-  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -17,6 +18,7 @@ import { getPreferences } from "@/lib/api";
 import type { UserPreferenceProfile } from "@/lib/types";
 
 export type AppShellUser = {
+  id?: string | null;
   name?: string | null;
   email?: string | null;
   image?: string | null;
@@ -33,7 +35,7 @@ type AppShellProps = {
 
 const navigation = [
   { href: "/", label: "Chat", icon: MessageCircle },
-  { href: "/recall", label: "Recall", icon: Sparkles },
+  { href: "/recall", label: "Recall", icon: BookOpenCheck },
   { href: "/search", label: "Search", icon: Search },
 ];
 
@@ -287,7 +289,7 @@ function DefaultContext() {
       ) : null}
       <div className="mt-auto border-t border-[#e1e3e4] pt-4">
         <div className="flex items-center gap-2 text-[#5d6265]">
-          <Sparkles size={14} />
+          <BrainCircuit size={14} />
           <span className="text-[10px] font-bold uppercase">Agent memory</span>
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-[#84878a]">
