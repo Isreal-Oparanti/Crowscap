@@ -27,10 +27,11 @@ from app.db.session import get_db
 from app.main import app
 from app.schemas.belief import BeliefAuditResponse, PublicEvidenceResult
 from app.schemas.capture import MemoryCardResponse, TextCaptureResponse
-from app.schemas.search import SearchResult
+from app.schemas.search import SearchResponse, SearchResult
 from app.services.belief_audit_service import get_belief_auditor
 from app.services.chat_service import (
     QwenChatIntentRouter,
+    _pack_memory_context,
     get_chat_conversation_responder,
     get_chat_router,
     get_chat_synthesizer,
@@ -113,6 +114,15 @@ class FakeConversationResponder:
             "Leadership is not about becoming emotionless. It is about noticing the emotion, "
             "pausing before it drives the room, and choosing the response your team needs."
         )
+
+
+class CapturingConversationResponder:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def respond(self, **kwargs) -> str:
+        self.calls.append(kwargs)
+        return "Thought-provoking means it makes you pause and think more carefully."
 
 
 class FakeBeliefAuditor:
@@ -576,7 +586,7 @@ def test_confirmed_pending_url_is_captured(monkeypatch) -> None:
         capture_response = client.post(
             "/api/v1/chat",
             json={
-                "message": "save this link",
+                "message": "yes please",
                 "conversation_id": conversation_id,
                 "history": [],
             },
@@ -587,6 +597,516 @@ def test_confirmed_pending_url_is_captured(monkeypatch) -> None:
         assert payload["action"] == "capture"
         assert payload["saved"] is True
         assert captured_urls == ["https://example.com/research"]
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Memory.id))) == 0
+        assert db.scalar(select(func.count(Capture.id))) == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_semantic_pending_url_confirmation_is_captured(monkeypatch) -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    routing_client = FakeRoutingClient(
+        {
+            "action": "capture",
+            "reply": None,
+            "reason": "The user is informally confirming the pending video link.",
+        }
+    )
+    app.dependency_overrides[get_chat_router] = lambda: QwenChatIntentRouter(routing_client)
+
+    captured_urls: list[str] = []
+
+    def fake_create_url_capture(**kwargs) -> TextCaptureResponse:
+        captured_urls.append(kwargs["payload"].url)
+        return TextCaptureResponse(
+            capture_id="capture-1",
+            source_id="source-1",
+            source_type="youtube",
+            source_title="Example video",
+            original_content="Example transcript",
+            status="ready",
+            inferred_intents=["read_later"],
+            memories=[
+                MemoryCardResponse(
+                    id="memory-1",
+                    source_type="youtube",
+                    memory_type="reference",
+                    epistemic_label="source_summary",
+                    content="Read the example video transcript.",
+                    summary=None,
+                    confidence="high",
+                    confidence_reason="The user confirmed the video should be saved.",
+                    source_strength="strong",
+                    embedding_dimensions=2,
+                    relationships=[],
+                )
+            ],
+        )
+
+    monkeypatch.setattr("app.services.chat_service.create_url_capture", fake_create_url_capture)
+
+    try:
+        client = TestClient(app)
+        preview_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "https://youtube.com/shorts/kwQV9CqUj1M?si=test",
+                "history": [],
+            },
+        )
+        assert preview_response.status_code == 200
+        conversation_id = preview_response.json()["conversation_id"]
+
+        capture_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "absolutely, handle that video",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+
+        assert capture_response.status_code == 200
+        payload = capture_response.json()
+        assert payload["action"] == "capture"
+        assert payload["saved"] is True
+        assert captured_urls == ["https://youtube.com/shorts/kwQV9CqUj1M?si=test"]
+        assert len(routing_client.calls) == 1
+        assert (
+            "pending_url: https://youtube.com/shorts/kwQV9CqUj1M?si=test"
+            in routing_client.calls[0]["user_prompt"]
+        )
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Memory.id))) == 0
+        assert db.scalar(select(func.count(Capture.id))) == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_local_definition_after_capture_stays_in_current_context(monkeypatch) -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter("answer")
+    responder = CapturingConversationResponder()
+    app.dependency_overrides[get_chat_conversation_responder] = lambda: responder
+
+    def fail_memory_search(**kwargs) -> SearchResponse:
+        raise AssertionError("Local definition follow-ups should not search long-term memory.")
+
+    monkeypatch.setattr("app.services.chat_service.search_memories", fail_memory_search)
+
+    db = testing_session()
+    conversation = Conversation(user_id="test-user", title="YouTube note")
+    source = Source(
+        user_id="test-user",
+        source_type="youtube",
+        title="Sanctification short",
+        raw_text="A short transcript about sanctification.",
+        extracted_text_hash="youtube-hash",
+    )
+    db.add_all([conversation, source])
+    db.flush()
+    capture = Capture(
+        user_id="test-user",
+        source_id=source.id,
+        status="ready",
+        inferred_intents=["learned", "question"],
+    )
+    db.add(capture)
+    db.flush()
+    db.add_all(
+        [
+            Memory(
+                user_id="test-user",
+                source_id=source.id,
+                capture_id=capture.id,
+                memory_type="principle",
+                epistemic_label="advice",
+                content="Sanctification is portrayed as active and costly.",
+                confidence="high",
+                source_strength="moderate",
+                embedding_json=[1.0, 0.0],
+            ),
+            ChatMessage(
+                conversation_id=conversation.id,
+                user_id="test-user",
+                role="assistant",
+                action="capture",
+                content="I kept this as 7 distinct memories.",
+                metadata_json={
+                    "action": "capture",
+                    "saved": True,
+                    "capture": {
+                        "capture_id": capture.id,
+                        "source_id": source.id,
+                        "source_type": "youtube",
+                        "source_title": source.title,
+                        "status": "ready",
+                        "inferred_intents": ["learned", "question"],
+                        "memories": [],
+                    },
+                },
+            ),
+            ChatMessage(
+                conversation_id=conversation.id,
+                user_id="test-user",
+                role="user",
+                content="hmmm this is deep",
+            ),
+            ChatMessage(
+                conversation_id=conversation.id,
+                user_id="test-user",
+                role="assistant",
+                content="I agree, it is thought-provoking.",
+            ),
+        ]
+    )
+    db.commit()
+    conversation_id = conversation.id
+    db.close()
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "what is thought provoking?",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "conversation"
+        assert payload["saved"] is False
+        assert payload["evidence"] == []
+        assert responder.calls
+        prompt_history = "\n".join(turn.content for turn in responder.calls[0]["history"])
+        assert "Immediate context from the source the user just saved" in prompt_history
+        assert "Sanctification is portrayed as active and costly" in prompt_history
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_old_capture_context_is_not_injected_into_unrelated_later_chat() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter("conversation")
+    responder = CapturingConversationResponder()
+    app.dependency_overrides[get_chat_conversation_responder] = lambda: responder
+
+    db = testing_session()
+    conversation = Conversation(user_id="test-user", title="Old capture")
+    source = Source(
+        user_id="test-user",
+        source_type="youtube",
+        title="Old theology short",
+        raw_text="Old transcript.",
+        extracted_text_hash="old-youtube-hash",
+    )
+    db.add_all([conversation, source])
+    db.flush()
+    capture = Capture(user_id="test-user", source_id=source.id, status="ready")
+    db.add(capture)
+    db.flush()
+    db.add(
+        Memory(
+            user_id="test-user",
+            source_id=source.id,
+            capture_id=capture.id,
+            memory_type="claim",
+            epistemic_label="opinion",
+            content="An old unrelated memory should not leak into new chat.",
+            confidence="medium",
+            source_strength="moderate",
+            embedding_json=[1.0, 0.0],
+        )
+    )
+    db.add(
+        ChatMessage(
+            conversation_id=conversation.id,
+            user_id="test-user",
+            role="assistant",
+            action="capture",
+            content="I kept this as 1 distinct memories.",
+            metadata_json={
+                "action": "capture",
+                "saved": True,
+                "capture": {"capture_id": capture.id, "source_id": source.id},
+            },
+        )
+    )
+    for index in range(8):
+        db.add(
+            ChatMessage(
+                conversation_id=conversation.id,
+                user_id="test-user",
+                role="user" if index % 2 == 0 else "assistant",
+                content=f"later unrelated turn {index}",
+            )
+        )
+    db.commit()
+    conversation_id = conversation.id
+    db.close()
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "tell me more about launch planning",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+
+        assert response.status_code == 200
+        assert responder.calls
+        prompt_history = "\n".join(turn.content for turn in responder.calls[0]["history"])
+        assert "Immediate context from the source the user just saved" not in prompt_history
+        assert "old unrelated memory" not in prompt_history.lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_memory_context_pack_removes_duplicates_and_respects_priority() -> None:
+    override_db, testing_session = build_chat_db_override()
+    db = testing_session()
+    source = Source(user_id="test-user", source_type="text", title="Distribution")
+    db.add(source)
+    db.flush()
+    capture = Capture(user_id="test-user", source_id=source.id, status="ready")
+    db.add(capture)
+    db.flush()
+    high_memory = Memory(
+        user_id="test-user",
+        source_id=source.id,
+        capture_id=capture.id,
+        memory_type="principle",
+        epistemic_label="advice",
+        content="Distribution should shape product development before launch.",
+        confidence="high",
+        source_strength="strong",
+        embedding_json=[1.0, 0.0],
+    )
+    low_memory = Memory(
+        user_id="test-user",
+        source_id=source.id,
+        capture_id=capture.id,
+        memory_type="claim",
+        epistemic_label="opinion",
+        content="Distribution should shape product development before launch.",
+        confidence="low",
+        source_strength="weak",
+        embedding_json=[1.0, 0.0],
+    )
+    db.add_all([high_memory, low_memory])
+    db.commit()
+
+    search = SearchResponse(
+        query="distribution",
+        min_score=0.25,
+        candidate_count=2,
+        embedded_candidate_count=2,
+        returned_count=2,
+        top_score=0.9,
+        results=[
+            SearchResult(
+                memory_id=low_memory.id,
+                source_id=source.id,
+                source_type="text",
+                source_title="Distribution",
+                memory_type="claim",
+                epistemic_label="opinion",
+                content=low_memory.content,
+                summary=None,
+                confidence="low",
+                confidence_reason=None,
+                source_strength="weak",
+                similarity_score=0.91,
+                embedding_dimensions=2,
+            ),
+            SearchResult(
+                memory_id=high_memory.id,
+                source_id=source.id,
+                source_type="text",
+                source_title="Distribution",
+                memory_type="principle",
+                epistemic_label="advice",
+                content=high_memory.content,
+                summary=None,
+                confidence="high",
+                confidence_reason=None,
+                source_strength="strong",
+                similarity_score=0.9,
+                embedding_dimensions=2,
+            ),
+        ],
+    )
+
+    packed = _pack_memory_context(db=db, search=search, max_tokens=2_000)
+
+    assert packed.returned_count == 1
+    assert packed.results[0].memory_id == high_memory.id
+    db.close()
+
+
+def test_pending_url_does_not_swallow_new_short_note(monkeypatch) -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter("capture")
+
+    captured_texts: list[str] = []
+
+    def fail_url_capture(**kwargs) -> TextCaptureResponse:
+        raise AssertionError("A new note should not confirm the older pending link.")
+
+    def fake_create_text_capture(**kwargs) -> TextCaptureResponse:
+        captured_texts.append(kwargs["payload"].content)
+        return TextCaptureResponse(
+            capture_id="capture-1",
+            source_id="source-1",
+            source_type="text",
+            source_title="Short note",
+            original_content=kwargs["payload"].content,
+            status="ready",
+            inferred_intents=["remember"],
+            memories=[
+                MemoryCardResponse(
+                    id="memory-1",
+                    source_type="text",
+                    memory_type="claim",
+                    epistemic_label="opinion",
+                    content="Polling can fail quickly.",
+                    summary=None,
+                    confidence="medium",
+                    confidence_reason="The user stated it as a short learning note.",
+                    source_strength="moderate",
+                    embedding_dimensions=2,
+                    relationships=[],
+                )
+            ],
+        )
+
+    monkeypatch.setattr("app.services.chat_service.create_url_capture", fail_url_capture)
+    monkeypatch.setattr("app.services.chat_service.create_text_capture", fake_create_text_capture)
+
+    try:
+        client = TestClient(app)
+        preview_response = client.post(
+            "/api/v1/chat",
+            json={"message": "https://example.com/research", "history": []},
+        )
+        assert preview_response.status_code == 200
+        conversation_id = preview_response.json()["conversation_id"]
+
+        capture_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "I learned polling can fail quickly",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+
+        assert capture_response.status_code == 200
+        payload = capture_response.json()
+        assert payload["action"] == "capture"
+        assert payload["saved"] is True
+        assert captured_texts == ["I learned polling can fail quickly"]
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Memory.id))) == 0
+        assert db.scalar(select(func.count(Capture.id))) == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_short_capture_route_without_pending_target_returns_helpful_reply() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter("capture")
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "yes please", "history": []},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "conversation"
+        assert payload["saved"] is False
+        assert payload["capture"] is None
+        assert "actual content" in payload["message"]
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Memory.id))) == 0
+        assert db.scalar(select(func.count(Capture.id))) == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_declining_pending_url_does_not_capture_later_yes(monkeypatch) -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: QwenChatIntentRouter(
+        FakeRoutingClient(
+            {
+                "action": "acknowledge",
+                "reply": "Sure.",
+                "reason": "Plain confirmation after the pending link was declined.",
+            }
+        )
+    )
+
+    def fail_url_capture(**kwargs) -> TextCaptureResponse:
+        raise AssertionError("Declined links must not remain pending.")
+
+    monkeypatch.setattr("app.services.chat_service.create_url_capture", fail_url_capture)
+
+    try:
+        client = TestClient(app)
+        preview_response = client.post(
+            "/api/v1/chat",
+            json={"message": "https://example.com/research", "history": []},
+        )
+        conversation_id = preview_response.json()["conversation_id"]
+
+        decline_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "no thanks",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+        assert decline_response.status_code == 200
+        assert decline_response.json()["saved"] is False
+        assert "unsaved" in decline_response.json()["message"]
+
+        later_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "yes please",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+        assert later_response.status_code == 200
+        payload = later_response.json()
+        assert payload["saved"] is False
+        assert payload["capture"] is None
 
         db = testing_session()
         assert db.scalar(select(func.count(Memory.id))) == 0

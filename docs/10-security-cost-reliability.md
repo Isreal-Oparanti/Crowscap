@@ -102,6 +102,24 @@ Project-specific controls:
 
 Every long-running step should be retryable.
 
+Chat reliability has an extra rule: conversational follow-ups must resolve
+against current application state before they are sent to model-based routing.
+For example, if Crowscap has just asked whether to save a pasted link, a reply
+such as "yes please" confirms that pending link. It must not be treated as new
+text to extract. Short acknowledgements without a pending action should remain
+conversation and should never become accidental memories.
+
+Natural language around pending actions should be semantic, not limited to one
+exact phrase. Crowscap passes pending state into the chat router so replies like
+"sure, handle that video" or "leave it" can be interpreted against the active
+link. The deterministic checks are only the fast path and safety rail; they do
+not replace model-based intent understanding. If the message is ambiguous, the
+safe result is a clarification, not a crash or accidental capture.
+
+All chat failures should return JSON with a user-safe explanation. Internal
+Pydantic validation errors, provider failures, and extraction errors should not
+leak raw stack traces or plain-text 500 responses to the frontend.
+
 Retryable:
 - transient network errors.
 - Qwen rate limit or timeout.

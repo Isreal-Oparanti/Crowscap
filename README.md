@@ -1,126 +1,203 @@
 # Crowscap
 
-Source-of-truth documentation for the Qwen Cloud hackathon project.
+> Turn what you save into knowledge you can remember, question, and use.
 
-## Product Promise
+Crowscap is a conversational memory intelligence system built for the Qwen Cloud MemoryAgent track. It helps people turn scattered learning fragments into source-aware memory that can be searched, recalled, audited, and improved over time.
 
-Turn what you save into knowledge you can remember, question, and use.
+Most tools help people store information. Crowscap is built for the harder problem: helping saved information become usable knowledge.
 
-## Product Thesis
+## Live Project
 
-Most tools help people store information. Crowscap should help saved information become living, source-aware memory. It should not behave like a passive bookmark folder, a generic note app, or a basic RAG chatbot. It should capture learning fragments, extract atomic memories, track source strength, detect tensions, schedule recall, and expose a belief/knowledge audit that helps the user see what they appear to know, where evidence is weak, and what has not been applied. It should also learn how the user wants to learn: explicit preferences are stored as high-confidence profile settings, while behavior-derived signals from captures, archives, recall reviews, and chat history are stored as lower-confidence adaptation hints.
+- Frontend: https://crowscap.xyz
+- Backend health check: https://api.crowscap.xyz/api/v1/health
+- MCP SSE endpoint: https://api.crowscap.xyz/mcp/sse
+
+The MCP SSE endpoint is a long-running stream. A successful quick check returns an `event: endpoint` line and then keeps the connection open.
 
 ## Hackathon Track
 
-Primary track: Track 1 - MemoryAgent.
+Track 1: MemoryAgent.
 
-The project must demonstrate persistent memory, efficient storage and retrieval, timely forgetting or archiving, and recall of critical memories within limited context windows.
+The project demonstrates:
 
-## Stack
+- Persistent memory across sessions.
+- User preference learning.
+- Efficient storage and retrieval.
+- Timely forgetting through archive and deprioritization.
+- Recall of critical memories within limited context windows.
+- Agent-accessible memory tools through MCP/SSE.
 
-Frontend:
-- Next.js with TypeScript
-- Tailwind CSS
-- React component architecture
-- TanStack Query for server state
-- Zod for frontend validation when useful
+## Why Crowscap Exists
 
-Backend:
-- FastAPI
-- Pydantic v2
-- SQLAlchemy 2.x
-- Alembic
-- PostgreSQL with vector search support where available
-- Database-backed job/status MVP; Redis plus Celery remains optional for scale
-- Qwen Cloud via OpenAI-compatible SDK
-- Local MCP/SSE server for agent-accessible memory tools
+People save more than they can integrate. Links stay unread. Notes lose context. Videos become vague memories. Advice gets repeated without being applied. Familiar ideas start to feel true simply because they are familiar.
 
-Infrastructure:
-- Docker for local reproducibility
-- Alibaba Cloud deployment for backend proof
-- Object storage for uploaded files and raw extraction artifacts
-- Public open-source repository with LICENSE
-
-## Live Surfaces
+Crowscap treats memory as a lifecycle, not a folder:
 
 ```text
-Frontend: https://crowscap.xyz
-API:      https://api.crowscap.xyz/api/v1/health
-MCP SSE:  https://api.crowscap.xyz/mcp/sse
+Capture -> Extract -> Structure -> Relate -> Recall -> Audit -> Adapt
 ```
 
-The MCP SSE endpoint is a long-running stream. A successful quick check returns
-an `event: endpoint` line and then keeps the connection open.
+The system does not try to be a truth oracle. It keeps source context, confidence, uncertainty, and user intent visible. A saved claim is not automatically treated as the user's belief. A public source is not automatically treated as final truth. Crowscap helps the user notice what may need stronger evidence, what may depend on context, and what may be worth revisiting.
+
+## What It Does
+
+Crowscap supports:
+
+- Chat-first capture of notes, ideas, links, YouTube videos, and PDFs.
+- Atomic memory extraction with Qwen Cloud structured output.
+- Semantic search with Qwen embeddings and PostgreSQL vector support.
+- Source preservation so users can view the original saved material.
+- Relationship detection between memories, such as agreement, conflict, qualification, or added context.
+- Recall scheduling and review scoring.
+- Reminder-only nudges that do not pollute long-term knowledge memory.
+- Belief audits that synthesize what saved memories appear to say about a topic.
+- Preference learning from explicit instructions and lower-confidence behavior signals.
+- User-controlled archiving so unwanted memories stop surfacing.
+- Read-only MCP tools for agent access.
+
+## Architecture
+
+![Crowscap architecture](./crowscap-architecture-diagram.jpg)
+
+The architecture is intentionally split into three layers:
+
+1. The frontend owns the product experience: chat, search, recall, audit, source views, and authentication.
+2. The backend owns memory behavior: routing, extraction, embeddings, recall, audits, preferences, and guardrails.
+3. Qwen Cloud powers language understanding, structured extraction, embeddings, relationship checks, and synthesis.
+
+The main design choice is to retrieve small source-aware memory atoms instead of whole documents. This keeps the model context lean and helps Crowscap recall the right knowledge within limited context windows.
+
+## Alibaba Cloud and Qwen Cloud Usage
+
+The backend is deployed on Alibaba Cloud ECS and served through:
+
+```text
+https://api.crowscap.xyz
+```
+
+Qwen Cloud is used through its OpenAI-compatible API for:
+
+- JSON-mode structured memory extraction.
+- Chat and intent routing.
+- Embeddings with `text-embedding-v4`.
+- Relationship classification.
+- Recall evaluation.
+- Belief audit synthesis.
+
+Primary proof file for Alibaba/Qwen Cloud API usage:
+
+- [`backend/app/ai/qwen_client.py`](backend/app/ai/qwen_client.py)
+
+Deployment and MCP notes:
+
+- [`docs/14-alibaba-ecs-deployment.md`](docs/14-alibaba-ecs-deployment.md)
+- [`docs/16-ecs-mcp-deployment.md`](docs/16-ecs-mcp-deployment.md)
 
 ## Repository Layout
 
 ```text
 crowscap/
-  frontend/               Next.js app, UI, route-level experience
-  backend/                FastAPI app, workers, memory engine, MCP server
-  infra/                  Docker, deployment, Alibaba Cloud notes
-  docs/                   Product, architecture, backend, frontend, roadmap
-    adr/                  Architecture decision records
-    diagrams/             Mermaid diagrams for submission and planning
+  backend/     FastAPI API, memory engine, database models, MCP server
+  frontend/    Next.js chat-first product interface
+  docs/        Product, architecture, API, deployment, and evaluation notes
+  infra/       Deployment and infrastructure support files
 ```
 
-## Non-Negotiables
+## Core Backend Stack
 
-- The system must not claim it knows absolute truth.
-- The system must represent source strength, confidence, uncertainty, and tension.
-- Saved content is not automatically a user belief; phrase audits as "based on what you saved, your stance appears to be..."
-- The core loop must work end to end before secondary integrations.
-- WhatsApp/Telegram/social integrations are capture channels, not the foundation.
-- The demo must show something beyond "save link, search later."
+- FastAPI
+- Pydantic v2
+- SQLAlchemy 2.x
+- Alembic
+- PostgreSQL with vector support
+- Qwen Cloud OpenAI-compatible SDK
+- MCP over SSE
 
-## Core Loop
+## Core Frontend Stack
+
+- Next.js
+- TypeScript
+- Tailwind CSS
+- TanStack Query
+- NextAuth with Google sign-in
+
+## Local Development
+
+Backend:
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+Copy-Item .env.example .env
+python scripts/init_db.py
+python scripts/run_dev.py
+```
+
+Frontend:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Local app:
 
 ```text
-Capture -> Extract -> Structure -> Relate -> Recall -> Audit -> Adapt -> Improve
+http://127.0.0.1:3000
 ```
 
-## Preference Layer
+Local API docs:
 
-Crowscap keeps preference memory separate from knowledge memory. A normal saved idea becomes a `memory`; an explicit instruction such as "I prefer short answers" or "challenge my assumptions more" updates the durable `user_preferences` profile. The system also accumulates lower-confidence experience signals from behavior, such as recurring topics, archived memory types, and recall review outcomes. That profile is then used by chat, recall, and belief audits without turning casual conversation into memory cards.
+```text
+http://127.0.0.1:8000/docs
+```
 
-## Trust Guardrails
+## Testing
 
-Before content becomes memory, Crowscap now runs deterministic capture guardrails across text, URL/article, YouTube, and PDF ingestion. It rejects obvious secrets, financial account data, private patient-record details, and operational harmful material before extraction or embedding. It masks emails, phone numbers, government ID labels, and home-address labels before storage. Production API routes are rate-limited per authenticated user to protect Qwen credits and reduce abuse.
+Backend tests:
 
-## Perspective Notes
+```powershell
+cd backend
+.\.venv\Scripts\python -m pytest
+```
 
-Crowscap does not immediately debunk saved ideas. When a claim, principle, framework, prediction, or warning is under-evidenced or one-sided, the backend queues a delayed `memory_perspective_note`. Later, Crowscap can surface a gentle prompt such as "one thing worth considering..." and let the user decide whether to accept, dismiss, or save the refined idea.
+Backend syntax check:
 
-## Documentation Map
+```powershell
+.\.venv\Scripts\python -m compileall app
+```
 
-- [Product Brief](docs/01-product-brief.md)
-- [Hackathon Strategy](docs/02-hackathon-strategy.md)
-- [System Architecture](docs/03-system-architecture.md)
-- [Backend Architecture](docs/04-backend-architecture.md)
-- [Frontend Architecture](docs/05-frontend-architecture.md)
-- [Memory Engine](docs/06-memory-engine.md)
-- [Ingestion and Extraction](docs/07-ingestion-and-extraction.md)
-- [Data Model](docs/08-data-model.md)
-- [API Contract](docs/09-api-contract.md)
-- [Security, Cost, and Reliability](docs/10-security-cost-reliability.md)
-- [Roadmap and Skills](docs/11-roadmap-and-skills.md)
-- [Demo and Evaluation](docs/12-demo-and-evaluation.md)
-- [Alibaba ECS Backend Deployment](docs/14-alibaba-ecs-deployment.md)
-- [MCP Contract](docs/15-mcp-contract.md)
-- [ECS MCP Deployment](docs/16-ecs-mcp-deployment.md)
-- [Auth and User Isolation](docs/17-auth-and-user-isolation.md)
-- [Autonomous Preferences and Perspective Notes](docs/18-autonomous-preferences-and-perspectives.md)
+Frontend production build:
 
-## Verified Sources
+```powershell
+cd frontend
+npm run build
+```
 
-Last verified: 2026-06-11.
+## Documentation
 
-- Qwen Cloud hackathon Devpost resources: https://qwencloud-hackathon.devpost.com/resources
-- Qwen Cloud hackathon official rules: https://qwencloud-hackathon.devpost.com/rules
-- Qwen Cloud first API call: https://docs.qwencloud.com/developer-guides/getting-started/first-api-call
-- Qwen Cloud model selection: https://docs.qwencloud.com/developer-guides/getting-started/model-selection
-- Qwen Cloud structured output: https://docs.qwencloud.com/developer-guides/text-generation/structured-output
-- Qwen Cloud embeddings and reranking: https://docs.qwencloud.com/developer-guides/getting-started/embedding-models
-- Qwen Cloud MCP: https://docs.qwencloud.com/developer-guides/text-generation/mcp
-- Qwen Cloud cost optimization: https://docs.qwencloud.com/developer-guides/run-and-scale/cost-optimization
-- Qwen Cloud safety: https://docs.qwencloud.com/developer-guides/run-and-scale/safety
+Important project docs:
+
+- [`docs/01-product-brief.md`](docs/01-product-brief.md)
+- [`docs/03-system-architecture.md`](docs/03-system-architecture.md)
+- [`docs/06-memory-engine.md`](docs/06-memory-engine.md)
+- [`docs/08-data-model.md`](docs/08-data-model.md)
+- [`docs/09-api-contract.md`](docs/09-api-contract.md)
+- [`docs/10-security-cost-reliability.md`](docs/10-security-cost-reliability.md)
+- [`docs/15-mcp-contract.md`](docs/15-mcp-contract.md)
+- [`docs/17-auth-and-user-isolation.md`](docs/17-auth-and-user-isolation.md)
+- [`docs/18-autonomous-preferences-and-perspectives.md`](docs/18-autonomous-preferences-and-perspectives.md)
+- [`docs/19-chat-routing-and-trust.md`](docs/19-chat-routing-and-trust.md)
+
+## Current Scope
+
+Crowscap is a hackathon MVP with production-minded foundations. It is not a finished consumer product yet. The strongest implemented loop is:
+
+```text
+Save a source -> extract memory atoms -> search and recall them -> audit beliefs -> adapt to the user
+```
+
+The next major layers are stronger background processing, richer proactive perspective notes, better notification delivery, and broader MCP write tools after the read-only contract is stable.

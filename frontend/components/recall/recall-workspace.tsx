@@ -67,6 +67,7 @@ export function RecallWorkspace({
   useEffect(() => {
     let cancelled = false;
     const refreshDue = (isInitial = false) => {
+      if (!isInitial && document.visibilityState === "hidden") return;
       getDueRecalls(50)
         .then((response) => {
           if (!cancelled) setData(response);
@@ -85,11 +86,16 @@ export function RecallWorkspace({
     };
 
     refreshDue(true);
-    const intervalId = window.setInterval(() => refreshDue(false), 30_000);
+    const intervalId = window.setInterval(() => refreshDue(false), 90_000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshDue(false);
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 

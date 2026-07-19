@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.ai.qwen_client import QwenClientError
@@ -92,6 +93,15 @@ def chat(
     ) as exc:
         logger.warning("\u26a0\ufe0f chat.invalid reason=%s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ValidationError as exc:
+        logger.warning("\u26a0\ufe0f chat.validation_failed reason=%s", exc)
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "I could not turn that into a valid Crowscap action. "
+                "Paste the content or link again, or say exactly what you want saved."
+            ),
+        ) from exc
 
 
 @router.post("/pdf", response_model=ChatResponse)
@@ -124,6 +134,12 @@ async def chat_pdf(
     except (QwenClientError, EmbeddingError) as exc:
         logger.warning("\u26a0\ufe0f chat.pdf.unavailable reason=%s", exc)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except (ChatSynthesisError, ExtractionError, IngestionError, CaptureSafetyError) as exc:
+    except (
+        ChatSynthesisError,
+        ExtractionError,
+        IngestionError,
+        CaptureSafetyError,
+        ValidationError,
+    ) as exc:
         logger.warning("\u26a0\ufe0f chat.pdf.invalid reason=%s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc

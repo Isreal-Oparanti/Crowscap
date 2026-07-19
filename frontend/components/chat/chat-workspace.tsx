@@ -171,6 +171,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
     setDue(null);
 
     const refreshDue = () => {
+      if (document.visibilityState === "hidden") return;
       getDueRecalls(8)
         .then((response) => {
           if (!cancelled) setDue(response);
@@ -181,7 +182,11 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
     };
 
     refreshDue();
-    const intervalId = window.setInterval(refreshDue, 30_000);
+    const intervalId = window.setInterval(refreshDue, 90_000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshDue();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     getCurrentConversation()
       .then((conversation) => {
@@ -199,6 +204,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [openingMessages, userKey]);
 

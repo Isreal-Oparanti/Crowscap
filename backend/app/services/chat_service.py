@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from difflib import SequenceMatcher
 from typing import Protocol
 
 from pydantic import ValidationError
@@ -34,7 +35,7 @@ from app.schemas.chat import (
     ConversationTurn,
 )
 from app.schemas.memory import ArchiveMemoryRequest
-from app.schemas.search import SearchRequest, SearchResponse
+from app.schemas.search import SearchRequest, SearchResponse, SearchResult
 from app.services.belief_audit_service import BeliefAuditor
 from app.services.capture_service import create_text_capture
 from app.services.embedding_service import MemoryEmbedder
@@ -61,6 +62,11 @@ logger = get_logger("services.chat")
 
 MEMORY_QUERY_MIN_SCORE = 0.25
 CONVERSATION_MEMORY_MIN_SCORE = 0.55
+MIN_DIRECT_TEXT_CAPTURE_CHARS = 20
+PROMPT_HISTORY_RECENT_TURNS = 6
+PROMPT_HISTORY_SUMMARY_TRIGGER_TURNS = 10
+MEMORY_CONTEXT_TOKEN_BUDGET = 2000
+MEMORY_NEAR_DUPLICATE_RATIO = 0.82
 SESSION_CONVERSATION_MARKERS = (
     "in this chat",
     "this chat",
@@ -350,8 +356,9 @@ def process_chat_message(
         first_message=payload.message,
         user_id=user_id,
     )
-    persisted_history = _conversation_turns(conversation)
+    persisted_history = _conversation_turns(conversation, limit=None)
     effective_history = persisted_history or payload.history
+    pending_url = _pending_url_from_history(effective_history)
 
     logger.info(
         "\U0001f4ac chat.message.start chars=%s history=%s conversation_id=%s",
@@ -360,6 +367,12 @@ def process_chat_message(
         conversation.id,
     )
     route = router.route(message=payload.message, history=effective_history)
+    route = _stabilize_route_for_local_context(
+        route=route,
+        message=payload.message,
+        history=effective_history,
+        pending_url=pending_url,
+    )
 
     user_message = ChatMessage(
         conversation_id=conversation.id,
@@ -379,6 +392,13 @@ def process_chat_message(
     if autonomous_learning.updates:
         preference_learning.updates.extend(autonomous_learning.updates)
     preferences = preference_learning.profile
+    model_history = _model_prompt_history(
+        db=db,
+        conversation=conversation,
+        history=effective_history,
+        latest_message=payload.message,
+        user_id=user_id,
+    )
 
     if route.action == "acknowledge":
         reply = route.reply or _preference_acknowledgement(preference_learning) or (
@@ -404,11 +424,23 @@ def process_chat_message(
                 previous_user_turns=_conversation_user_messages(conversation),
             )
         else:
-            high_confidence_context = _search_for_conversation_context(
+            high_confidence_context = (
+                _search_for_conversation_context(
+                    db=db,
+                    message=payload.message,
+                    embedder=embedder,
+                    user_id=user_id,
+                )
+                if _should_probe_memory_for_conversation(
+                    message=payload.message,
+                    history=effective_history,
+                )
+                else _empty_search_response(query=payload.message)
+            )
+            high_confidence_context = _pack_memory_context(
                 db=db,
-                message=payload.message,
-                embedder=embedder,
-                user_id=user_id,
+                search=high_confidence_context,
+                max_tokens=MEMORY_CONTEXT_TOKEN_BUDGET,
             )
             if high_confidence_context.results:
                 relation_context = _relation_context_for_results(
@@ -417,7 +449,7 @@ def process_chat_message(
                 )
                 synthesis = synthesizer.synthesize(
                     question=payload.message,
-                    history=effective_history,
+                    history=model_history,
                     search=high_confidence_context,
                     relation_context=relation_context,
                     preferences=preferences,
@@ -446,7 +478,7 @@ def process_chat_message(
 
             reply = route.reply or conversation_responder.respond(
                 message=payload.message,
-                history=effective_history,
+                history=model_history,
                 preferences=preferences,
             )
         logger.info("\u2705 chat.message.complete action=conversation saved=False")
@@ -580,8 +612,11 @@ def process_chat_message(
                     relation_detector=relation_detector,
                     user_id=user_id,
                 )
-        elif _is_url_capture_confirmation(payload.message):
-            pending_url = _pending_url_from_history(effective_history)
+        elif _should_capture_pending_url(
+            payload.message,
+            pending_url=pending_url,
+            route=route,
+        ):
             if pending_url is None:
                 if _is_save_previous_response_command(payload.message):
                     response = _process_save_previous_response_request(
@@ -672,6 +707,25 @@ def process_chat_message(
                 user_id=user_id,
             )
         else:
+            if not _is_substantial_direct_capture(payload.message):
+                response = ChatResponse(
+                    action="conversation",
+                    message=(
+                        "I need the actual content before I can save it. Paste the note, source, "
+                        "or link you want kept, or say \"save that\" right after an answer from me."
+                    ),
+                    saved=False,
+                    next_step="Send the thing to save, or refer to the previous answer with \"save that\".",
+                )
+                response = _with_preference_learning(response, preference_learning)
+                logger.info("\u2705 chat.message.complete action=capture_too_short saved=False")
+                return _persist_assistant_response(
+                    db=db,
+                    conversation=conversation,
+                    user_message=user_message,
+                    response=response,
+                    user_id=user_id,
+                )
             capture = create_text_capture(
                 db=db,
                 payload=TextCaptureRequest(content=payload.message),
@@ -740,13 +794,18 @@ def process_chat_message(
         embedder=embedder,
         user_id=user_id,
     )
+    search = _pack_memory_context(
+        db=db,
+        search=search,
+        max_tokens=MEMORY_CONTEXT_TOKEN_BUDGET,
+    )
     relation_context = _relation_context_for_results(
         db=db,
         memory_ids=[result.memory_id for result in search.results],
     )
     synthesis = synthesizer.synthesize(
         question=payload.message,
-        history=effective_history,
+        history=model_history,
         search=search,
         relation_context=relation_context,
         preferences=preferences,
@@ -906,6 +965,213 @@ def _conversation_user_messages(conversation: Conversation) -> list[str]:
     ]
 
 
+def _model_prompt_history(
+    *,
+    db: Session,
+    conversation: Conversation,
+    history: list[ConversationTurn],
+    latest_message: str,
+    user_id: str | None,
+) -> list[ConversationTurn]:
+    prompt_history = _compress_conversation_history(history)
+    if not _should_include_recent_capture_context(message=latest_message, history=history):
+        return prompt_history
+
+    recent_capture = _latest_captured_source_from_conversation(
+        db=db,
+        conversation=conversation,
+        user_id=user_id,
+        source_type_hint=None,
+    )
+    if recent_capture is None:
+        return prompt_history
+
+    capture_turn = _recent_capture_context_turn(recent_capture)
+    if capture_turn is None:
+        return prompt_history
+    return [capture_turn, *prompt_history]
+
+
+def _compress_conversation_history(history: list[ConversationTurn]) -> list[ConversationTurn]:
+    if len(history) <= PROMPT_HISTORY_SUMMARY_TRIGGER_TURNS:
+        return history
+
+    older_turns = history[:-PROMPT_HISTORY_RECENT_TURNS]
+    recent_turns = history[-PROMPT_HISTORY_RECENT_TURNS:]
+    summary = _summarize_turns_for_context(older_turns)
+    if summary is None:
+        return recent_turns
+    return [ConversationTurn(role="assistant", content=summary), *recent_turns]
+
+
+def _summarize_turns_for_context(turns: list[ConversationTurn]) -> str | None:
+    user_topics: list[str] = []
+    app_events: list[str] = []
+    for turn in turns:
+        content = re.sub(r"\s+", " ", turn.content.strip())
+        if not content:
+            continue
+        if turn.role == "user":
+            normalized = content.lower()
+            if len(content) < 4 or _is_greeting_word(normalized):
+                continue
+            if _looks_like_acknowledgement_only(normalized):
+                continue
+            user_topics.append(_snippet(content, max_chars=180))
+        elif (
+            "I kept this as" in content
+            or "I found this link" in content
+            or "reminder scheduled" in content.lower()
+            or "archived" in content.lower()
+            or "updated your Crowscap preferences" in content
+        ):
+            app_events.append(_snippet(content, max_chars=180))
+
+    parts: list[str] = [
+        "Conversation summary for older turns. Exact older messages are omitted to keep model context small."
+    ]
+    if user_topics:
+        parts.append("User topics: " + "; ".join(user_topics[-5:]) + ".")
+    if app_events:
+        parts.append("Crowscap events: " + "; ".join(app_events[-4:]) + ".")
+    if len(parts) == 1:
+        return None
+    return " ".join(parts)[:3800]
+
+
+def _recent_capture_context_turn(recent: RecentCaptureContext) -> ConversationTurn | None:
+    active_memories = [
+        memory
+        for memory in recent.memories
+        if memory.status == "active" and memory.content.strip()
+    ]
+    if not active_memories:
+        return None
+
+    source_label = recent.source.title or recent.source.original_url or recent.source.resolved_url or recent.source.source_type
+    memory_lines = [
+        f"- {memory.memory_type}: {_snippet(memory.content, max_chars=280)}"
+        for memory in active_memories[:6]
+    ]
+    content = (
+        "Immediate context from the source the user just saved. Use this only for short follow-ups "
+        f"about the just-saved source, not as general long-term memory. Source: {source_label}. "
+        "Extracted memories:\n"
+        + "\n".join(memory_lines)
+    )
+    return ConversationTurn(role="assistant", content=content[:4000])
+
+
+def _should_include_recent_capture_context(
+    *,
+    message: str,
+    history: list[ConversationTurn],
+) -> bool:
+    if not _has_recent_capture_receipt(history):
+        return False
+
+    normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
+    if (
+        _is_explicit_memory_query(normalized)
+        or _is_explicit_belief_audit_query(normalized)
+        or _is_forget_command(normalized)
+        or _is_reminder_command(normalized)
+    ):
+        return False
+
+    words = re.findall(r"[a-z0-9']+", normalized)
+    if not words:
+        return False
+
+    local_reference_words = {
+        "this",
+        "that",
+        "it",
+        "these",
+        "those",
+        "there",
+        "deep",
+        "interesting",
+        "serious",
+        "true",
+        "right",
+        "wrong",
+        "mean",
+        "means",
+        "meaning",
+        "thought",
+        "provoking",
+    }
+    if len(words) <= 12 and (
+        _is_short_conversation_followup(normalized)
+        or _is_definition_or_meaning_question(normalized)
+        or any(word in local_reference_words for word in words)
+    ):
+        return True
+    return False
+
+
+def _has_recent_capture_receipt(history: list[ConversationTurn]) -> bool:
+    receipt_markers = (
+        "I kept this as",
+        "I kept this link as",
+        "Memory receipt",
+        "distinct memories",
+    )
+    for turn in reversed(history[-8:]):
+        if turn.role == "assistant" and any(marker in turn.content for marker in receipt_markers):
+            return True
+    return False
+
+
+def _snippet(text: str, *, max_chars: int) -> str:
+    compact = re.sub(r"\s+", " ", text.strip())
+    if len(compact) <= max_chars:
+        return compact
+    return compact[: max_chars - 3].rstrip(" .,;:") + "..."
+
+
+def _looks_like_acknowledgement_only(normalized: str) -> bool:
+    words = re.findall(r"[a-z0-9']+", normalized)
+    if not words or len(words) > 12:
+        return False
+    acknowledgement_words = {
+        "ok",
+        "okay",
+        "alright",
+        "cool",
+        "great",
+        "thanks",
+        "thank",
+        "you",
+        "got",
+        "it",
+        "understood",
+        "sense",
+        "makes",
+        "this",
+        "that",
+        "so",
+        "much",
+        "really",
+        "appreciate",
+        "appreciated",
+        "exactly",
+        "clear",
+        "understand",
+        "i",
+        "helpful",
+        "perfect",
+        "nice",
+        "yes",
+        "yeah",
+        "yep",
+        "hmm",
+        "hmmm",
+    }
+    return set(words).issubset(acknowledgement_words)
+
+
 def _conversation_response(conversation: Conversation) -> ConversationResponse:
     return ConversationResponse(
         id=conversation.id,
@@ -1018,6 +1284,142 @@ def _search_for_conversation_context(
         search.top_score,
     )
     return search
+
+
+def _empty_search_response(*, query: str) -> SearchResponse:
+    return SearchResponse(
+        query=query,
+        min_score=CONVERSATION_MEMORY_MIN_SCORE,
+        candidate_count=0,
+        embedded_candidate_count=0,
+        returned_count=0,
+        top_score=None,
+        results=[],
+    )
+
+
+def _pack_memory_context(
+    *,
+    db: Session,
+    search: SearchResponse,
+    max_tokens: int,
+) -> SearchResponse:
+    if not search.results:
+        return search
+
+    memories_by_id = {
+        memory.id: memory
+        for memory in db.scalars(
+            select(Memory).where(Memory.id.in_([result.memory_id for result in search.results]))
+        ).all()
+    }
+    ranked = sorted(
+        search.results,
+        key=lambda result: _memory_context_priority(
+            result=result,
+            memory=memories_by_id.get(result.memory_id),
+        ),
+        reverse=True,
+    )
+
+    kept: list[SearchResult] = []
+    token_count = 0
+    dropped_duplicates = 0
+    dropped_budget = 0
+    for result in ranked:
+        if any(_memory_texts_are_near_duplicate(result.content, kept_result.content) for kept_result in kept):
+            dropped_duplicates += 1
+            continue
+
+        estimate = _memory_context_token_estimate(result)
+        if kept and token_count + estimate > max_tokens:
+            dropped_budget += 1
+            continue
+
+        kept.append(result)
+        token_count += estimate
+
+    logger.info(
+        "\U0001f9ee chat.context_pack before=%s after=%s estimated_tokens=%s dropped_duplicates=%s dropped_budget=%s",
+        len(search.results),
+        len(kept),
+        token_count,
+        dropped_duplicates,
+        dropped_budget,
+    )
+    return search.model_copy(
+        update={
+            "results": kept,
+            "returned_count": len(kept),
+            "top_score": kept[0].similarity_score if kept else search.top_score,
+        }
+    )
+
+
+def _memory_context_priority(*, result: SearchResult, memory: Memory | None) -> float:
+    similarity = max(0.0, min(float(result.similarity_score), 1.0))
+    confidence = _confidence_weight(str(result.confidence))
+    source_strength = _source_strength_weight(str(result.source_strength))
+    recency = _recency_weight(memory.created_at if memory is not None else None)
+    return (0.4 * similarity) + (0.3 * confidence) + (0.2 * source_strength) + (0.1 * recency)
+
+
+def _confidence_weight(value: str) -> float:
+    return {
+        "high": 1.0,
+        "medium": 0.66,
+        "low": 0.33,
+        "unknown": 0.4,
+    }.get(value, 0.4)
+
+
+def _source_strength_weight(value: str) -> float:
+    return {
+        "strong": 1.0,
+        "moderate": 0.66,
+        "weak": 0.33,
+        "unknown": 0.4,
+    }.get(value, 0.4)
+
+
+def _recency_weight(created_at: datetime | None) -> float:
+    if created_at is None:
+        return 0.5
+    now = utc_now()
+    if created_at.tzinfo is None:
+        now = now.replace(tzinfo=None)
+    age = now - created_at
+    age_days = max(age.total_seconds() / 86_400, 0.0)
+    return max(0.0, min(1.0, 1.0 - (age_days / 180.0)))
+
+
+def _memory_context_token_estimate(result: SearchResult) -> int:
+    packed = " ".join(
+        part
+        for part in (
+            result.content,
+            result.source_title or "",
+            str(result.memory_type),
+            str(result.epistemic_label or ""),
+            str(result.confidence),
+            str(result.source_strength),
+        )
+        if part
+    )
+    return max(1, len(packed) // 4)
+
+
+def _memory_texts_are_near_duplicate(left: str, right: str) -> bool:
+    left_norm = _normalize_memory_text(left)
+    right_norm = _normalize_memory_text(right)
+    if not left_norm or not right_norm:
+        return False
+    return SequenceMatcher(None, left_norm, right_norm).ratio() >= MEMORY_NEAR_DUPLICATE_RATIO
+
+
+def _normalize_memory_text(text: str) -> str:
+    words = re.findall(r"[a-z0-9']+", text.lower())
+    return " ".join(words)
 
 
 def _is_session_conversation(*, normalized_message: str) -> bool:
@@ -1754,6 +2156,7 @@ def _reminder_content(*, message: str, time_phrase: str) -> str:
 def _deterministic_route(message: str, *, history: list[ConversationTurn]) -> ChatRoute | None:
     normalized = re.sub(r"\s+", " ", message.strip().lower())
     words = re.findall(r"[a-z0-9']+", normalized)
+    pending_url = _pending_url_from_history(history)
 
     if _is_forget_command(normalized):
         return ChatRoute(
@@ -1767,8 +2170,15 @@ def _deterministic_route(message: str, *, history: list[ConversationTurn]) -> Ch
             reason="The user is asking for time-based resurfacing.",
         )
 
-    if _is_url_capture_confirmation(message):
-        if _pending_url_from_history(history) is not None:
+    if pending_url is not None and _is_pending_url_rejection(message):
+        return ChatRoute(
+            action="conversation",
+            reply="No problem. I will leave that link unsaved.",
+            reason="The user declined a pending link capture.",
+        )
+
+    if _should_capture_pending_url(message, pending_url=pending_url) or _is_url_capture_confirmation(message):
+        if pending_url is not None:
             return ChatRoute(
                 action="capture",
                 reason="The user confirmed that a previously pasted link should be saved.",
@@ -1890,6 +2300,55 @@ def _deterministic_route(message: str, *, history: list[ConversationTurn]) -> Ch
         )
 
     return None
+
+
+def _stabilize_route_for_local_context(
+    *,
+    route: ChatRoute,
+    message: str,
+    history: list[ConversationTurn],
+    pending_url: str | None,
+) -> ChatRoute:
+    normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
+    if route.action in {"answer", "capture"} and _is_local_conversation_question(
+        message=message,
+        history=history,
+    ):
+        logger.info(
+            "\U0001f9ed chat.route.stabilized from=%s to=conversation reason=local_context_question",
+            route.action,
+        )
+        return ChatRoute(
+            action="conversation",
+            reply=None,
+            reason="The user is asking a local follow-up, not a saved-memory question.",
+        )
+
+    if (
+        route.action == "capture"
+        and pending_url is None
+        and _is_generic_affirmation(message)
+        and not _is_save_previous_response_command(message)
+    ):
+        logger.info(
+            "\U0001f9ed chat.route.stabilized from=capture to=conversation reason=orphan_confirmation"
+        )
+        return ChatRoute(
+            action="conversation",
+            reply=(
+                "I need the actual content before I can save it. Send the note, source, or link you want kept."
+            ),
+            reason="The user confirmed something, but there is no pending app action.",
+        )
+
+    if route.action == "capture" and pending_url is not None and _is_pending_url_rejection(message):
+        return ChatRoute(
+            action="conversation",
+            reply="No problem. I will leave that link unsaved.",
+            reason="The user declined a pending link capture.",
+        )
+
+    return route
 
 
 def _is_greeting_word(word: str) -> bool:
@@ -2020,6 +2479,92 @@ def _is_explicit_memory_query(normalized: str) -> bool:
     return any(marker in normalized for marker in memory_markers)
 
 
+def _should_probe_memory_for_conversation(
+    *,
+    message: str,
+    history: list[ConversationTurn],
+) -> bool:
+    normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
+    if _is_explicit_memory_query(normalized):
+        return True
+    if _is_local_conversation_question(message=message, history=history):
+        logger.info(
+            "\U0001f9ed chat.conversation.memory_probe_skipped reason=local_context_question"
+        )
+        return False
+    if _is_short_conversation_followup(normalized):
+        logger.info(
+            "\U0001f9ed chat.conversation.memory_probe_skipped reason=short_followup"
+        )
+        return False
+    words = re.findall(r"[a-z0-9']+", normalized)
+    if len(words) >= 8 or re.match(r"^(?:how|why|should|can|could)\b", normalized):
+        return True
+    return False
+
+
+def _is_local_conversation_question(
+    *,
+    message: str,
+    history: list[ConversationTurn],
+) -> bool:
+    normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
+    if _first_url(message):
+        return False
+    if _is_explicit_memory_query(normalized) or _is_explicit_belief_audit_query(normalized):
+        return False
+    if any(marker in normalized for marker in SESSION_CONVERSATION_MARKERS):
+        return True
+    if _is_definition_or_meaning_question(normalized):
+        return True
+    if _is_short_conversation_followup(normalized) and _has_recent_context(history):
+        return True
+    return False
+
+
+def _is_definition_or_meaning_question(normalized: str) -> bool:
+    if any(marker in normalized for marker in ("my memory", "my memories", "saved", "notes", "source")):
+        return False
+    patterns = (
+        r"^what\s+(?:is|does|do)\s+.{1,80}\??$",
+        r"^what\s+is\s+.{1,80}\s+mean\??$",
+        r"^what\s+does\s+.{1,80}\s+mean\??$",
+        r"^meaning\s+of\s+.{1,80}\??$",
+        r"^define\s+.{1,80}\??$",
+        r"^explain\s+the\s+word\s+.{1,80}\??$",
+    )
+    if not any(re.fullmatch(pattern, normalized) is not None for pattern in patterns):
+        return False
+    words = re.findall(r"[a-z0-9']+", normalized)
+    return len(words) <= 10
+
+
+def _is_short_conversation_followup(normalized: str) -> bool:
+    if _is_explicit_memory_query(normalized):
+        return False
+    words = re.findall(r"[a-z0-9']+", normalized)
+    if not words or len(words) > 10:
+        return False
+    followup_patterns = (
+        r"^(?:do|dont|don't)\s+you\s+think\??$",
+        r"^what\s+do\s+you\s+think\??$",
+        r"^why\??$",
+        r"^why\s+is\s+that\??$",
+        r"^how\s+so\??$",
+        r"^what\s+do\s+you\s+mean\??$",
+        r"^what\s+is\s+that\??$",
+        r"^what\s+does\s+that\s+mean\??$",
+        r"^can\s+you\s+explain\s+that\??$",
+        r"^go\s+deeper\??$",
+        r"^tell\s+me\s+more\??$",
+    )
+    return any(re.fullmatch(pattern, normalized) is not None for pattern in followup_patterns)
+
+
+def _has_recent_context(history: list[ConversationTurn]) -> bool:
+    return any(turn.content.strip() for turn in history[-4:])
+
+
 def _is_explicit_belief_audit_query(normalized: str) -> bool:
     audit_markers = (
         "audit what i believe",
@@ -2098,6 +2643,12 @@ def _should_capture_mixed_url_message_as_text(message: str) -> bool:
     return len(words) >= 18 or len(text_without_urls) >= 120
 
 
+def _is_substantial_direct_capture(message: str) -> bool:
+    stripped = message.strip()
+    words = re.findall(r"[a-z0-9']+", stripped.lower())
+    return len(stripped) >= MIN_DIRECT_TEXT_CAPTURE_CHARS and len(words) >= 3
+
+
 def _has_explicit_url_capture_intent(message: str) -> bool:
     normalized = re.sub(r"\s+", " ", message.strip().lower())
     intent_markers = (
@@ -2148,7 +2699,97 @@ def _is_url_capture_confirmation(message: str) -> bool:
         "process it",
         "process this link",
     }
-    return normalized in confirmation_phrases
+    if normalized in confirmation_phrases:
+        return True
+
+    command_patterns = (
+        r"^(?:please\s+)?(?:save|capture|remember|read|process|ingest)\s+(?:it|this|the\s+link)(?:\s+please)?$",
+        r"^(?:yes|yeah|yep|sure|ok|okay|alright)\s*,?\s*(?:please\s+)?(?:save|capture|remember|read|process|ingest)\s+(?:it|this|the\s+link)(?:\s+please)?$",
+    )
+    return any(re.fullmatch(pattern, normalized) is not None for pattern in command_patterns)
+
+
+def _is_generic_affirmation(message: str) -> bool:
+    normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
+    if not normalized:
+        return False
+    if re.search(r"\b(?:no|not|dont|don't|never|cancel|ignore|stop)\b", normalized):
+        return False
+    affirmative_patterns = (
+        r"^(?:yes|yeah|yep|yup|sure|ok|okay|alright|do it|go ahead)(?:\s+please)?$",
+        r"^(?:yes|yeah|yep|sure|ok|okay|alright),?\s*(?:please|go ahead|do it)$",
+        r"^(?:please\s+)?(?:go ahead|do it)$",
+    )
+    return any(re.fullmatch(pattern, normalized) is not None for pattern in affirmative_patterns)
+
+
+def _is_pending_url_rejection(message: str) -> bool:
+    normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
+    rejection_patterns = (
+        r"^(?:no|nope|nah)(?:\s+thanks|\s+thank\s+you)?$",
+        r"^(?:do not|don't|dont)\s+(?:save|capture|remember|read|process)\s+(?:it|this|the\s+link)$",
+        r"^(?:cancel|ignore|leave)\s+(?:it|this|the\s+link)(?:\s+unsaved)?$",
+    )
+    return any(re.fullmatch(pattern, normalized) is not None for pattern in rejection_patterns)
+
+
+def _should_capture_pending_url(
+    message: str,
+    *,
+    pending_url: str | None,
+    route: ChatRoute | None = None,
+) -> bool:
+    if pending_url is None:
+        return False
+    if _first_url(message):
+        return False
+    if _is_pending_url_rejection(message):
+        return False
+    if _is_url_capture_confirmation(message) or _is_generic_affirmation(message):
+        return True
+    return route is not None and route.action == "capture" and _looks_like_pending_url_reply(message)
+
+
+def _looks_like_pending_url_reply(message: str) -> bool:
+    normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
+    words = re.findall(r"[a-z0-9']+", normalized)
+    if not words:
+        return False
+
+    # This is only used after the semantic router classified the message as capture.
+    # It keeps a pending link from swallowing a brand-new long note.
+    pending_references = {
+        "it",
+        "this",
+        "that",
+        "link",
+        "url",
+        "video",
+        "short",
+        "shorts",
+        "article",
+        "page",
+        "source",
+        "read",
+        "process",
+        "save",
+        "capture",
+        "remember",
+        "ingest",
+        "handle",
+        "open",
+        "check",
+        "thing",
+        "one",
+    }
+    if any(word in pending_references for word in words):
+        return len(words) <= 28
+    if len(words) <= 10 and re.search(
+        r"\b(?:yes|yeah|yep|yup|sure|ok|okay|alright|absolutely|definitely|fine|please)\b",
+        normalized,
+    ):
+        return True
+    return False
 
 
 def _is_save_previous_response_command(message: str) -> bool:
@@ -2207,6 +2848,13 @@ def _is_save_previous_response_command(message: str) -> bool:
 def _pending_url_from_history(history: list[ConversationTurn]) -> str | None:
     assistant_asked_confirmation = False
     for turn in reversed(history[-8:]):
+        if turn.role == "assistant" and (
+            "I will leave that link unsaved" in turn.content
+            or "I kept this as" in turn.content
+            or "I kept this link as" in turn.content
+            or "Nothing has been saved from this link" in turn.content
+        ):
+            return None
         if turn.role == "assistant" and "I have not saved it yet" in turn.content:
             assistant_asked_confirmation = True
             continue
@@ -2325,6 +2973,12 @@ def _build_router_prompt(*, message: str, history: list[ConversationTurn]) -> st
     history_text = "\n".join(
         f"{turn.role}: {turn.content}" for turn in history[-6:]
     ) or "No earlier turns."
+    pending_url = _pending_url_from_history(history)
+    pending_state = (
+        f"pending_url: {pending_url}"
+        if pending_url is not None
+        else "No pending app action."
+    )
     return f"""Classify the user's latest message.
 
 Return JSON:
@@ -2353,6 +3007,15 @@ Do classify "remind me in 1 hour" as reminder, not capture.
 Do classify identity/capability questions as self regardless of exact phrasing, typos, informal language, or indirect wording. Examples: "what are you?", "what is you?", "can you explain yourself?", "what's your purpose?", "I don't understand this app", "what can you do?", "how does Crowscap work?"
 Do not treat a bare URL as intentional long-term memory unless the surrounding words clearly ask to save, remember, read, or capture it.
 Do not save every user message. Capture only when there is durable informational content or explicit saving intent.
+
+Pending app state:
+{pending_state}
+
+Pending action rules:
+- If pending_url exists and the latest message semantically confirms saving, reading, processing, or handling that link, classify as capture even if the user says it informally, with typos, or indirectly.
+- If pending_url exists and the latest message declines, cancels, ignores, or moves away from that link, classify as conversation and use reply to say the link will stay unsaved.
+- If no pending_url exists, do not classify short confirmations such as "yes please", "sure", "go ahead", or "okay" as capture.
+- If the latest message contains a new substantive note, question, or topic, classify the new message on its own instead of forcing it to act on a pending link.
 
 Recent conversation:
 {history_text}
@@ -2405,6 +3068,9 @@ Rules:
 - knowledge_gaps should name what the user would need to understand or verify before treating the conclusion as reliable.
 - You may use general reasoning to explain a gap, but do not pretend it came from the user's saved sources.
 - If no personal memories were found, answer helpfully but clearly say this answer is not grounded in their saved memory yet.
+- Use only the memories that directly answer this question. Ignore unrelated memories even if they appear in the retrieval list.
+- Do not add "what is still missing", "ideas worth comparing", or a next-step coaching section for simple factual or definition-style questions.
+- If the user's question is really about the immediate chat, answer the immediate chat fact directly and do not reinterpret their wording as meaningful.
 - Do not mention vector scores or internal retrieval.
 - Follow the learned user preferences when they do not conflict with safety, honesty, or source-grounding.
 - If evidence strictness is strict, be clearer about what is supported vs only plausible.
@@ -2446,8 +3112,11 @@ Return JSON:
 
 Rules:
 - This is normal chat, not a saved-memory answer.
-- Do not mention saved memories, sources, vector search, recall, or knowledge cards.
+- Do not mention saved memories, sources, vector search, recall, or knowledge cards unless the recent conversation contains a turn beginning "Immediate context from the source the user just saved" and the latest message is clearly a short follow-up to that just-saved source.
 - Do not say you saved anything.
+- For definition questions, define the term directly in ordinary language. If useful, connect it to the immediately preceding turn only.
+- For short follow-ups such as "don't you think?", "what do you mean?", "why?", or "tell me more", answer from the last few turns first. Do not reach into older saved memory unless it was explicitly provided as immediate context.
+- Do not include audit-style sections such as "What is still missing", "Ideas worth comparing", or "Useful next move" in normal chat.
 - If the user asks for advice, answer directly like a thoughtful assistant.
 - Keep the tone warm, clear, and practical.
 - If the user asks to save, remember, or remind them, say you can do that when they state exactly what to save or when to remind them.

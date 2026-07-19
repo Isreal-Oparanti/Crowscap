@@ -1,158 +1,217 @@
 # System Architecture
 
-## Architecture Goal
+Crowscap is a source-aware MemoryAgent. The system is designed around one central problem: users do not only need to store information, they need the right piece of knowledge to return at the right moment with enough context to trust it.
 
-Build a production-minded agent system where capture, extraction, memory storage, recall, audit, and evaluation are modular. The system should be easy for judges to understand and easy for us to extend after the hackathon.
+## Architecture Goals
 
-## High-Level Components
+- Keep memory persistent across sessions and users.
+- Store small, precise memory atoms instead of whole documents in prompt context.
+- Preserve original sources so extracted memories can be checked later.
+- Use Qwen Cloud for language understanding, structured extraction, embeddings, and synthesis.
+- Keep user preferences separate from knowledge memories.
+- Treat uncertainty honestly instead of presenting saved notes as final truth.
+- Expose stable memory tools through MCP without duplicating backend logic.
 
-Frontend:
-- Next.js application for capture, inbox, memory cards, recall queue, search, and audits.
+## Visual Overview
 
-Backend API:
-- FastAPI service for authenticated HTTP endpoints.
-- Owns orchestration, validation, and API contracts.
+![Crowscap architecture](../crowscap-architecture-diagram.jpg)
 
-Worker:
-- Background processor for extraction, chunking, Qwen calls, embeddings, relation detection, recall scheduling, and cleanup.
-
-Database:
-- PostgreSQL stores users, preference profiles, captures, sources, chunks, memories, relations, recall events, audit records, and jobs.
-- Vector extension or vector-capable storage is used for semantic memory retrieval.
-
-Redis:
-- Broker/cache for background jobs, status updates, and short-lived extraction cache.
-
-Qwen Cloud:
-- Chat/completion for extraction, classification, relation detection, recall prompts, and audit synthesis.
-- Embeddings for semantic search.
-- Optional reranker for retrieval quality.
-- Optional MCP integration through the Responses API.
-
-Object Storage:
-- Stores uploaded PDFs, source snapshots, extracted transcripts, screenshots, and raw artifacts.
-
-MCP Server:
-- Exposes memory tools to agent clients and Qwen Cloud MCP-compatible flows.
-
-Evaluation Harness:
-- Runs repeatable comparisons against naive RAG.
-
-## System Diagram
-
-See [system.mmd](diagrams/system.mmd).
-
-## Main Runtime Flow
+## Implemented Runtime
 
 ```text
-User -> Frontend -> FastAPI -> DB
-                         |
-                         v
-                    Job Queue
-                         |
-                         v
-                      Worker
-       +-----------------+------------------+
-       |                                    |
-       v                                    v
-  Extract/Chunk                        Qwen Cloud
-       |                                    |
-       v                                    v
-  Store Source/Chunks -> Atomic Memories -> Embeddings -> Relations -> Recall Schedule
+User
+  -> Next.js frontend
+  -> Next.js authenticated backend proxy
+  -> FastAPI backend on Alibaba Cloud ECS
+  -> PostgreSQL memory database
+  -> Qwen Cloud for extraction, embeddings, routing, recall, and audit synthesis
 ```
 
-## Preference Memory Layer
+The browser does not call FastAPI private memory endpoints directly. The Next.js app owns the Google session and forwards signed internal user headers to the backend. FastAPI accepts those headers only when the proxy secret matches.
 
-Preference memory is separate from semantic memory. It stores how the user wants Crowscap to behave, not what the user learned.
+## Main Components
 
-The layer has two confidence tiers:
+### Frontend
 
-- Explicit preferences: direct user statements such as "I prefer short answers", "challenge my assumptions", "remind me in the evenings", or "do not show weak YouTube advice unless there is evidence".
-- Autonomous signals: lower-confidence patterns inferred from captures, archives, recall reviews, source mix, and memory types.
+The frontend is a Next.js application. It owns the product experience:
 
-Autonomous updates are throttled and database-first. They do not call Qwen on every message. This keeps the adaptation loop cheap, explainable, and safe from overfitting.
+- Google sign-in and session state.
+- Chat-first capture and questioning.
+- Memory receipts.
+- Semantic search.
+- Recall surface.
+- Source and memory detail views.
+- Preference visibility.
 
-The profile currently affects:
-- Chat synthesis: answer length, directness, and evidence framing.
-- Belief audit: strictness around evidence and how directly Crowscap pushes back.
-- Recall prompts: whether review questions are concise, evidence-focused, or more challenging.
+### Backend API
 
-This is the core Track 1 adaptation layer: Crowscap persists not only what the user has learned, but how the user wants to learn.
+The backend is a FastAPI service deployed on Alibaba Cloud ECS. It owns memory behavior:
 
-## Perspective Note Layer
-
-Perspective notes sit between passive storage and active correction. When a saved memory looks under-evidenced or one-sided, Crowscap queues a delayed note that asks the user to compare the memory with a counterexample, boundary condition, or stronger source.
-
-The system does not immediately declare the saved idea wrong. It surfaces a future prompt and lets the user accept or dismiss it. This preserves trust while still helping the user repair knowledge gaps over time.
-
-## Recommended Service Boundaries
-
-API service:
-- Thin request validation.
-- Auth/session handling.
-- Job creation.
-- Query endpoints.
-- Response shaping.
-
-Worker service:
-- URL extraction.
-- PDF processing.
-- Transcript processing.
-- Qwen structured extraction.
+- User isolation.
+- Chat routing.
+- Capture orchestration.
+- URL, YouTube, and PDF ingestion.
+- Qwen extraction and validation.
 - Embedding generation.
-- Memory relation detection.
-- Recall scheduling.
-- Archive/forgetting jobs.
+- Semantic retrieval.
+- Relationship detection.
+- Recall scheduling and scoring.
+- Belief audits.
+- Preference learning.
+- Archive and forgetting behavior.
 
-MCP service:
-- Tool definitions.
-- Calls internal backend services.
-- Should not duplicate memory logic.
+### Qwen Cloud
 
-Frontend:
-- Does not call Qwen directly.
-- Does not own business logic.
-- Renders status, results, and user interactions.
+Qwen Cloud powers the intelligence layer:
 
-## Local Development Shape
+- JSON-mode structured memory extraction.
+- Natural-language routing when deterministic routing is not enough.
+- Embeddings with `text-embedding-v4`.
+- Relationship classification between memories.
+- Recall answer evaluation.
+- Belief audit synthesis.
+
+The main integration file is:
 
 ```text
-docker compose
-  postgres
-  redis
-  backend-api
-  backend-worker
-  frontend
+backend/app/ai/qwen_client.py
 ```
 
-Initial implementation can run API and worker locally without Docker, but the repository should include Docker instructions for judges.
+### PostgreSQL
 
-## Deployment Shape
+PostgreSQL stores the durable memory system:
 
-Required by hackathon:
-- Backend must run on Alibaba Cloud.
-- Repository must include a code file demonstrating use of Alibaba Cloud services/APIs.
+- Users.
+- Conversations and messages.
+- Sources and captures.
+- Atomic memories.
+- Memory relationships.
+- Recall reviews and reminders.
+- Preference profiles.
+- Actions, jobs, and perspective notes.
 
-Recommended:
-- ECS instance or container service for FastAPI and worker.
-- Managed Redis or Redis container for hackathon simplicity.
-- PostgreSQL with vector support if available in the chosen Alibaba Cloud database option.
-- If managed vector support is not available in the chosen setup, use Postgres + pgvector in a Docker container on ECS for the hackathon and document that choice clearly.
-- OSS for uploaded artifacts and source snapshots.
+Vector support is used so memories can be searched by meaning rather than exact keywords.
 
-## Architectural Risks
+### MCP Server
 
-1. Extraction is messy:
-   Many URLs fail due to JavaScript rendering, bot blocks, paywalls, or missing transcripts.
+Crowscap exposes read-only MCP tools over SSE:
 
-2. Qwen JSON can be valid but not schema-conformant:
-   Structured output guarantees valid JSON mode, not business-schema correctness. Pydantic validation is still required.
+```text
+https://api.crowscap.xyz/mcp/sse
+```
 
-3. Contradiction is not binary:
-   Store relation types such as supports, challenges, depends_on_context, repeats, updates, and weakens.
+Current tools:
 
-4. Graph UI can distract:
-   The audit page is the core product surface. Graph views should be secondary.
+- `search_memory`
+- `audit_belief`
+- `get_due_recalls`
+- `get_user_preferences`
 
-5. Cost grows with raw input:
-   Clean, chunk, deduplicate, cache, and choose task-appropriate models.
+The MCP server delegates to existing backend services. It does not reimplement search, audit, recall, or preferences.
+
+## Memory Flow
+
+```text
+Capture
+  -> input guardrails
+  -> extraction with Qwen Cloud
+  -> Pydantic schema validation
+  -> embedding generation
+  -> deduplication
+  -> relationship detection
+  -> recall scheduling
+  -> persistence
+```
+
+Original content and extracted memory atoms are stored separately. This lets the user see both the exact thing they saved and Crowscap's structured interpretation.
+
+## Chat Flow
+
+```text
+User message
+  -> deterministic checks for stateful actions
+  -> Qwen-based routing when needed
+  -> selected action
+  -> database-grounded response
+  -> saved conversation turn
+```
+
+The router separates:
+
+- Normal conversation.
+- Memory questions.
+- Capture requests.
+- Pending URL confirmation.
+- Reminder requests.
+- Archive and forgetting requests.
+- Crowscap identity and capability questions.
+- Factual questions about current conversation history.
+
+Factual questions about stored conversation history are answered from the database rather than guessed from model context.
+
+## Context Window Strategy
+
+Crowscap is built to recall critical memories inside limited context windows.
+
+The backend avoids sending whole documents to Qwen during chat. Instead, it retrieves compact memory atoms and applies context controls:
+
+- Filter by semantic relevance.
+- Remove near-duplicate memory context.
+- Prioritize by similarity, confidence, source strength, and recency.
+- Use recent conversation turns for immediate context.
+- Preserve longer-term knowledge through persisted memory rather than unbounded chat history.
+
+This is the key difference from naive RAG. A full article can be thousands of tokens. A memory atom is usually one precise idea.
+
+## Preference Layer
+
+Preference memory is separate from knowledge memory. It stores how the user wants Crowscap to behave, not what the user learned.
+
+Examples:
+
+- Preferred answer style.
+- Evidence strictness.
+- Communication tone.
+- Topics of interest.
+- Recall frequency.
+- Source preferences.
+
+Explicit preferences are high confidence. Behavior-derived preferences are lower confidence and are treated as adaptation hints, not facts about the user.
+
+## Recall and Forgetting
+
+Recall is not framed as a large queue. The product surfaces one useful memory or reminder at a time.
+
+Forgetting has two forms:
+
+- User-controlled archive: the user can remove memories from active search, recall, audit, and nearby context.
+- Deprioritization: low-value or ignored items can become less likely to occupy limited context.
+
+The system does not need to delete every old record to satisfy forgetting. The important behavior is knowing what should stop shaping future answers.
+
+## Current Deployment Shape
+
+```text
+Frontend: https://crowscap.xyz
+Backend:  https://api.crowscap.xyz
+MCP SSE:  https://api.crowscap.xyz/mcp/sse
+```
+
+Deployment responsibilities:
+
+- Vercel serves the Next.js frontend.
+- Alibaba Cloud ECS runs FastAPI and the MCP server.
+- Nginx terminates HTTPS and proxies to local backend processes.
+- PostgreSQL stores persistent state.
+- Qwen Cloud handles model calls and embeddings.
+
+## Future Hardening
+
+The next production layers are:
+
+- A stronger background processing queue for long ingestion jobs.
+- More complete notification delivery.
+- Encrypted storage for raw source content.
+- Richer perspective notes with public evidence leads.
+- MCP write tools after authorization and mutation safety are stronger.
+- Broader evaluation against naive RAG.
