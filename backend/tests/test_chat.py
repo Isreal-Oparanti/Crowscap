@@ -428,6 +428,107 @@ def test_bare_url_requires_confirmation_before_capture() -> None:
         app.dependency_overrides.clear()
 
 
+def test_substantial_note_with_url_is_saved_as_text_not_link_preview(monkeypatch) -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_memory_extractor] = lambda: FakeExtractor()
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+    app.dependency_overrides[get_memory_relation_detector] = lambda: FakeRelationDetector()
+
+    def fail_url_capture(**kwargs) -> TextCaptureResponse:
+        raise AssertionError("Mixed learning notes with links must not route to URL ingestion.")
+
+    monkeypatch.setattr("app.services.chat_service.create_url_capture", fail_url_capture)
+
+    note = (
+        "One of the hardest parts of building a product is finding the right team to execute. "
+        "Therefore we created FoundrGeeks, a network where founders find co-founders, developers, "
+        "designers, operators, marketers, and skilled builders ready to collaborate. "
+        "Start here: https://foundrgeeks.com Foundrgeeks (https://foundrgeeks.com/)"
+    )
+
+    try:
+        client = TestClient(app)
+        response = client.post("/api/v1/chat", json={"message": note, "history": []})
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "capture"
+        assert payload["saved"] is True
+        assert "I found this link" not in payload["message"]
+
+        db = testing_session()
+        source = db.scalar(select(Source))
+        assert source is not None
+        assert source.source_type == "text"
+        assert source.raw_text is not None
+        assert "finding the right team" in source.raw_text
+        assert "https://foundrgeeks.com" in source.raw_text
+        assert db.scalar(select(func.count(Memory.id))) == 1
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_explicit_save_link_with_url_still_uses_url_ingestion(monkeypatch) -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+
+    captured_urls: list[str] = []
+    captured_intents: list[str | None] = []
+
+    def fake_create_url_capture(**kwargs) -> TextCaptureResponse:
+        captured_urls.append(kwargs["payload"].url)
+        captured_intents.append(kwargs["payload"].intent_text)
+        return TextCaptureResponse(
+            capture_id="capture-1",
+            source_id="source-1",
+            source_type="article",
+            source_title="Example article",
+            original_content="Example article body",
+            status="ready",
+            inferred_intents=["read_later"],
+            memories=[
+                MemoryCardResponse(
+                    id="memory-1",
+                    source_type="article",
+                    memory_type="reference",
+                    epistemic_label="source_summary",
+                    content="Read the example article.",
+                    summary=None,
+                    confidence="high",
+                    confidence_reason="The user explicitly asked Crowscap to save the link.",
+                    source_strength="strong",
+                    embedding_dimensions=2,
+                    relationships=[],
+                )
+            ],
+        )
+
+    monkeypatch.setattr("app.services.chat_service.create_url_capture", fake_create_url_capture)
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "save this link https://example.com/research", "history": []},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "capture"
+        assert payload["saved"] is True
+        assert captured_urls == ["https://example.com/research"]
+        assert captured_intents == ["save this link"]
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Memory.id))) == 0
+        assert db.scalar(select(func.count(Capture.id))) == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_confirmed_pending_url_is_captured(monkeypatch) -> None:
     override_db, testing_session = build_chat_db_override()
     app.dependency_overrides[get_db] = override_db
@@ -486,6 +587,95 @@ def test_confirmed_pending_url_is_captured(monkeypatch) -> None:
         assert payload["action"] == "capture"
         assert payload["saved"] is True
         assert captured_urls == ["https://example.com/research"]
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Memory.id))) == 0
+        assert db.scalar(select(func.count(Capture.id))) == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_short_clarification_after_assistant_question_stays_conversational() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "its a company",
+                "history": [
+                    {"role": "user", "content": "ascentrade"},
+                    {
+                        "role": "assistant",
+                        "content": "I'm not familiar with Ascentrade. Could you clarify what it is?",
+                    },
+                ],
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "conversation"
+        assert payload["saved"] is False
+        assert "Got it" in payload["message"]
+        assert "company" in payload["message"]
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Memory.id))) == 0
+        assert db.scalar(select(func.count(Capture.id))) == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_short_clarification_uses_persisted_conversation_history() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+
+    db = testing_session()
+    conversation = Conversation(user_id="test-user", title="Ascentrade")
+    db.add(conversation)
+    db.flush()
+    db.add_all(
+        [
+            ChatMessage(
+                conversation_id=conversation.id,
+                user_id="test-user",
+                role="user",
+                content="ascentrade",
+            ),
+            ChatMessage(
+                conversation_id=conversation.id,
+                user_id="test-user",
+                role="assistant",
+                content="I'm not familiar with Ascentrade. Could you clarify what it is?",
+            ),
+        ]
+    )
+    db.commit()
+    conversation_id = conversation.id
+    db.close()
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "its a company",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "conversation"
+        assert payload["saved"] is False
+        assert "Got it" in payload["message"]
+        assert "company" in payload["message"]
 
         db = testing_session()
         assert db.scalar(select(func.count(Memory.id))) == 0

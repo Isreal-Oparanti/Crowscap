@@ -396,7 +396,9 @@ def process_chat_message(
         )
 
     if route.action == "conversation":
-        if _is_session_conversation(normalized_message=payload.message.lower()):
+        if route.reply is not None:
+            reply = route.reply
+        elif _is_session_conversation(normalized_message=payload.message.lower()):
             reply = route.reply or _conversation_reply(
                 message=payload.message,
                 previous_user_turns=_conversation_user_messages(conversation),
@@ -516,8 +518,22 @@ def process_chat_message(
 
     if route.action == "capture":
         if url := _first_url(payload.message):
-            intent_text = _message_without_url(payload.message, url)
-            if reason := unsupported_url_reason(url):
+            if _should_capture_mixed_url_message_as_text(payload.message):
+                capture = create_text_capture(
+                    db=db,
+                    payload=TextCaptureRequest(
+                        content=payload.message,
+                        intent_text=(
+                            "The user pasted a learning note that includes a link. "
+                            "Preserve the full note and treat the link as supporting context."
+                        ),
+                    ),
+                    extractor=extractor,
+                    embedder=embedder,
+                    relation_detector=relation_detector,
+                    user_id=user_id,
+                )
+            elif reason := unsupported_url_reason(url):
                 response = ChatResponse(
                     action="conversation",
                     message=reason,
@@ -535,7 +551,7 @@ def process_chat_message(
                     response=response,
                     user_id=user_id,
                 )
-            if not _has_explicit_url_capture_intent(payload.message):
+            elif not _has_explicit_url_capture_intent(payload.message):
                 response = ChatResponse(
                     action="conversation",
                     message=_url_capture_confirmation_prompt(url=url),
@@ -551,17 +567,19 @@ def process_chat_message(
                     response=response,
                     user_id=user_id,
                 )
-            capture = create_url_capture(
-                db=db,
-                payload=UrlCaptureRequest(
-                    url=url,
-                    intent_text=intent_text or None,
-                ),
-                extractor=extractor,
-                embedder=embedder,
-                relation_detector=relation_detector,
-                user_id=user_id,
-            )
+            else:
+                intent_text = _message_without_url(payload.message, url)
+                capture = create_url_capture(
+                    db=db,
+                    payload=UrlCaptureRequest(
+                        url=url,
+                        intent_text=intent_text or None,
+                    ),
+                    extractor=extractor,
+                    embedder=embedder,
+                    relation_detector=relation_detector,
+                    user_id=user_id,
+                )
         elif _is_url_capture_confirmation(payload.message):
             pending_url = _pending_url_from_history(effective_history)
             if pending_url is None:
@@ -1772,6 +1790,13 @@ def _deterministic_route(message: str, *, history: list[ConversationTurn]) -> Ch
             reason="The user explicitly stated a durable preference for how Crowscap should behave.",
         )
 
+    if clarification_reply := _short_contextual_clarification_reply(message, history=history):
+        return ChatRoute(
+            action="conversation",
+            reply=clarification_reply,
+            reason="The user is answering a clarification question inside the current conversation.",
+        )
+
     explicit_capture_starts = (
         "remember ",
         "save ",
@@ -1870,6 +1895,52 @@ def _deterministic_route(message: str, *, history: list[ConversationTurn]) -> Ch
 def _is_greeting_word(word: str) -> bool:
     greeting_words = {"hello", "hi", "hey", "yo", "morning", "afternoon", "evening"}
     return word in greeting_words or re.fullmatch(r"he+y+|hello+", word) is not None
+
+
+def _short_contextual_clarification_reply(
+    message: str,
+    *,
+    history: list[ConversationTurn],
+) -> str | None:
+    normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
+    words = re.findall(r"[a-z0-9']+", normalized)
+    if not words or len(words) > 8:
+        return None
+    if not _previous_assistant_asked_for_clarification(history):
+        return None
+
+    clarification_markers = (
+        "it is ",
+        "it's ",
+        "its ",
+        "that is ",
+        "that's ",
+        "a ",
+        "an ",
+    )
+    if not normalized.startswith(clarification_markers):
+        return None
+
+    return f"Got it — {message.strip().strip('.!?')}. What would you like to do with it?"
+
+
+def _previous_assistant_asked_for_clarification(history: list[ConversationTurn]) -> bool:
+    clarification_markers = (
+        "could you clarify",
+        "can you clarify",
+        "share more context",
+        "what is it",
+        "what it is",
+        "is it a",
+        "what would you like",
+    )
+    for turn in reversed(history[-4:]):
+        if turn.role != "assistant":
+            continue
+        content = re.sub(r"\s+", " ", turn.content.strip().lower())
+        if any(marker in content for marker in clarification_markers):
+            return True
+    return False
 
 
 def _is_forget_command(normalized: str) -> bool:
@@ -2011,6 +2082,20 @@ def _first_url(message: str) -> str | None:
 
 def _message_without_url(message: str, url: str) -> str:
     return re.sub(r"\s+", " ", message.replace(url, " ")).strip()
+
+
+def _message_without_urls(message: str) -> str:
+    without_urls = re.sub(r"https?://[^\s)>\]]+", " ", message)
+    without_empty_markdown = re.sub(r"\[\s*\]\s*\(\s*\)", " ", without_urls)
+    return re.sub(r"\s+", " ", without_empty_markdown).strip(" .,:;")
+
+
+def _should_capture_mixed_url_message_as_text(message: str) -> bool:
+    if _has_explicit_url_capture_intent(message):
+        return False
+    text_without_urls = _message_without_urls(message)
+    words = re.findall(r"[a-z0-9']+", text_without_urls.lower())
+    return len(words) >= 18 or len(text_without_urls) >= 120
 
 
 def _has_explicit_url_capture_intent(message: str) -> bool:
