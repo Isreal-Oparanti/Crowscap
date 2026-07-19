@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.ai.qwen_client import QwenClientError
 from app.core.auth import CurrentUser, require_current_user
 from app.core.logging import get_logger
+from app.core.rate_limit import rate_limit
 from app.db.session import get_db
 from app.schemas.chat import ChatRequest, ChatResponse, ConversationResponse
 from app.services.belief_audit_service import BeliefAuditError, BeliefAuditor, get_belief_auditor
@@ -25,6 +26,7 @@ from app.services.embedding_service import EmbeddingError, MemoryEmbedder, get_m
 from app.services.extraction_service import ExtractionError, MemoryExtractor, get_memory_extractor
 from app.services.ingestion_service import IngestionError
 from app.services.relationship_service import MemoryRelationDetector, get_memory_relation_detector
+from app.services.safety_service import CaptureSafetyError
 
 router = APIRouter(tags=["chat"])
 logger = get_logger("api.chat")
@@ -62,6 +64,7 @@ def chat(
     embedder: MemoryEmbedder = Depends(get_memory_embedder),
     relation_detector: MemoryRelationDetector = Depends(get_memory_relation_detector),
     current_user: CurrentUser = Depends(require_current_user),
+    _: None = Depends(rate_limit("chat", limit=30)),
 ) -> ChatResponse:
     try:
         return process_chat_message(
@@ -85,6 +88,7 @@ def chat(
         ChatSynthesisError,
         ExtractionError,
         IngestionError,
+        CaptureSafetyError,
     ) as exc:
         logger.warning("\u26a0\ufe0f chat.invalid reason=%s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -101,6 +105,7 @@ async def chat_pdf(
     embedder: MemoryEmbedder = Depends(get_memory_embedder),
     relation_detector: MemoryRelationDetector = Depends(get_memory_relation_detector),
     current_user: CurrentUser = Depends(require_current_user),
+    _: None = Depends(rate_limit("chat", limit=30)),
 ) -> ChatResponse:
     try:
         file_bytes = await file.read()
@@ -119,6 +124,6 @@ async def chat_pdf(
     except (QwenClientError, EmbeddingError) as exc:
         logger.warning("\u26a0\ufe0f chat.pdf.unavailable reason=%s", exc)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except (ChatSynthesisError, ExtractionError, IngestionError) as exc:
+    except (ChatSynthesisError, ExtractionError, IngestionError, CaptureSafetyError) as exc:
         logger.warning("\u26a0\ufe0f chat.pdf.invalid reason=%s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc

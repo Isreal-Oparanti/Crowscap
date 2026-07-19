@@ -22,6 +22,7 @@ from app.services.embedding_service import EmbeddingError, MemoryEmbedder
 from app.services.extraction_service import MemoryExtractor
 from app.services.perspective_service import queue_perspective_notes_for_memories
 from app.services.relationship_service import MemoryRelationDetector, RelationshipDetectionError
+from app.services.safety_service import guard_capture_content
 
 logger = get_logger("services.capture")
 
@@ -80,6 +81,17 @@ def create_extracted_text_capture(
     source_instruction: str | None = None,
     user_id: str | None = None,
 ) -> TextCaptureResponse:
+    metadata = dict(metadata_json or {})
+    safety_result = guard_capture_content(raw_text)
+    if safety_result.redactions:
+        raw_text = safety_result.safe_text
+        metadata["safety_redactions"] = safety_result.redactions
+        metadata["safety_notice"] = "Personal identifiers were removed before storage."
+        logger.info(
+            "\U0001f6e1\ufe0f capture.text.safety_redacted categories=%s",
+            safety_result.redactions,
+        )
+
     content_hash = content_hash or hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
 
     existing_source = _find_existing_source(
@@ -163,7 +175,7 @@ def create_extracted_text_capture(
         title=title or extraction.source_title,
         raw_text=raw_text,
         extracted_text_hash=content_hash,
-        metadata_json=metadata_json or {},
+        metadata_json=metadata,
     )
     db.add(source)
     db.flush()

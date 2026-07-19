@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.ai.qwen_client import QwenClientError
 from app.core.auth import CurrentUser, require_current_user
 from app.core.logging import get_logger
+from app.core.rate_limit import rate_limit
 from app.db.session import get_db
 from app.schemas.capture import TextCaptureRequest, TextCaptureResponse, UrlCaptureRequest
 from app.services.capture_service import create_text_capture
@@ -15,6 +16,7 @@ from app.services.ingestion_service import (
     create_url_capture,
 )
 from app.services.relationship_service import MemoryRelationDetector, get_memory_relation_detector
+from app.services.safety_service import CaptureSafetyError
 
 router = APIRouter(tags=["captures"])
 logger = get_logger("api.captures")
@@ -28,6 +30,7 @@ def capture_text(
     embedder: MemoryEmbedder = Depends(get_memory_embedder),
     relation_detector: MemoryRelationDetector = Depends(get_memory_relation_detector),
     current_user: CurrentUser = Depends(require_current_user),
+    _: None = Depends(rate_limit("captures", limit=20)),
 ) -> TextCaptureResponse:
     try:
         return create_text_capture(
@@ -41,7 +44,7 @@ def capture_text(
     except QwenClientError as exc:
         logger.warning("\u26a0\ufe0f capture.text.unavailable reason=%s", exc)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except ExtractionError as exc:
+    except (ExtractionError, CaptureSafetyError) as exc:
         logger.warning("\u26a0\ufe0f capture.text.invalid reason=%s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except EmbeddingError as exc:
@@ -57,6 +60,7 @@ def capture_url(
     embedder: MemoryEmbedder = Depends(get_memory_embedder),
     relation_detector: MemoryRelationDetector = Depends(get_memory_relation_detector),
     current_user: CurrentUser = Depends(require_current_user),
+    _: None = Depends(rate_limit("captures", limit=20)),
 ) -> TextCaptureResponse:
     try:
         return create_url_capture(
@@ -70,7 +74,7 @@ def capture_url(
     except QwenClientError as exc:
         logger.warning("\u26a0\ufe0f capture.url.unavailable reason=%s", exc)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except (ExtractionError, IngestionError) as exc:
+    except (ExtractionError, IngestionError, CaptureSafetyError) as exc:
         logger.warning("\u26a0\ufe0f capture.url.invalid reason=%s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except EmbeddingError as exc:
@@ -88,6 +92,7 @@ async def capture_pdf(
     embedder: MemoryEmbedder = Depends(get_memory_embedder),
     relation_detector: MemoryRelationDetector = Depends(get_memory_relation_detector),
     current_user: CurrentUser = Depends(require_current_user),
+    _: None = Depends(rate_limit("captures", limit=20)),
 ) -> TextCaptureResponse:
     try:
         file_bytes = await file.read()
@@ -105,7 +110,7 @@ async def capture_pdf(
     except QwenClientError as exc:
         logger.warning("\u26a0\ufe0f capture.pdf.unavailable reason=%s", exc)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except (ExtractionError, IngestionError) as exc:
+    except (ExtractionError, IngestionError, CaptureSafetyError) as exc:
         logger.warning("\u26a0\ufe0f capture.pdf.invalid reason=%s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except EmbeddingError as exc:

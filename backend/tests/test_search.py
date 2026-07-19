@@ -5,11 +5,19 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.auth import CurrentUser, require_current_user
 from app.db.base import Base
 from app.db.models import Capture, Memory, Source
 from app.db.session import get_db
 from app.main import app
 from app.services.embedding_service import get_memory_embedder
+
+
+TEST_USER_ID = "test-user"
+
+
+def override_auth() -> CurrentUser:
+    return CurrentUser(id=TEST_USER_ID, email="test@example.com", name="Test User")
 
 
 class FakeSearchEmbedder:
@@ -32,15 +40,16 @@ def build_seeded_db_override():
     Base.metadata.create_all(bind=engine)
 
     db = testing_session()
-    source = Source(source_type="text", title="Distribution note")
+    source = Source(user_id=TEST_USER_ID, source_type="text", title="Distribution note")
     db.add(source)
     db.flush()
-    capture = Capture(source_id=source.id, inferred_intents=["remember"], status="ready")
+    capture = Capture(user_id=TEST_USER_ID, source_id=source.id, inferred_intents=["remember"], status="ready")
     db.add(capture)
     db.flush()
     db.add_all(
         [
             Memory(
+                user_id=TEST_USER_ID,
                 source_id=source.id,
                 capture_id=capture.id,
                 memory_type="principle",
@@ -51,6 +60,7 @@ def build_seeded_db_override():
                 embedding_json=[1.0, 0.0, 0.0],
             ),
             Memory(
+                user_id=TEST_USER_ID,
                 source_id=source.id,
                 capture_id=capture.id,
                 memory_type="reference",
@@ -78,6 +88,7 @@ def build_seeded_db_override():
 def test_search_returns_semantic_match_above_threshold() -> None:
     app.dependency_overrides[get_db] = build_seeded_db_override()
     app.dependency_overrides[get_memory_embedder] = lambda: FakeSearchEmbedder()
+    app.dependency_overrides[require_current_user] = override_auth
 
     try:
         client = TestClient(app)
@@ -107,6 +118,7 @@ def test_search_returns_semantic_match_above_threshold() -> None:
 def test_search_can_return_no_results_when_below_threshold() -> None:
     app.dependency_overrides[get_db] = build_seeded_db_override()
     app.dependency_overrides[get_memory_embedder] = lambda: FakeSearchEmbedder()
+    app.dependency_overrides[require_current_user] = override_auth
 
     try:
         client = TestClient(app)

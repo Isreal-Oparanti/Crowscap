@@ -83,6 +83,10 @@ Capture -> Extract -> Structure -> Relate -> Recall -> Audit -> Adapt -> Improve
 
 Crowscap keeps preference memory separate from knowledge memory. A normal saved idea becomes a `memory`; an explicit instruction such as "I prefer short answers" or "challenge my assumptions more" updates the durable `user_preferences` profile. The system also accumulates lower-confidence experience signals from behavior, such as recurring topics, archived memory types, and recall review outcomes. That profile is then used by chat, recall, and belief audits without turning casual conversation into memory cards.
 
+## Trust Guardrails
+
+Before content becomes memory, Crowscap now runs deterministic capture guardrails across text, URL/article, YouTube, and PDF ingestion. It rejects obvious secrets, financial account data, private patient-record details, and operational harmful material before extraction or embedding. It masks emails, phone numbers, government ID labels, and home-address labels before storage. Production API routes are rate-limited per authenticated user to protect Qwen credits and reduce abuse.
+
 ## Perspective Notes
 
 Crowscap does not immediately debunk saved ideas. When a claim, principle, framework, prediction, or warning is under-evidenced or one-sided, the backend queues a delayed `memory_perspective_note`. Later, Crowscap can surface a gentle prompt such as "one thing worth considering..." and let the user decide whether to accept, dismiss, or save the refined idea.

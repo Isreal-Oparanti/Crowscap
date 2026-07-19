@@ -2261,12 +2261,26 @@ def _capture_confirmation(capture) -> str:
         if relation.relationship_type in {"conflicts", "tension", "qualifies"}
     )
     if comparison_count:
-        return (
+        message = (
             f"I kept this as {len(capture.memories)} memories and found "
             f"{comparison_count} idea{'s' if comparison_count != 1 else ''} "
             "worth comparing with something you saved before."
         )
-    return f"I kept this as {len(capture.memories)} distinct memories."
+    else:
+        message = f"I kept this as {len(capture.memories)} distinct memories."
+
+    if _capture_contains_redactions(capture):
+        message += "\n\nI removed personal identifiers before saving, so your memory keeps the idea without exposing contact details."
+
+    return message
+
+
+def _capture_contains_redactions(capture) -> bool:
+    original = getattr(capture, "original_content", None) or ""
+    return any(
+        placeholder in original
+        for placeholder in ("[email]", "[phone number]", "[government id]", "[address]")
+    )
 
 
 def _relation_context_for_results(*, db: Session, memory_ids: list[str]) -> list[str]:

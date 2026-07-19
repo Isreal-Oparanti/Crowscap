@@ -8,10 +8,18 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
 from app.ai.structured_outputs import RecallEvaluation
+from app.core.auth import CurrentUser, require_current_user
 from app.db.models import Capture, Memory, MemoryRelation, RecallReview, Reminder, Source, utc_now
 from app.db.session import get_db
 from app.main import app
 from app.services.recall_evaluation_service import get_recall_evaluator
+
+
+TEST_USER_ID = "test-user"
+
+
+def override_auth() -> CurrentUser:
+    return CurrentUser(id=TEST_USER_ID, email="test@example.com", name="Test User")
 
 
 def build_recall_db_override():
@@ -25,14 +33,15 @@ def build_recall_db_override():
 
     now = utc_now()
     db = testing_session()
-    source = Source(source_type="text", title="Distribution note")
+    source = Source(user_id=TEST_USER_ID, source_type="text", title="Distribution note")
     db.add(source)
     db.flush()
-    capture = Capture(source_id=source.id, inferred_intents=["remember"], status="ready")
+    capture = Capture(user_id=TEST_USER_ID, source_id=source.id, inferred_intents=["remember"], status="ready")
     db.add(capture)
     db.flush()
 
     very_due = Memory(
+        user_id=TEST_USER_ID,
         source_id=source.id,
         capture_id=capture.id,
         memory_type="principle",
@@ -45,6 +54,7 @@ def build_recall_db_override():
         recall_score=0.6,
     )
     less_due = Memory(
+        user_id=TEST_USER_ID,
         source_id=source.id,
         capture_id=capture.id,
         memory_type="warning",
@@ -57,6 +67,7 @@ def build_recall_db_override():
         recall_score=0.5,
     )
     future = Memory(
+        user_id=TEST_USER_ID,
         source_id=source.id,
         capture_id=capture.id,
         memory_type="action",
@@ -72,6 +83,7 @@ def build_recall_db_override():
     db.flush()
     db.add(
         MemoryRelation(
+            user_id=TEST_USER_ID,
             source_memory_id=less_due.id,
             target_memory_id=very_due.id,
             relation_type="tension",
@@ -95,6 +107,7 @@ def build_recall_db_override():
 
 def test_due_recalls_returns_overdue_memories_with_relationships() -> None:
     app.dependency_overrides[get_db] = build_recall_db_override()
+    app.dependency_overrides[require_current_user] = override_auth
 
     try:
         client = TestClient(app)
@@ -103,16 +116,19 @@ def test_due_recalls_returns_overdue_memories_with_relationships() -> None:
         assert response.status_code == 200
         payload = response.json()
         assert payload["due_count"] == 2
-        assert [memory["content"] for memory in payload["memories"]] == [
+        by_content = {memory["content"]: memory for memory in payload["memories"]}
+        assert set(by_content) == {
             "Distribution should be tested early.",
             "Distribution cannot rescue a product nobody wants.",
-        ]
-        assert payload["memories"][0]["overdue_seconds"] >= payload["memories"][1]["overdue_seconds"]
-        assert payload["memories"][0]["relationships"][0]["relationship_type"] == "tension"
-        assert payload["memories"][0]["relationships"][0]["direction"] == "incoming"
-        assert payload["memories"][1]["relationships"][0]["direction"] == "outgoing"
-        assert "related view" in payload["memories"][0]["recall_prompt"]
-        assert "not as a verified fact" in payload["memories"][0]["epistemic_caution"]
+        }
+        very_due = by_content["Distribution should be tested early."]
+        less_due = by_content["Distribution cannot rescue a product nobody wants."]
+        assert very_due["overdue_seconds"] >= less_due["overdue_seconds"]
+        assert very_due["relationships"][0]["relationship_type"] == "tension"
+        assert very_due["relationships"][0]["direction"] == "incoming"
+        assert less_due["relationships"][0]["direction"] == "outgoing"
+        assert "related view" in very_due["recall_prompt"]
+        assert "not as a verified fact" in very_due["epistemic_caution"]
     finally:
         app.dependency_overrides.clear()
 
@@ -147,13 +163,14 @@ def test_recall_answer_is_persisted_and_rescheduled() -> None:
     Base.metadata.create_all(bind=engine)
 
     db = testing_session()
-    source = Source(source_type="text", title="Distribution note")
+    source = Source(user_id=TEST_USER_ID, source_type="text", title="Distribution note")
     db.add(source)
     db.flush()
-    capture = Capture(source_id=source.id, inferred_intents=["remember"], status="ready")
+    capture = Capture(user_id=TEST_USER_ID, source_id=source.id, inferred_intents=["remember"], status="ready")
     db.add(capture)
     db.flush()
     memory = Memory(
+        user_id=TEST_USER_ID,
         source_id=source.id,
         capture_id=capture.id,
         memory_type="principle",
@@ -179,6 +196,7 @@ def test_recall_answer_is_persisted_and_rescheduled() -> None:
 
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_recall_evaluator] = lambda: FakeRecallEvaluator()
+    app.dependency_overrides[require_current_user] = override_auth
 
     try:
         client = TestClient(app)
@@ -222,13 +240,14 @@ def test_quick_recall_applied_reschedules_without_qwen() -> None:
     Base.metadata.create_all(bind=engine)
 
     db = testing_session()
-    source = Source(source_type="text", title="Distribution note")
+    source = Source(user_id=TEST_USER_ID, source_type="text", title="Distribution note")
     db.add(source)
     db.flush()
-    capture = Capture(source_id=source.id, inferred_intents=["remember"], status="ready")
+    capture = Capture(user_id=TEST_USER_ID, source_id=source.id, inferred_intents=["remember"], status="ready")
     db.add(capture)
     db.flush()
     memory = Memory(
+        user_id=TEST_USER_ID,
         source_id=source.id,
         capture_id=capture.id,
         memory_type="action",
@@ -253,6 +272,7 @@ def test_quick_recall_applied_reschedules_without_qwen() -> None:
             session.close()
 
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[require_current_user] = override_auth
 
     try:
         client = TestClient(app)
@@ -289,13 +309,14 @@ def test_quick_recall_not_now_defers_without_counting_as_review() -> None:
     Base.metadata.create_all(bind=engine)
 
     db = testing_session()
-    source = Source(source_type="text", title="Distribution note")
+    source = Source(user_id=TEST_USER_ID, source_type="text", title="Distribution note")
     db.add(source)
     db.flush()
-    capture = Capture(source_id=source.id, inferred_intents=["remember"], status="ready")
+    capture = Capture(user_id=TEST_USER_ID, source_id=source.id, inferred_intents=["remember"], status="ready")
     db.add(capture)
     db.flush()
     memory = Memory(
+        user_id=TEST_USER_ID,
         source_id=source.id,
         capture_id=capture.id,
         memory_type="principle",
@@ -320,6 +341,7 @@ def test_quick_recall_not_now_defers_without_counting_as_review() -> None:
             session.close()
 
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[require_current_user] = override_auth
 
     try:
         client = TestClient(app)
@@ -358,6 +380,7 @@ def test_due_recalls_includes_due_non_memory_reminders() -> None:
 
     db = testing_session()
     reminder = Reminder(
+        user_id=TEST_USER_ID,
         content="Check the deployment proof recording.",
         due_at=utc_now() - timedelta(minutes=5),
         status="scheduled",
@@ -375,6 +398,7 @@ def test_due_recalls_includes_due_non_memory_reminders() -> None:
             session.close()
 
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[require_current_user] = override_auth
 
     try:
         client = TestClient(app)
@@ -403,6 +427,7 @@ def test_complete_due_reminder_removes_it_from_recall_queue() -> None:
 
     db = testing_session()
     reminder = Reminder(
+        user_id=TEST_USER_ID,
         content="Take water.",
         due_at=utc_now() - timedelta(minutes=2),
         status="scheduled",
@@ -421,6 +446,7 @@ def test_complete_due_reminder_removes_it_from_recall_queue() -> None:
             session.close()
 
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[require_current_user] = override_auth
 
     try:
         client = TestClient(app)
@@ -451,6 +477,7 @@ def test_snooze_due_reminder_moves_it_out_of_recall_without_history() -> None:
 
     db = testing_session()
     reminder = Reminder(
+        user_id=TEST_USER_ID,
         content="Apply for the endorsement registration.",
         due_at=utc_now() - timedelta(minutes=3),
         status="scheduled",
@@ -469,6 +496,7 @@ def test_snooze_due_reminder_moves_it_out_of_recall_without_history() -> None:
             session.close()
 
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[require_current_user] = override_auth
 
     try:
         client = TestClient(app)
@@ -505,13 +533,14 @@ def test_due_recalls_does_not_duplicate_memory_linked_reminders() -> None:
     Base.metadata.create_all(bind=engine)
 
     db = testing_session()
-    source = Source(source_type="text", title="Scheduled note")
+    source = Source(user_id=TEST_USER_ID, source_type="text", title="Scheduled note")
     db.add(source)
     db.flush()
-    capture = Capture(source_id=source.id, status="ready", inferred_intents=["remember"])
+    capture = Capture(user_id=TEST_USER_ID, source_id=source.id, status="ready", inferred_intents=["remember"])
     db.add(capture)
     db.flush()
     memory = Memory(
+        user_id=TEST_USER_ID,
         source_id=source.id,
         capture_id=capture.id,
         memory_type="principle",
@@ -526,6 +555,7 @@ def test_due_recalls_does_not_duplicate_memory_linked_reminders() -> None:
     db.flush()
     db.add(
         Reminder(
+            user_id=TEST_USER_ID,
             content="Schedule product distribution thinking before launch.",
             due_at=memory.next_review_at,
             status="scheduled",
@@ -544,6 +574,7 @@ def test_due_recalls_does_not_duplicate_memory_linked_reminders() -> None:
             session.close()
 
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[require_current_user] = override_auth
 
     try:
         client = TestClient(app)

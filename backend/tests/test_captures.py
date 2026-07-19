@@ -8,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.ai.qwen_client import QwenClientError
 from app.ai.structured_outputs import CaptureExtraction, ExtractedMemoryAtom
+from app.core.auth import CurrentUser, require_current_user
 from app.db.base import Base
 from app.db.models import Capture, Memory, MemoryRelation, Source  # noqa: F401
 from app.db.session import get_db
@@ -104,6 +105,11 @@ class FakeRelationDetector:
 
 
 def build_test_db_override():
+    app.dependency_overrides[require_current_user] = lambda: CurrentUser(
+        id="test-user",
+        email="test@example.com",
+        name="Test User",
+    )
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -179,6 +185,67 @@ def test_capture_text_returns_503_when_qwen_is_unreachable() -> None:
         assert response.status_code == 503
         assert "Could not reach Qwen Cloud" in response.json()["detail"]
         assert embedder.calls == 0
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_capture_text_rejects_password_like_secret_before_extraction() -> None:
+    app.dependency_overrides[get_db] = build_test_db_override()
+    extractor = FakeExtractor()
+    embedder = FakeEmbedder()
+    relation_detector = FakeRelationDetector()
+    app.dependency_overrides[get_memory_extractor] = lambda: extractor
+    app.dependency_overrides[get_memory_embedder] = lambda: embedder
+    app.dependency_overrides[get_memory_relation_detector] = lambda: relation_detector
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/captures/text",
+            json={
+                "content": (
+                    "This note contains a deployment credential that should not be stored. "
+                    "api_key = sk_test_1234567890abcdef"
+                )
+            },
+        )
+
+        assert response.status_code == 422
+        assert "API keys" in response.json()["detail"]
+        assert extractor.calls == 0
+        assert embedder.calls == 0
+        assert relation_detector.calls == 0
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_capture_text_masks_contact_details_before_storage() -> None:
+    app.dependency_overrides[get_db] = build_test_db_override()
+    extractor = FakeExtractor()
+    embedder = FakeEmbedder()
+    relation_detector = FakeRelationDetector()
+    app.dependency_overrides[get_memory_extractor] = lambda: extractor
+    app.dependency_overrides[get_memory_embedder] = lambda: embedder
+    app.dependency_overrides[get_memory_relation_detector] = lambda: relation_detector
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/captures/text",
+            json={
+                "content": (
+                    "A founder wants to follow up with the beta user at ada@example.com "
+                    "and +1 415 555 0199 after the onboarding interview."
+                )
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert "[email]" in payload["original_content"]
+        assert "[phone number]" in payload["original_content"]
+        assert "ada@example.com" not in payload["original_content"]
+        assert extractor.calls == 1
     finally:
         app.dependency_overrides.clear()
 

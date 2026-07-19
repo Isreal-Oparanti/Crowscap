@@ -35,6 +35,38 @@ Rules:
 - Scan or reject suspicious files before processing when available.
 - Never execute uploaded files.
 
+## Capture Content Guardrails
+
+All capture paths flow through the same pre-storage guardrail before extraction,
+embedding, duplicate lookup, and database persistence. This currently covers text
+captures, mixed chat captures, URL/article text, YouTube transcripts, and PDF
+extracted text.
+
+Reject before saving:
+- password-like secrets, API keys, bearer tokens, refresh tokens, client secrets,
+  and private keys.
+- credit card numbers that pass Luhn validation.
+- explicit bank/account-number style financial details.
+- private patient-record style medical details such as MRN, DOB, patient name,
+  diagnosis lines, prescriptions, or lab results tied to a person.
+- obvious operational harmful/illegal instruction phrases.
+
+Mask before saving:
+- email addresses -> `[email]`
+- phone numbers -> `[phone number]`
+- government ID labels -> `[government id]`
+- home/residential address labels -> `[address]`
+
+Important boundary: Crowscap should not reject public health, medical research,
+or policy content just because the topic is health-related. The blocker is
+private patient-style information, not legitimate public knowledge.
+
+These guardrails are deterministic and intentionally cheap. They are not a full
+moderation system. A later production hardening pass can add provider-level
+classification for hate/violence/illegal content, but the deterministic layer is
+the first line of defense because it does not add model latency or fail closed
+when the model provider is unavailable.
+
 ## AI Safety and Output Handling
 
 Qwen Cloud applies automatic moderation to API requests and outputs. The app still needs its own graceful error handling.
@@ -115,8 +147,17 @@ Metrics:
 
 ## Rate Limits
 
-MVP limits:
-- max captures per user per hour.
+Production API limits:
+- `POST /api/v1/captures/*`: 20 requests per minute per authenticated user.
+- `POST /api/v1/chat`: 30 requests per minute per authenticated user.
+- `POST /api/v1/search`: 60 requests per minute per authenticated user.
+
+The limiter is in-memory for the MVP and is active outside local development.
+This is enough to protect Qwen credits during judging and early deployment. A
+multi-instance deployment should move the buckets to Redis or another shared
+store.
+
+Other MVP limits:
 - max file size.
 - max URL fetch size.
 - max Qwen calls per capture.
