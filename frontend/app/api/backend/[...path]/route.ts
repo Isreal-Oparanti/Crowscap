@@ -52,12 +52,24 @@ async function proxy(
       cache: "no-store",
     });
     const responseBody = await response.text();
+    const responseContentType =
+      response.headers.get("content-type") ?? "application/json";
+
+    if (!responseContentType.includes("application/json")) {
+      const trimmed = responseBody.trim();
+      const detail =
+        trimmed && !trimmed.startsWith("<")
+          ? trimmed
+          : response.ok
+            ? "Crowscap returned an unexpected non-JSON response."
+            : "Crowscap backend returned an unexpected error.";
+      return NextResponse.json({ detail }, { status: response.status });
+    }
 
     return new NextResponse(responseBody, {
       status: response.status,
       headers: {
-        "Content-Type":
-          response.headers.get("content-type") ?? "application/json",
+        "Content-Type": responseContentType,
       },
     });
   } catch {

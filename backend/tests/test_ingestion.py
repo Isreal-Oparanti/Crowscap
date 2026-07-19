@@ -14,6 +14,7 @@ from app.services.ingestion_service import (
     create_pdf_capture_from_bytes,
     create_url_capture,
     extract_youtube_video_id,
+    unsupported_url_reason,
     validate_pdf_bytes,
     validate_public_url,
 )
@@ -80,6 +81,14 @@ def test_youtube_url_detection_supports_common_formats() -> None:
     assert extract_youtube_video_id("https://www.youtube.com/watch?v=abc123") == "abc123"
     assert extract_youtube_video_id("https://youtu.be/abc123") == "abc123"
     assert extract_youtube_video_id("https://www.youtube.com/shorts/abc123") == "abc123"
+    assert extract_youtube_video_id("https://m.youtube.com/shorts/abc123?si=share") == "abc123"
+
+
+def test_whatsapp_invite_url_is_marked_unsupported() -> None:
+    reason = unsupported_url_reason("https://chat.whatsapp.com/LK0yk9lerym0VmBi7C8EF7")
+
+    assert reason is not None
+    assert "WhatsApp group invite links" in reason
 
 
 def test_clean_transcript_removes_timestamps_and_duplicates() -> None:

@@ -13,7 +13,16 @@ from app.ai.structured_outputs import (
 )
 from app.core.auth import CurrentUser, require_current_user
 from app.db.base import Base
-from app.db.models import Capture, ChatMessage, Conversation, Memory, Reminder, Source, UserPreference
+from app.db.models import (
+    Capture,
+    ChatMessage,
+    Conversation,
+    Memory,
+    MemoryArchiveEvent,
+    Reminder,
+    Source,
+    UserPreference,
+)
 from app.db.session import get_db
 from app.main import app
 from app.schemas.belief import BeliefAuditResponse, PublicEvidenceResult
@@ -481,6 +490,184 @@ def test_confirmed_pending_url_is_captured(monkeypatch) -> None:
         db = testing_session()
         assert db.scalar(select(func.count(Memory.id))) == 0
         assert db.scalar(select(func.count(Capture.id))) == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_whatsapp_invite_link_is_rejected_without_capture() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "https://chat.whatsapp.com/LK0yk9lerym0VmBi7C8EF7",
+                "history": [],
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "conversation"
+        assert payload["saved"] is False
+        assert payload["capture"] is None
+        assert "WhatsApp group invite links" in payload["message"]
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Memory.id))) == 0
+        assert db.scalar(select(func.count(Capture.id))) == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_save_that_captures_previous_assistant_response() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_memory_extractor] = lambda: FakeExtractor()
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+    app.dependency_overrides[get_memory_relation_detector] = lambda: FakeRelationDetector()
+
+    db = testing_session()
+    conversation = Conversation(user_id="test-user", title="Product launch")
+    db.add(conversation)
+    db.flush()
+    db.add(
+        ChatMessage(
+            conversation_id=conversation.id,
+            user_id="test-user",
+            role="assistant",
+            content=(
+                "Launching a product strongly means knowing your first users, "
+                "choosing one focused channel, and planning the day-two feedback loop."
+            ),
+        )
+    )
+    conversation_id = conversation.id
+    db.commit()
+    db.close()
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "save that", "conversation_id": conversation_id, "history": []},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "capture"
+        assert payload["saved"] is True
+        assert payload["capture"] is not None
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Capture.id))) == 1
+        assert db.scalar(select(func.count(Memory.id))) == 1
+        source = db.scalar(select(Source))
+        assert source is not None
+        assert source.title.startswith("Crowscap conversation -")
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_forget_what_you_just_saved_archives_recent_pdf_capture() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+
+    db = testing_session()
+    conversation = Conversation(user_id="test-user", title="PDF upload")
+    source = Source(
+        user_id="test-user",
+        source_type="pdf",
+        title="Malaria Surveillance.pdf",
+        raw_text="Malaria surveillance source text.",
+        extracted_text_hash="pdf-hash",
+    )
+    db.add_all([conversation, source])
+    db.flush()
+    capture = Capture(
+        user_id="test-user",
+        source_id=source.id,
+        status="ready",
+        inferred_intents=["learned", "reference"],
+    )
+    db.add(capture)
+    db.flush()
+    db.add_all(
+        [
+            Memory(
+                user_id="test-user",
+                source_id=source.id,
+                capture_id=capture.id,
+                memory_type="claim",
+                epistemic_label="factual_claim",
+                content="Malaria surveillance relies on timely case reporting.",
+                confidence="high",
+                source_strength="strong",
+                embedding_json=[1.0, 0.0],
+            ),
+            Memory(
+                user_id="test-user",
+                source_id=source.id,
+                capture_id=capture.id,
+                memory_type="principle",
+                epistemic_label="framework",
+                content="Surveillance data should guide malaria response planning.",
+                confidence="high",
+                source_strength="strong",
+                embedding_json=[1.0, 0.0],
+            ),
+            ChatMessage(
+                conversation_id=conversation.id,
+                user_id="test-user",
+                role="assistant",
+                action="capture",
+                content="I kept this as 2 distinct memories.",
+                metadata_json={
+                    "action": "capture",
+                    "saved": True,
+                    "capture": {
+                        "capture_id": capture.id,
+                        "source_id": source.id,
+                        "source_type": "pdf",
+                        "source_title": source.title,
+                        "status": "ready",
+                        "inferred_intents": ["learned", "reference"],
+                        "memories": [],
+                    },
+                },
+            ),
+        ]
+    )
+    conversation_id = conversation.id
+    db.commit()
+    db.close()
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "can you remove what you just saved from my memory?",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "forget"
+        assert payload["saved"] is False
+        assert "Malaria Surveillance.pdf" in payload["message"]
+
+        db = testing_session()
+        statuses = list(db.scalars(select(Memory.status).order_by(Memory.content)))
+        assert statuses == ["archived", "archived"]
+        assert db.scalar(select(func.count(MemoryArchiveEvent.id))) == 2
         db.close()
     finally:
         app.dependency_overrides.clear()

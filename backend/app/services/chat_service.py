@@ -13,7 +13,17 @@ from app.ai.qwen_client import QwenClient
 from app.ai.structured_outputs import ChatRoute, ConversationalChatReply, GroundedChatSynthesis
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.db.models import ChatMessage, Conversation, Memory, MemoryRelation, UserPreference, utc_now
+from app.db.models import (
+    Capture,
+    ChatMessage,
+    Conversation,
+    Memory,
+    MemoryArchiveEvent,
+    MemoryRelation,
+    Source,
+    UserPreference,
+    utc_now,
+)
 from app.schemas.belief import BeliefAuditRequest
 from app.schemas.capture import TextCaptureRequest, UrlCaptureRequest
 from app.schemas.chat import (
@@ -29,7 +39,11 @@ from app.services.belief_audit_service import BeliefAuditor
 from app.services.capture_service import create_text_capture
 from app.services.embedding_service import MemoryEmbedder
 from app.services.extraction_service import MemoryExtractor
-from app.services.ingestion_service import create_pdf_capture_from_bytes, create_url_capture
+from app.services.ingestion_service import (
+    create_pdf_capture_from_bytes,
+    create_url_capture,
+    unsupported_url_reason,
+)
 from app.services.memory_lifecycle_service import archive_memory
 from app.services.preference_service import (
     PreferenceLearningResult,
@@ -78,6 +92,13 @@ class ReminderIntent:
     content: str
     save_as_memory: bool
     time_phrase: str
+
+
+@dataclass(frozen=True)
+class RecentCaptureContext:
+    capture: Capture
+    source: Source
+    memories: list[Memory]
 
 
 @dataclass(frozen=True)
@@ -452,6 +473,7 @@ def process_chat_message(
     if route.action == "forget":
         response = _process_forget_request(
             db=db,
+            conversation=conversation,
             message=payload.message,
             embedder=embedder,
             user_id=user_id,
@@ -495,6 +517,24 @@ def process_chat_message(
     if route.action == "capture":
         if url := _first_url(payload.message):
             intent_text = _message_without_url(payload.message, url)
+            if reason := unsupported_url_reason(url):
+                response = ChatResponse(
+                    action="conversation",
+                    message=reason,
+                    saved=False,
+                    next_step=(
+                        "If the link matters, paste a short note about why and I can save that context instead."
+                    ),
+                )
+                response = _with_preference_learning(response, preference_learning)
+                logger.info("\u2705 chat.message.complete action=url_unsupported saved=False")
+                return _persist_assistant_response(
+                    db=db,
+                    conversation=conversation,
+                    user_message=user_message,
+                    response=response,
+                    user_id=user_id,
+                )
             if not _has_explicit_url_capture_intent(payload.message):
                 response = ChatResponse(
                     action="conversation",
@@ -525,6 +565,27 @@ def process_chat_message(
         elif _is_url_capture_confirmation(payload.message):
             pending_url = _pending_url_from_history(effective_history)
             if pending_url is None:
+                if _is_save_previous_response_command(payload.message):
+                    response = _process_save_previous_response_request(
+                        db=db,
+                        conversation=conversation,
+                        extractor=extractor,
+                        embedder=embedder,
+                        relation_detector=relation_detector,
+                        user_id=user_id,
+                    )
+                    response = _with_preference_learning(response, preference_learning)
+                    logger.info(
+                        "\u2705 chat.message.complete action=save_previous_response saved=%s",
+                        response.saved,
+                    )
+                    return _persist_assistant_response(
+                        db=db,
+                        conversation=conversation,
+                        user_message=user_message,
+                        response=response,
+                        user_id=user_id,
+                    )
                 response = ChatResponse(
                     action="conversation",
                     message=(
@@ -542,6 +603,24 @@ def process_chat_message(
                     response=response,
                     user_id=user_id,
                 )
+            if reason := unsupported_url_reason(pending_url):
+                response = ChatResponse(
+                    action="conversation",
+                    message=reason,
+                    saved=False,
+                    next_step=(
+                        "If the link matters, paste a short note about why and I can save that context instead."
+                    ),
+                )
+                response = _with_preference_learning(response, preference_learning)
+                logger.info("\u2705 chat.message.complete action=url_unsupported saved=False")
+                return _persist_assistant_response(
+                    db=db,
+                    conversation=conversation,
+                    user_message=user_message,
+                    response=response,
+                    user_id=user_id,
+                )
             capture = create_url_capture(
                 db=db,
                 payload=UrlCaptureRequest(
@@ -551,6 +630,27 @@ def process_chat_message(
                 extractor=extractor,
                 embedder=embedder,
                 relation_detector=relation_detector,
+                user_id=user_id,
+            )
+        elif _is_save_previous_response_command(payload.message):
+            response = _process_save_previous_response_request(
+                db=db,
+                conversation=conversation,
+                extractor=extractor,
+                embedder=embedder,
+                relation_detector=relation_detector,
+                user_id=user_id,
+            )
+            response = _with_preference_learning(response, preference_learning)
+            logger.info(
+                "\u2705 chat.message.complete action=save_previous_response saved=%s",
+                response.saved,
+            )
+            return _persist_assistant_response(
+                db=db,
+                conversation=conversation,
+                user_message=user_message,
+                response=response,
                 user_id=user_id,
             )
         else:
@@ -1011,6 +1111,7 @@ def _retrieve_self_knowledge(message: str, *, limit: int = 3) -> list[SelfKnowle
 def _process_forget_request(
     *,
     db: Session,
+    conversation: Conversation,
     message: str,
     embedder: MemoryEmbedder,
     user_id: str | None,
@@ -1043,6 +1144,14 @@ def _process_forget_request(
             saved=False,
             next_step=f"Archived memory {archived.memory_id}.",
         )
+
+    if recent_capture_response := _archive_recent_capture_if_referenced(
+        db=db,
+        conversation=conversation,
+        message=message,
+        user_id=user_id,
+    ):
+        return recent_capture_response
 
     topic = _forget_topic_from_message(message)
     if topic is None:
@@ -1085,6 +1194,280 @@ def _process_forget_request(
         evidence=search.results,
         next_step="Choose specific memories to archive, or ask me to archive the weaker matches.",
     )
+
+
+def _archive_recent_capture_if_referenced(
+    *,
+    db: Session,
+    conversation: Conversation,
+    message: str,
+    user_id: str | None,
+) -> ChatResponse | None:
+    normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
+    if not _references_recent_capture(normalized, conversation=conversation):
+        return None
+
+    source_type_hint = _recent_capture_source_type_hint(normalized)
+    recent = _latest_captured_source_from_conversation(
+        db=db,
+        conversation=conversation,
+        user_id=user_id,
+        source_type_hint=source_type_hint,
+    )
+    if recent is None:
+        return ChatResponse(
+            action="forget",
+            message=(
+                "I could not find a recent saved source in this chat to remove. "
+                "If you want to remove older memories, name the topic or give me the memory id."
+            ),
+            saved=False,
+        )
+
+    archived_count = _archive_capture_memories(db=db, recent=recent, user_id=user_id)
+    source_label = _source_display_name(recent.source)
+    plural = "memory" if archived_count == 1 else "memories"
+    return ChatResponse(
+        action="forget",
+        message=(
+            f"Done. I archived {archived_count} {plural} from {source_label}. "
+            "They will no longer appear in active search, recall, audits, or nearby context."
+        ),
+        saved=False,
+        next_step="If this was accidental, you can re-upload or re-save the source.",
+    )
+
+
+def _latest_captured_source_from_conversation(
+    *,
+    db: Session,
+    conversation: Conversation,
+    user_id: str | None,
+    source_type_hint: str | None,
+) -> RecentCaptureContext | None:
+    query = (
+        select(ChatMessage)
+        .where(ChatMessage.conversation_id == conversation.id, ChatMessage.role == "assistant")
+        .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
+        .limit(40)
+    )
+    if conversation.user_id is not None:
+        query = query.where(ChatMessage.user_id == conversation.user_id)
+    elif user_id is not None:
+        query = query.where(ChatMessage.user_id == user_id)
+    else:
+        query = query.where(ChatMessage.user_id.is_(None))
+
+    for message in db.scalars(query):
+        metadata = message.metadata_json or {}
+        capture_payload = metadata.get("capture")
+        if not isinstance(capture_payload, dict):
+            continue
+        capture_id = capture_payload.get("capture_id")
+        if not isinstance(capture_id, str):
+            continue
+        capture = db.get(Capture, capture_id)
+        if capture is None or (user_id is not None and capture.user_id != user_id):
+            continue
+        source = db.get(Source, capture.source_id)
+        if source is None or (user_id is not None and source.user_id != user_id):
+            continue
+        if source_type_hint is not None and source.source_type != source_type_hint:
+            continue
+        memories_query = select(Memory).where(
+            Memory.capture_id == capture.id,
+            Memory.status == "active",
+        )
+        if user_id is not None:
+            memories_query = memories_query.where(Memory.user_id == user_id)
+        memories = list(db.scalars(memories_query))
+        if memories:
+            return RecentCaptureContext(capture=capture, source=source, memories=memories)
+    return None
+
+
+def _archive_capture_memories(
+    *,
+    db: Session,
+    recent: RecentCaptureContext,
+    user_id: str | None,
+) -> int:
+    archived_count = 0
+    for memory in recent.memories:
+        if user_id is not None and memory.user_id != user_id:
+            continue
+        previous_status = memory.status
+        memory.status = "archived"
+        memory.next_review_at = None
+        db.add(
+            MemoryArchiveEvent(
+                user_id=memory.user_id,
+                memory_id=memory.id,
+                previous_status=previous_status,
+                new_status="archived",
+                reason="user_dismissed",
+                note="Archived from contextual chat command for the most recent saved source.",
+                created_by="user",
+                metadata_json={
+                    "capture_id": recent.capture.id,
+                    "source_id": recent.source.id,
+                    "source_type": recent.source.source_type,
+                    "archive_scope": "recent_capture",
+                },
+            )
+        )
+        archived_count += 1
+    db.commit()
+    return archived_count
+
+
+def _references_recent_capture(normalized: str, *, conversation: Conversation) -> bool:
+    direct_markers = (
+        "what you just saved",
+        "what u just saved",
+        "you just saved",
+        "the last thing you saved",
+        "last thing you saved",
+        "what i just uploaded",
+        "what i uploaded",
+        "the pdf",
+        "this pdf",
+        "that pdf",
+        "uploaded pdf",
+        "the document",
+        "that document",
+        "the source",
+        "that source",
+        "the capture",
+        "that capture",
+    )
+    if any(marker in normalized for marker in direct_markers):
+        return True
+    if normalized in {"i mean the pdf", "i mean pdf", "pdf", "the pdf"}:
+        return _previous_user_turn_was_forget(conversation)
+    return False
+
+
+def _previous_user_turn_was_forget(conversation: Conversation) -> bool:
+    user_turns = [
+        message.content
+        for message in conversation.messages
+        if message.role == "user" and message.content.strip()
+    ]
+    for content in reversed(user_turns[:-1]):
+        if _is_forget_command(re.sub(r"\s+", " ", content.strip().lower())):
+            return True
+        if _is_greeting_word(content.strip().lower()):
+            continue
+        break
+    return False
+
+
+def _recent_capture_source_type_hint(normalized: str) -> str | None:
+    if any(marker in normalized for marker in ("pdf", "document", "file", "uploaded")):
+        return "pdf"
+    if "youtube" in normalized or "video" in normalized or "shorts" in normalized:
+        return "youtube"
+    if "article" in normalized or "link" in normalized or "url" in normalized:
+        return "article"
+    return None
+
+
+def _source_display_name(source: Source) -> str:
+    label = source.title or source.original_url or source.resolved_url or source.source_type
+    if source.source_type == "pdf":
+        return f"the PDF {label!r}"
+    if source.source_type == "youtube":
+        return f"the YouTube source {label!r}"
+    if source.source_type == "article":
+        return f"the article {label!r}"
+    return f"the source {label!r}"
+
+
+def _process_save_previous_response_request(
+    *,
+    db: Session,
+    conversation: Conversation,
+    extractor: MemoryExtractor,
+    embedder: MemoryEmbedder,
+    relation_detector: MemoryRelationDetector,
+    user_id: str | None,
+) -> ChatResponse:
+    previous = _latest_assistant_response_for_saving(
+        db=db,
+        conversation=conversation,
+        user_id=user_id,
+    )
+    if previous is None:
+        return ChatResponse(
+            action="capture",
+            message=(
+                "I do not have a previous answer in this chat to save yet. "
+                "Send the note or source you want me to remember."
+            ),
+            saved=False,
+        )
+
+    content = previous.content.strip()
+    if len(content) < 20:
+        return ChatResponse(
+            action="capture",
+            message=(
+                "The previous reply is too short to turn into a useful memory. "
+                "Tell me the idea you want saved and I will capture it cleanly."
+            ),
+            saved=False,
+        )
+
+    capture = create_text_capture(
+        db=db,
+        payload=TextCaptureRequest(
+            content=content,
+            intent_text="The user asked Crowscap to save the previous assistant answer.",
+            user_note="Saved from a contextual chat command such as 'save that'.",
+            source_title=f"Crowscap conversation - {utc_now().date().isoformat()}",
+        ),
+        extractor=extractor,
+        embedder=embedder,
+        relation_detector=relation_detector,
+        user_id=user_id,
+    )
+    return ChatResponse(
+        action="capture",
+        message=_capture_confirmation(capture),
+        saved=True,
+        capture=capture,
+    )
+
+
+def _latest_assistant_response_for_saving(
+    *,
+    db: Session,
+    conversation: Conversation,
+    user_id: str | None,
+) -> ChatMessage | None:
+    query = (
+        select(ChatMessage)
+        .where(ChatMessage.conversation_id == conversation.id, ChatMessage.role == "assistant")
+        .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
+        .limit(20)
+    )
+    if conversation.user_id is not None:
+        query = query.where(ChatMessage.user_id == conversation.user_id)
+    elif user_id is not None:
+        query = query.where(ChatMessage.user_id == user_id)
+    else:
+        query = query.where(ChatMessage.user_id.is_(None))
+
+    for message in db.scalars(query):
+        metadata = message.metadata_json or {}
+        if metadata.get("action") == "capture" and metadata.get("saved") is True:
+            continue
+        if "I have not saved it yet" in message.content:
+            continue
+        if message.content.strip():
+            return message
+    return None
 
 
 def _process_reminder_request(
@@ -1372,6 +1755,11 @@ def _deterministic_route(message: str, *, history: list[ConversationTurn]) -> Ch
                 action="capture",
                 reason="The user confirmed that a previously pasted link should be saved.",
             )
+        if _is_save_previous_response_command(message):
+            return ChatRoute(
+                action="capture",
+                reason="The user asked to save the previous assistant response.",
+            )
         return ChatRoute(
             action="conversation",
             reply="I do not see a pending link in this chat. Send the link again with \"save this\" and I will capture it.",
@@ -1500,8 +1888,20 @@ def _is_forget_command(normalized: str) -> bool:
         "forget memories",
         "archive memory",
         "archive memories",
+        "archive the pdf",
+        "archive what you just saved",
+        "archive the last thing you saved",
         "delete memory",
+        "delete what you just saved",
+        "delete the last thing you saved",
+        "delete the pdf",
+        "delete that",
         "remove memory",
+        "remove memories",
+        "remove what you just saved",
+        "remove the last thing you saved",
+        "remove the pdf",
+        "remove that",
         "don't show me",
         "dont show me",
         "do not show me",
@@ -1664,6 +2064,59 @@ def _is_url_capture_confirmation(message: str) -> bool:
         "process this link",
     }
     return normalized in confirmation_phrases
+
+
+def _is_save_previous_response_command(message: str) -> bool:
+    normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
+    phrases = {
+        "save that",
+        "save this",
+        "save it",
+        "remember that",
+        "remember this",
+        "remember it",
+        "keep that",
+        "keep this",
+        "keep it",
+        "store that",
+        "store this",
+        "store it",
+        "save your answer",
+        "save your response",
+        "save your reply",
+        "save what you just said",
+        "save your last answer",
+        "save your previous answer",
+        "save the last answer",
+        "save the previous answer",
+        "save the last response",
+        "save the previous response",
+        "save the last reply",
+        "save the previous reply",
+        "remember your answer",
+        "remember your response",
+        "remember your reply",
+        "remember what you just said",
+        "keep your answer",
+        "keep your response",
+        "keep your reply",
+        "keep what you just said",
+        "store your answer",
+        "store your response",
+        "store your reply",
+        "store what you just said",
+    }
+    if normalized in phrases:
+        return True
+    patterns = (
+        r"^save\s+(?:that|this|it)\s+(?:to|in|into)\s+(?:my\s+)?memory$",
+        r"^remember\s+(?:that|this|it)\s+(?:for\s+me)?$",
+        r"^keep\s+(?:that|this|it)\s+(?:for\s+me)?$",
+        r"^(?:save|remember|keep|store)\s+(?:the\s+)?(?:answer|reply|response)\s+(?:you\s+)?(?:just\s+)?(?:gave|sent|wrote|said)(?:\s+me)?$",
+        r"^(?:save|remember|keep|store)\s+what\s+you\s+just\s+(?:said|wrote|sent|answered)$",
+        r"^(?:save|remember|keep|store)\s+(?:your|the)\s+(?:last|previous)\s+(?:answer|reply|response)$",
+    )
+    return any(re.fullmatch(pattern, normalized) is not None for pattern in patterns)
 
 
 def _pending_url_from_history(history: list[ConversationTurn]) -> str | None:

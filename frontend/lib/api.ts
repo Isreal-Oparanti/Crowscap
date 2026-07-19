@@ -16,6 +16,21 @@ import type {
   UserPreferenceProfile,
 } from "@/lib/types";
 
+function errorMessageFromPayload(payload: unknown): string {
+  if (typeof payload === "object" && payload !== null) {
+    if ("detail" in payload && typeof payload.detail === "string") {
+      return payload.detail;
+    }
+    if ("error" in payload && typeof payload.error === "string") {
+      return payload.error;
+    }
+    if ("message" in payload && typeof payload.message === "string") {
+      return payload.message;
+    }
+  }
+  return "Crowscap could not complete that request.";
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = init?.body instanceof FormData;
   const response = await fetch(`/api/backend/${path}`, {
@@ -27,16 +42,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
 
-  const payload: unknown = await response.json();
+  const rawPayload = await response.text();
+  let payload: unknown = null;
+  if (rawPayload) {
+    try {
+      payload = JSON.parse(rawPayload);
+    } catch {
+      payload = {
+        detail:
+          rawPayload.trim() || "Crowscap returned an unreadable response.",
+      };
+    }
+  }
   if (!response.ok) {
-    const detail =
-      typeof payload === "object" &&
-      payload !== null &&
-      "detail" in payload &&
-      typeof payload.detail === "string"
-        ? payload.detail
-        : "Crowscap could not complete that request.";
-    throw new Error(detail);
+    throw new Error(errorMessageFromPayload(payload));
   }
   return payload as T;
 }

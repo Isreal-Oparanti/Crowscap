@@ -83,11 +83,13 @@ def create_url_capture(
 ) -> TextCaptureResponse:
     logger.info("\U0001f517 capture.url.start url=%s", payload.url)
     validated_url = validate_public_url(payload.url)
+    if reason := unsupported_url_reason(validated_url):
+        raise IngestionError(reason)
 
     if video_id := extract_youtube_video_id(validated_url):
         return create_youtube_capture(
             db=db,
-            url=validated_url,
+            url=f"https://www.youtube.com/watch?v={video_id}",
             video_id=video_id,
             intent_text=payload.intent_text,
             user_note=payload.user_note,
@@ -161,8 +163,18 @@ def create_youtube_capture(
     except ImportError as exc:
         raise IngestionError("YouTube ingestion is not installed. Install yt-dlp.") from exc
 
-    with YoutubeDL({"quiet": True, "skip_download": True, "nocheckcertificate": True}) as ydl:
-        info = ydl.extract_info(url, download=False)
+    try:
+        with YoutubeDL({"quiet": True, "skip_download": True, "nocheckcertificate": True}) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception as exc:
+        logger.warning(
+            "\u26a0\ufe0f capture.youtube.failed video_id=%s error_type=%s",
+            video_id,
+            type(exc).__name__,
+        )
+        raise IngestionError(
+            "Crowscap could not read this YouTube video. It may be private, unavailable, age-restricted, or missing readable captions."
+        ) from exc
 
     if not isinstance(info, dict):
         raise IngestionError("Crowscap could not read this YouTube video metadata.")
@@ -379,16 +391,39 @@ def extract_article_text(body: bytes, *, url: str) -> str:
 
 def extract_youtube_video_id(url: str) -> str | None:
     parsed = urlparse(url)
-    host = (parsed.hostname or "").lower()
+    host = (parsed.hostname or "").lower().strip(".")
+    path = parsed.path.rstrip("/")
     if host in {"youtu.be", "www.youtu.be"}:
         video_id = parsed.path.strip("/").split("/", 1)[0]
-        return video_id or None
+        return _normalize_youtube_video_id(video_id)
     if host.endswith("youtube.com"):
-        if parsed.path == "/watch":
+        if path == "/watch":
             video_id = parse_qs(parsed.query).get("v", [None])[0]
-            return video_id
-        if parsed.path.startswith("/shorts/"):
-            return parsed.path.split("/shorts/", 1)[1].split("/", 1)[0] or None
+            return _normalize_youtube_video_id(video_id)
+        for prefix in ("/shorts/", "/embed/", "/live/"):
+            if path.startswith(prefix):
+                video_id = path.split(prefix, 1)[1].split("/", 1)[0]
+                return _normalize_youtube_video_id(video_id)
+    return None
+
+
+def _normalize_youtube_video_id(video_id: str | None) -> str | None:
+    if not video_id:
+        return None
+    cleaned = video_id.strip().split("?", 1)[0].split("&", 1)[0]
+    if re.fullmatch(r"[A-Za-z0-9_-]{6,}", cleaned) is None:
+        return None
+    return cleaned
+
+
+def unsupported_url_reason(url: str) -> str | None:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower().strip(".")
+    if host == "chat.whatsapp.com":
+        return (
+            "WhatsApp group invite links do not contain readable source text for Crowscap to extract. "
+            "Nothing has been saved from this link."
+        )
     return None
 
 
