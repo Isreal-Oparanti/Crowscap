@@ -3,7 +3,7 @@
 Current date: 2026-06-11.
 Submission deadline: 2026-07-09 at 10:00 PM WAT.
 
-This is a four-week build, not a six-week build. We should build the core loop first and keep secondary integrations out of the MVP.
+
 
 ## Phase 0: Setup and Qwen First Call
 
@@ -195,7 +195,7 @@ Product:
 - Preference learning without over-inferring.
 - Demo narrative.
 
-## Learning Priority for Founder
+## Learning Priority 
 
 Highest personal learning leverage:
 
@@ -205,9 +205,3 @@ Highest personal learning leverage:
 4. Understand the memory data model.
 5. Understand the demo story and product promise.
 
-Codex can build scaffolding, but founder judgment is most needed in:
-- prompt quality.
-- relation/tension definitions.
-- recall scoring philosophy.
-- audit output quality.
-- what feels genuinely useful.

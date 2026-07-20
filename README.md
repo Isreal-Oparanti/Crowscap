@@ -44,6 +44,7 @@ The system does not try to be a truth oracle. It keeps source context, confidenc
 Crowscap supports:
 
 - Chat-first capture of notes, ideas, links, YouTube videos, and PDFs.
+- Reference-only saving for social or private links that cannot be reliably extracted.
 - Atomic memory extraction with Qwen Cloud structured output.
 - Semantic search with Qwen embeddings and PostgreSQL vector support.
 - Source preservation so users can view the original saved material.
@@ -53,7 +54,7 @@ Crowscap supports:
 - Belief audits that synthesize what saved memories appear to say about a topic.
 - Preference learning from explicit instructions and lower-confidence behavior signals.
 - User-controlled archiving so unwanted memories stop surfacing.
-- Read-only MCP tools for agent access.
+- Read-only MCP tools for agent access, with mutating tools planned behind stronger safety gates.
 
 ## Architecture
 
@@ -66,6 +67,12 @@ The architecture is intentionally split into three layers:
 3. Qwen Cloud powers language understanding, structured extraction, embeddings, relationship checks, and synthesis.
 
 The main design choice is to retrieve small source-aware memory atoms instead of whole documents. This keeps the model context lean and helps Crowscap recall the right knowledge within limited context windows.
+
+The chat layer also separates three kinds of context:
+
+- Conversation facts, such as "what was my first message?", are answered from stored chat messages.
+- Knowledge questions, such as "what do I know about distribution?", use semantic retrieval.
+- Capture actions require user intent, so accidental links or short confirmations do not become permanent memory.
 
 ## Alibaba Cloud and Qwen Cloud Usage
 
@@ -200,4 +207,6 @@ Crowscap is a hackathon MVP with production-minded foundations. It is not a fini
 Save a source -> extract memory atoms -> search and recall them -> audit beliefs -> adapt to the user
 ```
 
-The next major layers are stronger background processing, richer proactive perspective notes, better notification delivery, and broader MCP write tools after the read-only contract is stable.
+The current MCP surface is deliberately read-only: search memory, audit a belief, inspect due recalls, and read learned preferences. The next MCP layer is not just "more tools"; it needs safe write operations with authenticated user scope, idempotency, clear confirmation behavior, and audit logs. Planned write tools include capture, save reference, archive memory, answer recall, create reminder, and update preference.
+
+The next major product layers are stronger background processing, richer proactive perspective notes, better notification delivery, and those broader MCP write tools after the mutation safety model is stable.

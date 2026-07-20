@@ -689,7 +689,7 @@ def test_semantic_pending_url_confirmation_is_captured(monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
-def test_local_definition_after_capture_stays_in_current_context(monkeypatch) -> None:
+def test_local_definition_after_capture_does_not_pull_saved_source_context(monkeypatch) -> None:
     override_db, testing_session = build_chat_db_override()
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_chat_router] = lambda: FixedRouter("answer")
@@ -789,8 +789,86 @@ def test_local_definition_after_capture_stays_in_current_context(monkeypatch) ->
         assert payload["evidence"] == []
         assert responder.calls
         prompt_history = "\n".join(turn.content for turn in responder.calls[0]["history"])
-        assert "Immediate context from the source the user just saved" in prompt_history
-        assert "Sanctification is portrayed as active and costly" in prompt_history
+        assert "Immediate context from the source the user just saved" not in prompt_history
+        assert "Sanctification is portrayed as active and costly" not in prompt_history
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_local_what_question_followup_uses_recent_chat_fact() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+
+    db = testing_session()
+    conversation = Conversation(user_id="test-user", title="Sin question")
+    db.add(conversation)
+    db.flush()
+    db.add_all(
+        [
+            ChatMessage(
+                conversation_id=conversation.id,
+                user_id="test-user",
+                role="user",
+                content="What do I know about sin?",
+            ),
+            ChatMessage(
+                conversation_id=conversation.id,
+                user_id="test-user",
+                role="assistant",
+                content="You know sin primarily through a theological lens.",
+            ),
+            ChatMessage(
+                conversation_id=conversation.id,
+                user_id="test-user",
+                role="user",
+                content="Hmm deep",
+            ),
+            ChatMessage(
+                conversation_id=conversation.id,
+                user_id="test-user",
+                role="assistant",
+                content="Deep indeed.",
+            ),
+            ChatMessage(
+                conversation_id=conversation.id,
+                user_id="test-user",
+                role="user",
+                content="I mean what make you say deep indeed",
+            ),
+            ChatMessage(
+                conversation_id=conversation.id,
+                user_id="test-user",
+                role="assistant",
+                content="I said that because your question is thought-provoking and complex.",
+            ),
+        ]
+    )
+    conversation_id = conversation.id
+    db.commit()
+    db.close()
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "What question?",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "conversation"
+        assert payload["saved"] is False
+        assert '"What do I know about sin?"' in payload["message"]
+        assert payload["evidence"] == []
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Memory.id))) == 0
+        assert db.scalar(select(func.count(Capture.id))) == 0
+        db.close()
     finally:
         app.dependency_overrides.clear()
 
@@ -1205,7 +1283,7 @@ def test_short_clarification_uses_persisted_conversation_history() -> None:
         app.dependency_overrides.clear()
 
 
-def test_whatsapp_invite_link_is_rejected_without_capture() -> None:
+def test_whatsapp_invite_link_is_held_as_reference_without_capture() -> None:
     override_db, testing_session = build_chat_db_override()
     app.dependency_overrides[get_db] = override_db
 
@@ -1224,11 +1302,100 @@ def test_whatsapp_invite_link_is_rejected_without_capture() -> None:
         assert payload["action"] == "conversation"
         assert payload["saved"] is False
         assert payload["capture"] is None
-        assert "WhatsApp group invite links" in payload["message"]
+        assert "best kept as a reference" in payload["message"]
 
         db = testing_session()
         assert db.scalar(select(func.count(Memory.id))) == 0
         assert db.scalar(select(func.count(Capture.id))) == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_confirmed_whatsapp_invite_link_is_saved_as_reference() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+
+    try:
+        client = TestClient(app)
+        preview_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "https://chat.whatsapp.com/LK0yk9lerym0VmBi7C8EF7",
+                "history": [],
+            },
+        )
+        assert preview_response.status_code == 200
+        conversation_id = preview_response.json()["conversation_id"]
+
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "yeah",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "capture"
+        assert payload["saved"] is True
+        assert payload["capture"]["source_type"] == "reference"
+        assert "I kept this link as a reference" in payload["message"]
+
+        db = testing_session()
+        source = db.scalar(select(Source))
+        memory = db.scalar(select(Memory))
+        assert source is not None
+        assert source.source_type == "reference"
+        assert source.original_url == "https://chat.whatsapp.com/LK0yk9lerym0VmBi7C8EF7"
+        assert memory is not None
+        assert memory.memory_type == "reference"
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_confirmed_facebook_link_is_saved_as_reference_not_extracted(monkeypatch) -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+
+    def fail_url_capture(**kwargs) -> TextCaptureResponse:
+        raise AssertionError("Facebook share links should be saved as references, not extracted.")
+
+    monkeypatch.setattr("app.services.chat_service.create_url_capture", fail_url_capture)
+
+    try:
+        client = TestClient(app)
+        preview_response = client.post(
+            "/api/v1/chat",
+            json={"message": "https://www.facebook.com/share/r/1RhxfXtWKx/q", "history": []},
+        )
+        assert preview_response.status_code == 200
+        conversation_id = preview_response.json()["conversation_id"]
+
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "save it for the product launch example",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "capture"
+        assert payload["capture"]["source_type"] == "reference"
+        assert "product launch example" in payload["capture"]["original_content"]
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Source.id))) == 1
+        assert db.scalar(select(func.count(Capture.id))) == 1
+        assert db.scalar(select(func.count(Memory.id))) == 1
         db.close()
     finally:
         app.dependency_overrides.clear()
@@ -1400,8 +1567,8 @@ def test_self_question_uses_crowscap_capability_knowledge() -> None:
         assert payload["action"] == "self"
         assert payload["saved"] is False
         assert payload["capture"] is None
-        assert "private memory intelligence system" in payload["message"]
-        assert "source-aware knowledge" in payload["message"]
+        assert "private memory intelligence" in payload["message"]
+        assert "brings them back" in payload["message"]
         assert "I should stay quiet" not in payload["message"]
 
         db = testing_session()
@@ -1428,7 +1595,8 @@ def test_typo_self_question_still_uses_crowscap_identity() -> None:
         payload = response.json()
         assert payload["action"] == "self"
         assert payload["saved"] is False
-        assert "private memory intelligence system" in payload["message"]
+        assert "private memory intelligence" in payload["message"]
+        assert "brings them back" in payload["message"]
         assert "I don’t have memory between conversations" not in payload["message"]
         assert "I don't have memory between conversations" not in payload["message"]
         assert "generic chat assistant" not in payload["message"].lower()
@@ -1458,6 +1626,35 @@ def test_semantic_router_handles_indirect_identity_questions() -> None:
     prompt = fake_client.calls[0]["user_prompt"]
     assert "regardless of exact phrasing, typos, informal language" in prompt
     assert "what's your purpose?" in prompt
+
+
+def test_save_capability_question_is_user_facing_not_internal() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "What can you save for me?", "history": []},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "self"
+        assert "things you do not want to lose" in payload["message"]
+        assert "- Ideas you are still thinking through" in payload["message"]
+        assert "when something matters" in payload["message"]
+        assert "memory cards" not in payload["message"].lower()
+        assert "extract" not in payload["message"].lower()
+        assert "useful parts of our conversation" not in payload["message"].lower()
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Memory.id))) == 0
+        assert db.scalar(select(func.count(Capture.id))) == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_explicit_memory_message_uses_capture_pipeline() -> None:

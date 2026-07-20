@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 from typing import Protocol
+from urllib.parse import urlparse
 
 from pydantic import ValidationError
 from sqlalchemy import or_, select
@@ -25,8 +27,14 @@ from app.db.models import (
     UserPreference,
     utc_now,
 )
+from app.db.vector import update_memory_embedding_vector
 from app.schemas.belief import BeliefAuditRequest
-from app.schemas.capture import TextCaptureRequest, UrlCaptureRequest
+from app.schemas.capture import (
+    MemoryCardResponse,
+    TextCaptureRequest,
+    TextCaptureResponse,
+    UrlCaptureRequest,
+)
 from app.schemas.chat import (
     ChatMessageResponse,
     ChatRequest,
@@ -37,7 +45,7 @@ from app.schemas.chat import (
 from app.schemas.memory import ArchiveMemoryRequest
 from app.schemas.search import SearchRequest, SearchResponse, SearchResult
 from app.services.belief_audit_service import BeliefAuditor
-from app.services.capture_service import create_text_capture
+from app.services.capture_service import create_text_capture, initial_next_review_at
 from app.services.embedding_service import MemoryEmbedder
 from app.services.extraction_service import MemoryExtractor
 from app.services.ingestion_service import (
@@ -359,6 +367,11 @@ def process_chat_message(
     persisted_history = _conversation_turns(conversation, limit=None)
     effective_history = persisted_history or payload.history
     pending_url = _pending_url_from_history(effective_history)
+    grounded_local_reply = _grounded_local_conversation_reply(
+        message=payload.message,
+        history=effective_history,
+        conversation=conversation,
+    )
 
     logger.info(
         "\U0001f4ac chat.message.start chars=%s history=%s conversation_id=%s",
@@ -366,13 +379,21 @@ def process_chat_message(
         len(effective_history),
         conversation.id,
     )
-    route = router.route(message=payload.message, history=effective_history)
-    route = _stabilize_route_for_local_context(
-        route=route,
-        message=payload.message,
-        history=effective_history,
-        pending_url=pending_url,
-    )
+    if grounded_local_reply is not None:
+        route = ChatRoute(
+            action="conversation",
+            reply=grounded_local_reply,
+            reason="The user is asking for a fact from the current conversation.",
+        )
+        logger.info("\U0001f9ed chat.route.grounded_local chars=%s", len(payload.message))
+    else:
+        route = router.route(message=payload.message, history=effective_history)
+        route = _stabilize_route_for_local_context(
+            route=route,
+            message=payload.message,
+            history=effective_history,
+            pending_url=pending_url,
+        )
 
     user_message = ChatMessage(
         conversation_id=conversation.id,
@@ -565,6 +586,30 @@ def process_chat_message(
                     relation_detector=relation_detector,
                     user_id=user_id,
                 )
+            elif _is_reference_only_url(url):
+                if not _has_explicit_url_capture_intent(payload.message):
+                    response = ChatResponse(
+                        action="conversation",
+                        message=_url_capture_confirmation_prompt(url=url),
+                        saved=False,
+                        next_step="Reply with a short reason, or say \"save it\" to keep the link itself.",
+                    )
+                    response = _with_preference_learning(response, preference_learning)
+                    logger.info("\u2705 chat.message.complete action=url_reference_confirmation saved=False")
+                    return _persist_assistant_response(
+                        db=db,
+                        conversation=conversation,
+                        user_message=user_message,
+                        response=response,
+                        user_id=user_id,
+                    )
+                capture = _create_reference_link_capture(
+                    db=db,
+                    url=url,
+                    intent_text=_message_without_url(payload.message, url) or None,
+                    embedder=embedder,
+                    user_id=user_id,
+                )
             elif reason := unsupported_url_reason(url):
                 response = ChatResponse(
                     action="conversation",
@@ -656,7 +701,15 @@ def process_chat_message(
                     response=response,
                     user_id=user_id,
                 )
-            if reason := unsupported_url_reason(pending_url):
+            if _is_reference_only_url(pending_url):
+                capture = _create_reference_link_capture(
+                    db=db,
+                    url=pending_url,
+                    intent_text=_pending_link_confirmation_intent(payload.message),
+                    embedder=embedder,
+                    user_id=user_id,
+                )
+            elif reason := unsupported_url_reason(pending_url):
                 response = ChatResponse(
                     action="conversation",
                     message=reason,
@@ -674,17 +727,18 @@ def process_chat_message(
                     response=response,
                     user_id=user_id,
                 )
-            capture = create_url_capture(
-                db=db,
-                payload=UrlCaptureRequest(
-                    url=pending_url,
-                    intent_text="Confirmed from a previous link in chat.",
-                ),
-                extractor=extractor,
-                embedder=embedder,
-                relation_detector=relation_detector,
-                user_id=user_id,
-            )
+            else:
+                capture = create_url_capture(
+                    db=db,
+                    payload=UrlCaptureRequest(
+                        url=pending_url,
+                        intent_text="Confirmed from a previous link in chat.",
+                    ),
+                    extractor=extractor,
+                    embedder=embedder,
+                    relation_detector=relation_detector,
+                    user_id=user_id,
+                )
         elif _is_save_previous_response_command(payload.message):
             response = _process_save_previous_response_request(
                 db=db,
@@ -1099,12 +1153,9 @@ def _should_include_recent_capture_context(
         "mean",
         "means",
         "meaning",
-        "thought",
-        "provoking",
     }
     if len(words) <= 12 and (
         _is_short_conversation_followup(normalized)
-        or _is_definition_or_meaning_question(normalized)
         or any(word in local_reference_words for word in words)
     ):
         return True
@@ -1460,6 +1511,102 @@ def _conversation_reply(*, message: str, previous_user_turns: list[str]) -> str:
     return "I am with you. This part is just normal conversation, so I am not saving it as a memory."
 
 
+def _grounded_local_conversation_reply(
+    *,
+    message: str,
+    history: list[ConversationTurn],
+    conversation: Conversation,
+) -> str | None:
+    normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
+    previous_user_turns = _conversation_user_messages(conversation)
+
+    if _is_first_message_question(normalized):
+        return _conversation_reply(message=message, previous_user_turns=previous_user_turns)
+
+    if (
+        "thank" in normalized
+        and any(marker in normalized for marker in ("before", "b4", "earlier", "this chat", "this conversation"))
+    ):
+        return _conversation_reply(message=message, previous_user_turns=previous_user_turns)
+
+    if normalized in {"what question", "which question", "what question was that", "which one"}:
+        question = _last_substantive_user_question(history)
+        if question is None:
+            return "I meant the question we were discussing, but I cannot find the exact earlier question in this chat."
+        return f'I meant your earlier question: "{question}"'
+
+    if _asks_why_assistant_used_previous_phrase(normalized):
+        subject = _last_substantive_user_question(history) or _last_substantive_user_statement(history)
+        if subject is None:
+            return "I was reacting to the idea we were discussing, but I cannot find the exact earlier line now."
+        return f'I was reacting to this: "{subject}"'
+
+    return None
+
+
+def _asks_why_assistant_used_previous_phrase(normalized: str) -> bool:
+    patterns = (
+        r"^what\s+(?:made|make|makes)\s+you\s+say\s+.+$",
+        r"^why\s+did\s+you\s+say\s+.+$",
+        r"^why\s+say\s+.+$",
+        r"^what\s+is\s+deep(?:\s+indeed)?$",
+        r"^what'?s\s+deep(?:\s+indeed)?$",
+    )
+    return any(re.fullmatch(pattern, normalized) is not None for pattern in patterns)
+
+
+def _last_substantive_user_question(history: list[ConversationTurn]) -> str | None:
+    for turn in reversed(history):
+        if turn.role != "user":
+            continue
+        content = re.sub(r"\s+", " ", turn.content.strip())
+        normalized = content.lower().strip(" .!?")
+        if not content or _is_greeting_word(normalized):
+            continue
+        if _looks_like_acknowledgement_only(normalized):
+            continue
+        if _is_local_meta_followup(normalized):
+            continue
+        words = re.findall(r"[a-z0-9']+", normalized)
+        if "?" in content or normalized.startswith(("what ", "why ", "how ", "can ", "should ", "do ")):
+            if len(words) >= 4 or _is_explicit_memory_query(normalized) or _is_explicit_belief_audit_query(normalized):
+                return content
+    return None
+
+
+def _last_substantive_user_statement(history: list[ConversationTurn]) -> str | None:
+    for turn in reversed(history):
+        if turn.role != "user":
+            continue
+        content = re.sub(r"\s+", " ", turn.content.strip())
+        normalized = content.lower().strip(" .!?")
+        if not content or _is_greeting_word(normalized):
+            continue
+        if _looks_like_acknowledgement_only(normalized) or _is_local_meta_followup(normalized):
+            continue
+        if _first_url(content):
+            continue
+        if len(re.findall(r"[a-z0-9']+", normalized)) >= 4:
+            return content
+    return None
+
+
+def _is_local_meta_followup(normalized: str) -> bool:
+    meta_markers = (
+        "what question",
+        "which question",
+        "what make you say",
+        "what made you say",
+        "what makes you say",
+        "why did you say",
+        "why say",
+        "what is deep",
+        "what's deep",
+        "what do you mean",
+    )
+    return any(marker in normalized for marker in meta_markers)
+
+
 def _is_first_message_question(normalized: str) -> bool:
     first_markers = (
         "first thing i said",
@@ -1477,15 +1624,28 @@ def _is_first_message_question(normalized: str) -> bool:
 def _process_self_question(message: str) -> ChatResponse:
     normalized = re.sub(r"\s+", " ", message.strip().lower())
 
-    if any(marker in normalized for marker in ("what can", "can you do", "features", "capabilities")):
+    if _is_save_capability_question(normalized):
         answer = (
-            "Crowscap turns scattered learning into private, source-aware memory. You can give it notes, "
-            "links, YouTube videos, PDFs, or useful conversation fragments, and it organizes them into "
-            "memories you can search, revisit, compare, and use.\n\n"
-            "Right now it supports semantic memory search, original-source viewing, recall scheduling, "
-            "lightweight reminders, belief audits with public source leads, preference learning, and "
-            "archiving memories you no longer want surfaced."
+            "I can help you keep the things you do not want to lose.\n\n"
+            "- Ideas you are still thinking through\n"
+            "- Links, notes, PDFs, and videos you want to revisit\n"
+            "- Reminders tied to something important\n"
+            "- Lessons from your work, reading, or research\n"
+            "- Beliefs or decisions you may want to question later\n\n"
+            "The point is simple: when something matters, I help it come back at the right time."
         )
+        next_step = "Send me anything worth keeping."
+    elif any(marker in normalized for marker in ("what can", "can you do", "features", "capabilities")):
+        answer = (
+            "Crowscap helps your learning survive past the moment you found it.\n\n"
+            "- Save ideas, sources, reminders, and decisions\n"
+            "- Ask what you know about a topic\n"
+            "- Revisit important thoughts when they become useful again\n"
+            "- Compare ideas you saved at different times\n"
+            "- Check whether a belief needs stronger evidence\n\n"
+            "It is built for people who collect important ideas but need help turning them into judgment."
+        )
+        next_step = "Save something, search your memory, or ask me to audit an idea."
     elif any(marker in normalized for marker in ("limit", "can't", "cannot", "not do", "what can't")):
         answer = (
             "Crowscap helps you reason with your saved knowledge; it does not replace your judgment. "
@@ -1494,20 +1654,20 @@ def _process_self_question(message: str) -> ChatResponse:
             "Current limits: reminders surface inside the app, native push notifications are not complete, "
             "passive capture from other apps is not built, and social-platform integrations are still future work."
         )
+        next_step = "Tell me what you want to save, search, revisit, or question."
     else:
         answer = (
-            "Crowscap is a private memory intelligence system for your learning. It helps turn notes, "
-            "links, videos, PDFs, and conversations into source-aware knowledge you can find again, "
-            "revisit at the right time, compare against other ideas, and use in real decisions."
+            "Crowscap is your private memory intelligence for learning.\n\n"
+            "It helps you keep important ideas, sources, reminders, and decisions, then brings them back "
+            "when they can help you think or act."
         )
+        next_step = "Send me something worth keeping, or ask what you already know."
 
     return ChatResponse(
         action="self",
         message=answer,
         saved=False,
-        next_step=(
-            "Save a source, search your memory, audit an idea, set a reminder, or tell Crowscap how you prefer to learn."
-        ),
+        next_step=next_step,
     )
 
 
@@ -1791,6 +1951,22 @@ def _recent_capture_source_type_hint(normalized: str) -> str | None:
     if "article" in normalized or "link" in normalized or "url" in normalized:
         return "article"
     return None
+
+
+def _is_save_capability_question(normalized: str) -> bool:
+    save_markers = (
+        "what can you save",
+        "what can u save",
+        "what do you save",
+        "what do u save",
+        "what can i save",
+        "what should i save",
+        "what can you keep",
+        "what can u keep",
+        "what can you remember",
+        "what can u remember",
+    )
+    return any(marker in normalized for marker in save_markers)
 
 
 def _source_display_name(source: Source) -> str:
@@ -2170,6 +2346,12 @@ def _deterministic_route(message: str, *, history: list[ConversationTurn]) -> Ch
             reason="The user is asking for time-based resurfacing.",
         )
 
+    if _looks_like_self_question(normalized):
+        return ChatRoute(
+            action="self",
+            reason="The user is asking what Crowscap is or what it can do.",
+        )
+
     if pending_url is not None and _is_pending_url_rejection(message):
         return ChatRoute(
             action="conversation",
@@ -2451,6 +2633,33 @@ def _is_reminder_command(normalized: str) -> bool:
     )
 
 
+def _looks_like_self_question(normalized: str) -> bool:
+    words = set(re.findall(r"[a-z0-9']+", normalized))
+    if not words:
+        return False
+    self_terms = {"you", "u", "yourself", "crowscap", "app", "product", "tool", "system"}
+    capability_terms = {"do", "does", "save", "keep", "remember", "help", "use", "purpose", "work", "built"}
+    if not words.intersection(self_terms):
+        return False
+    if _is_explicit_memory_query(normalized) or _is_explicit_belief_audit_query(normalized):
+        return False
+    if normalized.startswith(("what ", "who ", "why ", "how ", "can ", "could ", "explain ", "tell me ")):
+        return bool(words.intersection(capability_terms) or {"what", "who", "why", "how"}.intersection(words))
+    return any(
+        marker in normalized
+        for marker in (
+            "i don't understand this app",
+            "i dont understand this app",
+            "what is this app",
+            "what are you",
+            "what is you",
+            "what are u",
+            "who are you",
+            "who are u",
+        )
+    )
+
+
 def _is_explicit_memory_query(normalized: str) -> bool:
     memory_markers = (
         "what do i know",
@@ -2681,6 +2890,162 @@ def _has_explicit_url_capture_intent(message: str) -> bool:
     return any(marker in normalized for marker in intent_markers)
 
 
+def _is_reference_only_url(url: str) -> bool:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower().strip(".")
+    reference_hosts = {
+        "chat.whatsapp.com",
+        "facebook.com",
+        "www.facebook.com",
+        "m.facebook.com",
+        "fb.watch",
+        "instagram.com",
+        "www.instagram.com",
+        "x.com",
+        "www.x.com",
+        "twitter.com",
+        "www.twitter.com",
+        "tiktok.com",
+        "www.tiktok.com",
+    }
+    return host in reference_hosts or host.endswith(".facebook.com") or host.endswith(".instagram.com")
+
+
+def _create_reference_link_capture(
+    *,
+    db: Session,
+    url: str,
+    intent_text: str | None,
+    embedder: MemoryEmbedder,
+    user_id: str | None,
+) -> TextCaptureResponse:
+    clean_intent = _clean_reference_link_intent(intent_text)
+    title = _reference_link_title(url)
+    raw_text = f"Reference link: {url}"
+    if clean_intent:
+        raw_text += f"\nWhy it matters: {clean_intent}"
+
+    memory_content = (
+        f"Saved reference link for: {clean_intent}\nLink: {url}"
+        if clean_intent
+        else f"Saved reference link: {url}"
+    )
+    embedding = embedder.embed_texts([memory_content])[0]
+    content_hash = hashlib.sha256(f"{user_id or 'anon'}:{url}:{clean_intent or ''}".encode("utf-8")).hexdigest()
+
+    source = Source(
+        user_id=user_id,
+        source_type="reference",
+        original_url=url,
+        resolved_url=url,
+        title=title,
+        raw_text=raw_text,
+        extracted_text_hash=content_hash,
+        metadata_json={
+            "input_kind": "reference_link",
+            "reference_only": True,
+            "reason": clean_intent,
+        },
+    )
+    db.add(source)
+    db.flush()
+
+    capture = Capture(
+        user_id=user_id,
+        source_id=source.id,
+        user_note=clean_intent,
+        user_intent_text=clean_intent,
+        inferred_intents=["reference"],
+        status="ready",
+    )
+    db.add(capture)
+    db.flush()
+
+    memory = Memory(
+        user_id=user_id,
+        source_id=source.id,
+        capture_id=capture.id,
+        memory_type="reference",
+        epistemic_label="source_summary",
+        content=memory_content,
+        summary=clean_intent or "Saved reference link",
+        confidence="high" if clean_intent else "medium",
+        confidence_reason=(
+            "The user gave a reason for keeping this reference."
+            if clean_intent
+            else "The user confirmed this link should be kept as a reference."
+        ),
+        source_strength="unknown",
+        embedding_json=embedding,
+        next_review_at=initial_next_review_at(memory_confidence="medium"),
+        review_count=0,
+        recall_score=0.5,
+    )
+    db.add(memory)
+    db.flush()
+    update_memory_embedding_vector(db=db, memory_id=memory.id, embedding=embedding)
+    db.commit()
+
+    return TextCaptureResponse(
+        capture_id=capture.id,
+        source_id=source.id,
+        source_type=source.source_type,
+        source_title=source.title,
+        original_content=source.raw_text,
+        status=capture.status,
+        inferred_intents=["reference"],
+        memories=[
+            MemoryCardResponse(
+                id=memory.id,
+                source_type=source.source_type,
+                memory_type="reference",
+                epistemic_label="source_summary",
+                content=memory.content,
+                summary=memory.summary,
+                confidence=memory.confidence,
+                confidence_reason=memory.confidence_reason,
+                source_strength=memory.source_strength,
+                embedding_dimensions=len(embedding),
+                relationships=[],
+            )
+        ],
+    )
+
+
+def _clean_reference_link_intent(intent_text: str | None) -> str | None:
+    if not intent_text:
+        return None
+    cleaned = re.sub(r"\s+", " ", intent_text.strip()).strip(" .,:;!?")
+    cleaned = re.sub(
+        r"^(?:yes|yeah|yep|sure|ok|okay|alright|please|save|capture|remember|keep|read|process|ingest|handle|it|this|link|the)+\b",
+        "",
+        cleaned,
+        flags=re.I,
+    )
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,:;!?")
+    return cleaned[:300] or None
+
+
+def _reference_link_title(url: str) -> str:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "link").lower().removeprefix("www.")
+    if host == "chat.whatsapp.com":
+        return "WhatsApp invite link"
+    if "facebook.com" in host or host == "fb.watch":
+        return "Facebook reference link"
+    if "instagram.com" in host:
+        return "Instagram reference link"
+    if host in {"x.com", "twitter.com"}:
+        return "Social reference link"
+    return f"Reference from {host}"
+
+
+def _pending_link_confirmation_intent(message: str) -> str | None:
+    if _is_generic_affirmation(message) or _is_url_capture_confirmation(message):
+        return None
+    return message
+
+
 def _is_url_capture_confirmation(message: str) -> bool:
     normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
     confirmation_phrases = {
@@ -2869,10 +3234,16 @@ def _pending_url_from_history(history: list[ConversationTurn]) -> str | None:
 
 
 def _url_capture_confirmation_prompt(*, url: str) -> str:
+    if _is_reference_only_url(url):
+        return (
+            f"I found this link: {url}\n\n"
+            "I have not saved it yet. This kind of link is usually best kept as a reference. "
+            "If it matters, tell me what to remember it for, or say \"save it\" and I will keep the link."
+        )
     return (
         f"I found this link: {url}\n\n"
         "I have not saved it yet. If this is something you want in memory, reply "
-        "\"save this link\" and I will read it, preserve the source, and extract memory cards. "
+        "\"save this link\" and I will keep the important ideas from it. "
         "If it was accidental, you can ignore this and keep chatting."
     )
 
@@ -2902,6 +3273,9 @@ def _retrieval_query(*, message: str, history: list[ConversationTurn]) -> str:
 
 
 def _capture_confirmation(capture) -> str:
+    if getattr(capture, "source_type", None) == "reference":
+        return "I kept this link as a reference."
+
     comparison_count = sum(
         1
         for memory in capture.memories

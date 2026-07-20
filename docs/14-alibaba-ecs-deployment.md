@@ -85,10 +85,3 @@ systemctl restart crowscap-backend
 curl http://127.0.0.1/api/v1/health
 ```
 
-## Security Notes
-
-- Do not print `.env` values in terminal recordings.
-- Startup logs must mask database credentials.
-- Keep SSH on port 22 only as needed, and restrict source IP later if possible.
-- Keep database access external and encrypted.
-- When MCP is added, protect write tools with a bearer token.

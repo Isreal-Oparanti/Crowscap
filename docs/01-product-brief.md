@@ -4,7 +4,7 @@
 
 Crowscap.
 
-The name is a working label. The project should be judged by the product promise and execution, not by the name.
+The name is a working label.
 
 ## One-Sentence Promise
 

@@ -8,6 +8,7 @@ The backend owns the core MemoryAgent behavior: chat routing, capture, extractio
 
 - Accept text, URL, YouTube, and PDF captures.
 - Classify user intent before committing content to memory.
+- Keep reference-only links when extraction is not appropriate, instead of pretending every URL is readable.
 - Extract typed atomic memories with Qwen Cloud.
 - Preserve original sources separately from extracted memory atoms.
 - Embed memories for semantic search.
@@ -16,7 +17,7 @@ The backend owns the core MemoryAgent behavior: chat routing, capture, extractio
 - Run belief audits over saved memories and public source leads.
 - Track explicit and inferred user preferences.
 - Archive memories the user no longer wants surfaced.
-- Expose read-only memory tools over MCP/SSE.
+- Expose read-only memory tools over MCP/SSE, with write tools planned behind stricter safety gates.
 
 ## Stack
 
@@ -134,6 +135,15 @@ This prevents two failure modes:
 
 Normal conversation stays normal. Knowledge questions use memory retrieval. Capture requires user intent.
 
+Recent reliability rules:
+
+- A substantial note that includes a URL is saved as the user's note, not reduced to a link preview.
+- Bare URLs ask for confirmation before saving.
+- Facebook, WhatsApp, Instagram, X/Twitter, and similar social links are saved as references when confirmed; the backend does not claim it can extract private or app-gated content from them.
+- Short confirmations such as `yeah`, `sure`, and `go ahead` only confirm a pending action when one exists.
+- Follow-up questions about the current chat, such as `what question?`, are answered from recent conversation state instead of memory search.
+- Generic definition questions, such as `what is thought-provoking?`, do not automatically pull just-saved source context.
+
 ## Context Window Strategy
 
 Crowscap retrieves memory atoms, not whole documents.
@@ -201,6 +211,17 @@ Current read-only tools:
 - `get_user_preferences`
 
 The MCP layer delegates to existing backend services. It does not duplicate memory logic.
+
+MCP is not considered complete yet. The next useful layer is safe mutation:
+
+- `capture_text`
+- `capture_url_or_reference`
+- `archive_memory`
+- `answer_recall`
+- `create_reminder`
+- `update_user_preference`
+
+These should require authenticated user scope, idempotency keys, compact tool outputs, and audit logging before being exposed publicly.
 
 ## Tests
 

@@ -1,6 +1,6 @@
 # Hackathon Strategy
 
-Last verified: 2026-06-11.
+
 
 ## Official Constraint Summary
 
@@ -8,7 +8,7 @@ Source: https://qwencloud-hackathon.devpost.com/rules
 
 Submission deadline:
 - July 9, 2026 at 2:00 PM PDT.
-- July 9, 2026 at 10:00 PM WAT/Lagos.
+- July 20, 2026 at 10:00 PM WAT/Lagos.
 
 Track:
 - Track 1 - MemoryAgent.
@@ -39,13 +39,13 @@ Judging:
 
 ## Strategic Positioning
 
-Do not position Crowscap as "a personal knowledge base that indexes everything you share." That is already listed as a project inspiration. Our differentiation is the memory lifecycle:
+We are not position Crowscap as "a personal knowledge base that indexes everything you share." That is already listed as a project inspiration. Our differentiation is the memory lifecycle:
 
 ```text
 Saved content -> structured memory -> source strength -> tension detection -> recall -> knowledge audit -> action gap
 ```
 
-Winning frame:
+OUR frame:
 
 "Most tools help you save information. Crowscap helps information become memory you can question and use."
 
@@ -67,7 +67,7 @@ Output:
 
 This is more memorable than a graph and more differentiated than semantic search.
 
-## Engineering Depth Angles
+## Engineering Angles
 
 1. Structured atomic memory extraction:
    Use Qwen Cloud structured output and Pydantic validation.
@@ -90,21 +90,8 @@ This is more memorable than a graph and more differentiated than semantic search
 7. Evaluation harness:
    Compare Crowscap atomic retrieval against naive document chunk retrieval.
 
-## Demo Story
 
-Use one clean story under 3 minutes.
-
-1. Show the graveyard problem briefly: many saved links and notes that never became usable.
-2. Capture a messy real input: a YouTube transcript, article, or pasted book excerpt.
-3. Show Crowscap extracting memory atoms with labels like claim, principle, example, action, question.
-4. Show source confidence and why it is not treated as absolute truth.
-5. Show tension detection between two saved startup ideas.
-6. Ask: "What do I seem to know about distribution?"
-7. Show the audit: repeated beliefs, strongest sources, weak assumptions, tensions, unapplied knowledge.
-8. Show one generative recall/application question.
-9. End with evaluation: atomic retrieval uses less context and returns more useful memories than naive RAG.
-
-## Do Not Overbuild
+## Building Strategy
 
 The hackathon does not need every capture surface. It needs the core memory loop to be excellent.
 
@@ -116,8 +103,9 @@ Build first:
 - Audit.
 - Evaluation.
 
-Mention later:
+Long term improvement:
 - Browser extension.
+- knowlegde gap surface
 - Mobile share sheet.
 - WhatsApp/Telegram.
 - Kindle/Readwise import.

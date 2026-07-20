@@ -2,7 +2,7 @@
 
 ## Stack Decision
 
-Use Next.js with TypeScript and Tailwind CSS.
+Next.js with TypeScript and Tailwind CSS.
 
 Why:
 - Next.js gives routing, server/client rendering flexibility, and a clean deployment path.
