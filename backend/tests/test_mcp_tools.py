@@ -7,11 +7,14 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
-from app.db.models import Capture, Memory, Reminder, Source, UserPreference, utc_now
+from app.db.models import Capture, Memory, MemoryRelation, Reminder, Source, UserPreference, utc_now
 from app.mcp.tools import (
+    archive_memory_tool,
     audit_belief_tool,
+    capture_text_tool,
     get_due_recalls_tool,
     get_user_preferences_tool,
+    quick_recall_tool,
     search_memory_tool,
 )
 from app.schemas.belief import BeliefAuditRequest, BeliefAuditResponse, PublicEvidenceResult
@@ -24,6 +27,48 @@ class FakeSearchEmbedder:
         if "distribution" in query or "customer" in query:
             return [[1.0, 0.0, 0.0]]
         return [[0.0, 1.0, 0.0]]
+
+
+class FakeCaptureExtractor:
+    def extract_text(
+        self,
+        *,
+        text: str,
+        intent_text: str | None = None,
+        user_note: str | None = None,
+    ):
+        from app.ai.structured_outputs import CaptureExtraction, ExtractedMemoryAtom
+        return CaptureExtraction(
+            source_title="MCP test capture",
+            inferred_intents=["remember"],
+            memories=[
+                ExtractedMemoryAtom(
+                    memory_type="principle",
+                    epistemic_label="advice",
+                    content="Distribution channels should be tested before scaling.",
+                    summary="Test distribution early.",
+                    confidence="medium",
+                    confidence_reason="Advice from captured text.",
+                    source_strength="moderate",
+                )
+            ],
+        )
+
+
+class FakeCaptureEmbedder:
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        return [[0.1, 0.2, 0.3] for _ in texts]
+
+
+class FakeCaptureRelationDetector:
+    def detect_for_memories(
+        self,
+        *,
+        db,
+        new_memories: list,
+        user_id=None,
+    ) -> list:
+        return []
 
 
 class FakeAuditor:
@@ -190,4 +235,74 @@ def test_mcp_audit_belief_returns_agent_ready_summary() -> None:
     assert payload["public_evidence_count"] == 1
     assert payload["confidence"] == "medium"
     assert payload["memories"][0]["source_title"] == "Distribution note"
+    db.close()
+
+
+def test_mcp_capture_text_saves_memory_atoms() -> None:
+    testing_session = build_session_factory()
+    db = testing_session()
+
+    payload = capture_text_tool(
+        db=db,
+        content="Early startup teams should validate distribution before committing to a single channel.",
+        intent_text="Remember for go-to-market planning.",
+        extractor=FakeCaptureExtractor(),
+        embedder=FakeCaptureEmbedder(),
+        relation_detector=FakeCaptureRelationDetector(),
+    )
+
+    assert payload["status"] == "ready"
+    assert payload["memory_count"] == 1
+    assert "capture_id" in payload
+    assert "source_id" in payload
+    assert payload["memories"][0]["content"] == "Distribution channels should be tested before scaling."
+    assert payload["memories"][0]["memory_type"] == "principle"
+    db.close()
+
+
+def test_mcp_quick_recall_updates_memory_and_returns_compact_result() -> None:
+    testing_session = build_session_factory()
+    db = testing_session()
+    memory = seed_memory(db)
+    original_review_count = memory.review_count
+
+    payload = quick_recall_tool(
+        db=db,
+        memory_id=memory.id,
+        action="still_relevant",
+    )
+
+    assert payload["memory_id"] == memory.id
+    assert payload["action"] == "still_relevant"
+    assert payload["review_count"] == original_review_count + 1
+    assert "next_due_at" in payload
+    assert "recall_score" in payload
+    # confirm db was mutated
+    db.refresh(memory)
+    assert memory.review_count == original_review_count + 1
+    db.close()
+
+
+def test_mcp_archive_memory_sets_status_and_creates_audit_event() -> None:
+    testing_session = build_session_factory()
+    db = testing_session()
+    memory = seed_memory(db)
+
+    payload = archive_memory_tool(
+        db=db,
+        memory_id=memory.id,
+        reason="not_useful",
+        note="No longer relevant to current goals.",
+    )
+
+    assert payload["memory_id"] == memory.id
+    assert payload["previous_status"] == "active"
+    assert payload["new_status"] == "archived"
+    assert payload["reason"] == "not_useful"
+    assert payload["note"] == "No longer relevant to current goals."
+    assert "archived_at" in payload
+    # confirm db was mutated
+    db.refresh(memory)
+    assert memory.status == "archived"
+    assert memory.next_review_at is None
     db.close()

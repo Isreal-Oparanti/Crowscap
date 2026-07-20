@@ -22,6 +22,11 @@ Questions such as "what was my first message?", "what did I just say?", and "hav
 
 The answer should be exact and brief. It should not include memory cards, public evidence, "what is missing", or idea-comparison sections. If the relevant message is not found, Crowscap should say it cannot find it rather than guessing.
 
+Short local follow-ups use the same rule. If the user asks "what question?",
+"what made you say that?", or "what is deep?", Crowscap should first inspect the
+recent conversation and answer from the actual line being discussed. It should
+not search long-term memory unless the user asks about saved knowledge.
+
 ## URL Capture Safety
 
 A bare URL in chat is not enough evidence that the user wants permanent memory extraction. Bare URLs now create a confirmation response:
@@ -31,6 +36,32 @@ A bare URL in chat is not enough evidence that the user wants permanent memory e
 If the user explicitly says "save this", "remember this", "read later", "capture this", or similar around the URL, Crowscap captures it immediately.
 
 This keeps accidental links out of long-term memory while preserving the fast capture flow for intentional saves.
+
+If a message contains substantial user-written content plus a URL, the content
+is treated as the primary thing to save. The backend should not collapse a real
+note into a link preview just because a URL appears inside it.
+
+Some links are references, not extractable sources. WhatsApp invite links,
+Facebook share/reel links, Instagram links, X/Twitter links, and similar
+social/app-gated URLs should be kept as references when the user confirms their
+importance. Crowscap should not claim it can read private or app-gated content.
+
+Short confirmations are scoped to current state:
+
+- If a pending URL exists, replies like "yeah", "sure", and "go ahead" may confirm it.
+- If the user declines with "no thanks" or "ignore it", the pending URL stays unsaved.
+- If no pending URL exists, a later "yeah" must remain conversation and must not trigger capture.
+
+## Recent Source Context
+
+After a successful capture, Crowscap may use the just-saved source for short
+follow-ups that clearly refer to it, such as "what does this mean?" or "why is
+that important?"
+
+It should not inject just-saved source context into ordinary definition or
+general conversation questions. For example, after saving a theology video,
+"what is thought-provoking?" should be answered as a normal definition question,
+not as a forced interpretation of the saved video.
 
 ## Why This Exists
 

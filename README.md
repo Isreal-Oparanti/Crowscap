@@ -54,7 +54,7 @@ Crowscap supports:
 - Belief audits that synthesize what saved memories appear to say about a topic.
 - Preference learning from explicit instructions and lower-confidence behavior signals.
 - User-controlled archiving so unwanted memories stop surfacing.
-- Read-only MCP tools for agent access, with mutating tools planned behind stronger safety gates.
+- MCP tools for agent access over SSE, including read tools (search, audit, recall, preferences) and write tools (capture text, submit quick recall, archive memory).
 
 ## Architecture
 
@@ -207,6 +207,6 @@ Crowscap is a hackathon MVP with production-minded foundations. It is not a fini
 Save a source -> extract memory atoms -> search and recall them -> audit beliefs -> adapt to the user
 ```
 
-The current MCP surface is deliberately read-only: search memory, audit a belief, inspect due recalls, and read learned preferences. The next MCP layer is not just "more tools"; it needs safe write operations with authenticated user scope, idempotency, clear confirmation behavior, and audit logs. Planned write tools include capture, save reference, archive memory, answer recall, create reminder, and update preference.
+The current MCP surface has seven tools: four read tools (search memory, audit a belief, inspect due recalls, read learned preferences) and three write tools (capture text, submit quick recall, archive memory). The next MCP layer would add `create_reminder`, `update_user_preference`, and `capture_url_or_reference`. Those tools need idempotency keys and clearer per-tool auth policy before they ship.
 
 The next major product layers are stronger background processing, richer proactive perspective notes, better notification delivery, and those broader MCP write tools after the mutation safety model is stable.

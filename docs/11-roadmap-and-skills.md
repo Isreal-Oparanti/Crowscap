@@ -103,7 +103,8 @@ Skills:
 Target: June 30-July 5.
 
 Deliverables:
-- MCP server with memory tools.
+- MCP server with stable read-only memory tools.
+- MCP write-tool design for capture, archive, recall answers, reminders, and preferences.
 - Evaluation harness comparing naive RAG vs Crowscap atomic retrieval.
 - Docker setup.
 - Alibaba Cloud backend deployment.
@@ -113,12 +114,19 @@ Deliverables:
 
 Skills:
 - MCP tool design.
+- Idempotent mutation design.
+- Tool authorization and audit logging.
 - Qwen Responses API MCP integration.
 - Docker.
 - Alibaba Cloud ECS or container deployment.
 - Object storage APIs.
 - Evaluation metrics.
 - Technical documentation.
+
+Current MCP status:
+
+- Implemented: read-only SSE tools for search, belief audit, due recalls, and user preferences.
+- Not yet complete: safe mutating tools. These should come after the backend write paths are hardened with authentication, idempotency keys, audit events, and user-safe error handling.
 
 ## Phase 5: Demo and Submission Polish
 
@@ -204,4 +212,3 @@ Highest personal learning leverage:
 3. Understand embeddings vs reranking.
 4. Understand the memory data model.
 5. Understand the demo story and product promise.
-

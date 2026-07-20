@@ -50,6 +50,11 @@ The first deployed MCP layer is read-only:
 Read-only comes first because the public MCP surface should not mutate a user's
 memory before auth and deployment hardening are in place.
 
+This does not mean MCP is finished. The deployed layer proves that an external
+agent can inspect Crowscap memory safely. The next layer should add mutating
+tools only after each write path has authenticated user scope, idempotency,
+audit logging, and clear failure behavior.
+
 ## Deployment Script
 
 The setup script lives at:

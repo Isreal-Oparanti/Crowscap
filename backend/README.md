@@ -17,7 +17,7 @@ The backend owns the core MemoryAgent behavior: chat routing, capture, extractio
 - Run belief audits over saved memories and public source leads.
 - Track explicit and inferred user preferences.
 - Archive memories the user no longer wants surfaced.
-- Expose read-only memory tools over MCP/SSE, with write tools planned behind stricter safety gates.
+- Expose memory tools over MCP/SSE: four read tools (search, audit, recall, preferences) and three write tools (capture text, submit quick recall, archive memory).
 
 ## Stack
 

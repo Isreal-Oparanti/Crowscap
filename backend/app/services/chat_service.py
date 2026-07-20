@@ -2352,6 +2352,12 @@ def _deterministic_route(message: str, *, history: list[ConversationTurn]) -> Ch
             reason="The user is asking what Crowscap is or what it can do.",
         )
 
+    if _is_save_previous_response_command(message):
+        return ChatRoute(
+            action="capture",
+            reason="The user asked to save the previous assistant response.",
+        )
+
     if pending_url is not None and _is_pending_url_rejection(message):
         return ChatRoute(
             action="conversation",
@@ -3159,6 +3165,9 @@ def _looks_like_pending_url_reply(message: str) -> bool:
 
 def _is_save_previous_response_command(message: str) -> bool:
     normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
+    if _first_url(message):
+        return False
+
     phrases = {
         "save that",
         "save this",
@@ -3207,7 +3216,67 @@ def _is_save_previous_response_command(message: str) -> bool:
         r"^(?:save|remember|keep|store)\s+what\s+you\s+just\s+(?:said|wrote|sent|answered)$",
         r"^(?:save|remember|keep|store)\s+(?:your|the)\s+(?:last|previous)\s+(?:answer|reply|response)$",
     )
-    return any(re.fullmatch(pattern, normalized) is not None for pattern in patterns)
+    if any(re.fullmatch(pattern, normalized) is not None for pattern in patterns):
+        return True
+
+    if not re.search(r"\b(?:save|remember|keep|store)\b", normalized):
+        return False
+    if not (
+        re.search(r"\b(?:that|this|it)\b", normalized)
+        or re.search(r"\b(?:answer|reply|response)\b", normalized)
+        or "what you just" in normalized
+    ):
+        return False
+
+    words = re.findall(r"[a-z0-9']+", normalized)
+    command_words = {
+        "a",
+        "about",
+        "alright",
+        "answer",
+        "answered",
+        "awesome",
+        "can",
+        "cool",
+        "could",
+        "for",
+        "gave",
+        "go",
+        "it",
+        "just",
+        "keep",
+        "last",
+        "me",
+        "memory",
+        "my",
+        "nice",
+        "ok",
+        "okay",
+        "one",
+        "please",
+        "previous",
+        "reply",
+        "remember",
+        "response",
+        "said",
+        "save",
+        "sent",
+        "store",
+        "that",
+        "the",
+        "this",
+        "to",
+        "u",
+        "what",
+        "would",
+        "wrote",
+        "yeah",
+        "yep",
+        "yes",
+        "you",
+        "your",
+    }
+    return len(words) <= 16 and set(words).issubset(command_words)
 
 
 def _pending_url_from_history(history: list[ConversationTurn]) -> str | None:

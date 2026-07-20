@@ -14,11 +14,19 @@ from app.mcp.formatters import (
     dump_model,
 )
 from app.schemas.belief import BeliefAuditRequest
+from app.schemas.capture import TextCaptureRequest
+from app.schemas.memory import ArchiveMemoryRequest
+from app.schemas.recall import RecallQuickRequest
 from app.schemas.search import SearchRequest
 from app.services.belief_audit_service import BeliefAuditor, QwenBeliefAuditor
+from app.services.capture_service import create_text_capture
 from app.services.embedding_service import MemoryEmbedder, QwenMemoryEmbedder
+from app.services.extraction_service import MemoryExtractor, QwenMemoryExtractor
+from app.services.memory_lifecycle_service import archive_memory
 from app.services.preference_service import get_or_create_user_preferences, preference_response
+from app.services.recall_evaluation_service import quick_recall
 from app.services.recall_service import get_due_recalls
+from app.services.relationship_service import MemoryRelationDetector, QwenMemoryRelationDetector
 from app.services.search_service import search_memories
 
 
@@ -140,3 +148,112 @@ def get_user_preferences_tool(
         response = preference_response(profile)
 
     return dump_model(response)
+
+
+# ---------------------------------------------------------------------------
+# Write tools
+# ---------------------------------------------------------------------------
+
+
+def capture_text_tool(
+    *,
+    content: str,
+    user_note: str | None = None,
+    intent_text: str | None = None,
+    source_title: str | None = None,
+    user_id: str | None = None,
+    db: Session | None = None,
+    extractor: MemoryExtractor | None = None,
+    embedder: MemoryEmbedder | None = None,
+    relation_detector: MemoryRelationDetector | None = None,
+) -> dict[str, Any]:
+    """Save text as memory atoms via the full Crowscap extraction pipeline."""
+    with _session_scope(db) as session:
+        response = create_text_capture(
+            db=session,
+            payload=TextCaptureRequest(
+                content=content,
+                user_note=user_note,
+                intent_text=intent_text,
+                source_title=source_title,
+            ),
+            extractor=extractor or QwenMemoryExtractor(),
+            embedder=embedder or QwenMemoryEmbedder(),
+            relation_detector=relation_detector or QwenMemoryRelationDetector(),
+            user_id=user_id,
+        )
+
+    return {
+        "capture_id": response.capture_id,
+        "source_id": response.source_id,
+        "source_type": response.source_type,
+        "source_title": response.source_title,
+        "status": response.status,
+        "inferred_intents": list(response.inferred_intents),
+        "memory_count": len(response.memories),
+        "memories": [
+            {
+                "id": memory.id,
+                "memory_type": memory.memory_type,
+                "epistemic_label": memory.epistemic_label,
+                "content": memory.content,
+                "summary": memory.summary,
+                "confidence": memory.confidence,
+                "source_strength": memory.source_strength,
+            }
+            for memory in response.memories
+        ],
+    }
+
+
+def quick_recall_tool(
+    *,
+    memory_id: str,
+    action: str,
+    user_id: str | None = None,
+    db: Session | None = None,
+) -> dict[str, Any]:
+    """Submit a quick recall signal for a due memory without a Qwen evaluation round-trip."""
+    with _session_scope(db) as session:
+        response = quick_recall(
+            db=session,
+            memory_id=memory_id,
+            payload=RecallQuickRequest(action=action),  # type: ignore[arg-type]
+            user_id=user_id,
+        )
+
+    return {
+        "memory_id": response.memory_id,
+        "action": response.action,
+        "feedback": response.feedback,
+        "next_due_at": response.next_due_at.isoformat(),
+        "review_count": response.review_count,
+        "recall_score": response.recall_score,
+    }
+
+
+def archive_memory_tool(
+    *,
+    memory_id: str,
+    reason: str = "user_dismissed",
+    note: str | None = None,
+    user_id: str | None = None,
+    db: Session | None = None,
+) -> dict[str, Any]:
+    """Archive a memory so it stops surfacing in recalls and searches."""
+    with _session_scope(db) as session:
+        response = archive_memory(
+            db=session,
+            memory_id=memory_id,
+            payload=ArchiveMemoryRequest(reason=reason, note=note),  # type: ignore[arg-type]
+            user_id=user_id,
+        )
+
+    return {
+        "memory_id": response.memory_id,
+        "previous_status": response.previous_status,
+        "new_status": response.new_status,
+        "reason": response.reason,
+        "note": response.note,
+        "archived_at": response.archived_at.isoformat(),
+    }

@@ -1,19 +1,41 @@
 # MCP Contract
 
-Crowscap exposes a local Model Context Protocol server so an agent can use the
+Crowscap exposes a Model Context Protocol server so an agent can use the
 memory system as tools instead of treating it as another web page.
 
-The first MCP version is intentionally read-only. It wraps stable backend
-services that already work:
+The MCP surface has two tiers:
 
-- semantic memory search
-- belief audit
-- due recall/reminder lookup
-- learned user preference lookup
+**Read tools** (safe to call at any time):
 
-Write tools such as capture, archive, answer recall, and action updates should
-come later, after auth and deployment hardening. The first public MCP surface
-should not let an external agent mutate a user's memory by accident.
+- `search_memory` — semantic memory search
+- `audit_belief` — belief synthesis over saved memories
+- `get_due_recalls` — due recall and reminder lookup
+- `get_user_preferences` — learned user preference profile
+
+**Write tools** (mutate user data, scoped by `user_id`):
+
+- `capture_text` — save text through the full extraction and embedding pipeline
+- `submit_quick_recall` — acknowledge a due memory without a Qwen evaluation
+- `archive_memory` — archive a memory with an audit event
+
+## Current Status
+
+Implemented:
+
+- SSE server process.
+- Nginx proxy path for `/mcp/`.
+- Four read tools backed by existing Crowscap services.
+- Three write tools: `capture_text`, `submit_quick_recall`, `archive_memory`.
+- Full tool contract tests (7 tests, all passing).
+- Demo agent script at `backend/scripts/demo_agent.py`.
+
+Not complete yet:
+
+- Per-tool authorization policy beyond `user_id` scoping.
+- Idempotency keys for repeat-safe capture calls.
+- Human-readable confirmation flows for high-impact mutations.
+- Rate limiting specific to the MCP surface.
+- `create_reminder`, `update_user_preference`, `capture_url_or_reference` tools.
 
 ## Local Server
 
@@ -238,6 +260,193 @@ Output:
 }
 ```
 
+---
+
+## Tool: capture_text  *(write)*
+
+Saves text through the full Crowscap extraction and embedding pipeline.
+Returns the memory atoms that were created or reused from a duplicate source.
+
+Input:
+
+```json
+{
+  "content": "Founders who nail distribution before product-market fit often discover that the right channel shapes what the product needs to become.",
+  "user_note": "Saved during go-to-market planning.",
+  "intent_text": "Remember for strategy work.",
+  "source_title": "GTM planning session",
+  "user_id": null
+}
+```
+
+- `content` must be at least 20 characters and at most 10,000 characters.
+- `user_note` and `intent_text` are optional context hints for the extractor.
+- `source_title` is optional; the extractor infers one if omitted.
+
+Output:
+
+```json
+{
+  "capture_id": "uuid",
+  "source_id": "uuid",
+  "source_type": "text",
+  "source_title": "GTM planning session",
+  "status": "ready",
+  "inferred_intents": ["remember", "apply"],
+  "memory_count": 2,
+  "memories": [
+    {
+      "id": "uuid",
+      "memory_type": "principle",
+      "epistemic_label": "advice",
+      "content": "The right distribution channel shapes what the product needs to become.",
+      "summary": "Channel shapes product.",
+      "confidence": "medium",
+      "source_strength": "moderate"
+    }
+  ]
+}
+```
+
+---
+
+## Tool: submit_quick_recall  *(write)*
+
+Submits a lightweight recall signal for a due memory. No Qwen call is made.
+Updates the memory's recall score and schedules the next review date.
+
+Input:
+
+```json
+{
+  "memory_id": "uuid",
+  "action": "still_relevant",
+  "user_id": null
+}
+```
+
+- `action` must be one of: `still_relevant`, `applied`, `not_now`.
+- `still_relevant` — memory is still useful; light recall boost.
+- `applied` — user acted on it; stronger recall boost.
+- `not_now` — defer for 24 hours without changing the recall score.
+
+Output:
+
+```json
+{
+  "memory_id": "uuid",
+  "action": "still_relevant",
+  "feedback": "Good. This idea is worth keeping active.",
+  "next_due_at": "2026-07-19T12:00:00+00:00",
+  "review_count": 3,
+  "recall_score": 0.72
+}
+```
+
+---
+
+## Tool: archive_memory  *(write)*
+
+Archives a memory so it stops appearing in recalls and semantic search results.
+Creates a `MemoryArchiveEvent` audit entry.
+
+Input:
+
+```json
+{
+  "memory_id": "uuid",
+  "reason": "superseded",
+  "note": "Replaced by a more precise claim saved later.",
+  "user_id": null
+}
+```
+
+- `reason` must be one of: `user_dismissed`, `not_useful`, `duplicate`, `stale`,
+  `weak_evidence`, `superseded`, `other`.
+- `note` is optional free text recorded in the audit event.
+
+Output:
+
+```json
+{
+  "memory_id": "uuid",
+  "previous_status": "active",
+  "new_status": "archived",
+  "reason": "superseded",
+  "note": "Replaced by a more precise claim saved later.",
+  "archived_at": "2026-07-16T14:30:00+00:00"
+}
+```
+
+## Demo Agent
+
+A standalone demo script chains all seven tools (four reads and three writes)
+over a live SSE connection to show the full agent loop:
+
+```powershell
+# Start the MCP server
+cd backend
+.\.venv\Scripts\python -m app.mcp.server
+
+# In a second terminal, run the demo
+cd backend
+.\.venv\Scripts\python scripts/demo_agent.py
+```
+
+To target the live deployed server:
+
+```powershell
+.\.venv\Scripts\python scripts/demo_agent.py --url https://api.crowscap.xyz/mcp/sse
+```
+
+The demo loop is:
+
+```text
+capture_text → search_memory → get_due_recalls → submit_quick_recall
+    → audit_belief → get_user_preferences → archive_memory
+```
+
+---
+
+## Remaining Planned Tools
+
+These are not yet implemented. They follow the same pattern as the current
+write tools: call an existing service function, return a compact dict.
+
+### `capture_url_or_reference`
+
+Capture a readable URL, or save a non-readable/social URL as a reference.
+
+Required safety:
+
+- URL validation and SSRF protections
+- explicit `save_mode`: `extract` or `reference`
+- clear response when the URL cannot be extracted
+
+### `create_reminder`
+
+Create a one-time reminder, optionally linked to a memory or reference.
+
+Required safety:
+
+- parsed due time
+- original user instruction
+- `save_as_memory` flag
+- no silent long-term memory creation when the user asked only for a reminder
+
+### `update_user_preference`
+
+Update an explicit user preference.
+
+Required safety:
+
+- preference key
+- new value
+- confidence and source message id
+- visible reason so the user can understand why Crowscap adapted
+
+---
+
 ## Local Verification
 
 Run the MCP tool contract tests:
@@ -259,11 +468,15 @@ Expected output shape:
 mcp_loaded 127.0.0.1 8010 /mcp/sse
 ```
 
+---
+
 ## Design Rules
 
 - MCP tools should call service functions, not duplicate business logic.
-- Read-only tools ship first; write tools require auth and stronger review.
+- Read tools are always safe; write tools require `user_id` scoping.
 - Tool outputs should be compact enough for agent context windows.
+- Mutating tool calls create audit events where the service supports it.
+- Tools should fail with JSON-shaped, user-safe errors rather than raw tracebacks.
 - Belief audit language must remain epistemically humble: saved memories are not
   automatic truth and not automatic user belief.
 - Public deployment should protect the MCP URL before adding mutating tools.

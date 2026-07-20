@@ -1431,7 +1431,7 @@ def test_save_that_captures_previous_assistant_response() -> None:
         client = TestClient(app)
         response = client.post(
             "/api/v1/chat",
-            json={"message": "save that", "conversation_id": conversation_id, "history": []},
+            json={"message": "Cool save that for me", "conversation_id": conversation_id, "history": []},
         )
 
         assert response.status_code == 200
@@ -1446,6 +1446,9 @@ def test_save_that_captures_previous_assistant_response() -> None:
         source = db.scalar(select(Source))
         assert source is not None
         assert source.title.startswith("Crowscap conversation -")
+        assert source.raw_text is not None
+        assert "Launching a product strongly means" in source.raw_text
+        assert "Cool save that for me" not in source.raw_text
         db.close()
     finally:
         app.dependency_overrides.clear()
