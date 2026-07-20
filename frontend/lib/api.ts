@@ -84,17 +84,22 @@ export function sendChatMessage(
 
 export function uploadPdfToChat(
   file: File,
+  userMessage?: string,
   conversationId?: string | null,
 ): Promise<ChatResponse> {
   const body = new FormData();
   body.append("file", file);
   body.append(
     "intent_text",
-    "Extract the important ideas from this PDF and keep them in my memory.",
+    userMessage
+      ? userMessage
+      : "Extract the important ideas from this PDF and keep them in my memory.",
   );
   body.append(
     "user_note",
-    "Uploaded from the Crowscap chat composer as a PDF source.",
+    userMessage
+      ? `User message with PDF: ${userMessage}`
+      : "Uploaded from the Crowscap chat composer as a PDF source.",
   );
   if (conversationId) {
     body.append("conversation_id", conversationId);

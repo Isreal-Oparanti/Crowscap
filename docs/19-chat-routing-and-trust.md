@@ -27,6 +27,22 @@ Short local follow-ups use the same rule. If the user asks "what question?",
 recent conversation and answer from the actual line being discussed. It should
 not search long-term memory unless the user asks about saved knowledge.
 
+## Deictic Commands
+
+People naturally say "save that", "keep this", "delete that", or "remove it".
+Those words are pointers, not content.
+
+When a short save command points at "that", "this", "it", or the previous
+answer, Crowscap should save the previous assistant response rather than the
+command text itself. For example, after Crowscap explains how to sell as a
+startup founder, "cool save that for me" should save the explanation, not a
+memory saying the user wants to save something cool.
+
+When a short forget/delete command points at "that", "this", "it", or the last
+saved thing, Crowscap should archive the most recent saved capture in the active
+conversation. It should not tell normal users to provide a memory id unless they
+are explicitly working at that lower level.
+
 ## URL Capture Safety
 
 A bare URL in chat is not enough evidence that the user wants permanent memory extraction. Bare URLs now create a confirmation response:

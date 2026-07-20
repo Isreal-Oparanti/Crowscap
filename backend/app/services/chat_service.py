@@ -1738,11 +1738,11 @@ def _process_forget_request(
         return ChatResponse(
             action="forget",
             message=(
-                "Yes. I can archive memories so they stop appearing in active search, recall, "
-                "audits, and nearby context. Tell me the topic, or give me a specific memory id."
+                "Yes. I can remove the last thing I saved in this chat, or archive memories by topic "
+                "so they stop appearing in search, recall, audits, and nearby context."
             ),
             saved=False,
-            next_step='Try: "forget what I know about distribution" or "archive memory <id>".',
+            next_step='Say "delete that" right after a save, or name what you want removed.',
         )
 
     search = search_memories(
@@ -1923,9 +1923,35 @@ def _references_recent_capture(normalized: str, *, conversation: Conversation) -
     )
     if any(marker in normalized for marker in direct_markers):
         return True
+    if _is_short_recent_capture_forget_command(normalized):
+        return True
     if normalized in {"i mean the pdf", "i mean pdf", "pdf", "the pdf"}:
         return _previous_user_turn_was_forget(conversation)
     return False
+
+
+def _is_short_recent_capture_forget_command(normalized: str) -> bool:
+    words = re.findall(r"[a-z0-9']+", normalized)
+    if not words or len(words) > 12:
+        return False
+    forget_verbs = {"archive", "delete", "forget", "remove", "clear", "erase"}
+    pointer_words = {"that", "this", "it"}
+    if not any(word in forget_verbs for word in words):
+        return False
+    if any(word in pointer_words for word in words):
+        return True
+    compact = " ".join(words)
+    return any(
+        marker in compact
+        for marker in (
+            "last saved",
+            "latest saved",
+            "recent saved",
+            "last thing",
+            "latest thing",
+            "recent thing",
+        )
+    )
 
 
 def _previous_user_turn_was_forget(conversation: Conversation) -> bool:
@@ -3218,6 +3244,8 @@ def _is_save_previous_response_command(message: str) -> bool:
     )
     if any(re.fullmatch(pattern, normalized) is not None for pattern in patterns):
         return True
+    if _is_short_previous_response_save_command(normalized):
+        return True
 
     if not re.search(r"\b(?:save|remember|keep|store)\b", normalized):
         return False
@@ -3277,6 +3305,50 @@ def _is_save_previous_response_command(message: str) -> bool:
         "your",
     }
     return len(words) <= 16 and set(words).issubset(command_words)
+
+
+def _is_short_previous_response_save_command(normalized: str) -> bool:
+    words = re.findall(r"[a-z0-9']+", normalized)
+    if not words or len(words) > 18:
+        return False
+
+    save_verbs = {"save", "remember", "keep", "store"}
+    pointers = {"that", "this", "it"}
+    response_words = {"answer", "reply", "response"}
+    allowed_after_pointer = {
+        "for",
+        "me",
+        "please",
+        "pls",
+        "plz",
+        "to",
+        "in",
+        "into",
+        "my",
+        "memory",
+        "later",
+        "now",
+    }
+    allowed_after_response = allowed_after_pointer | {"you", "just", "gave", "sent", "wrote", "said", "answered"}
+
+    for verb_index, word in enumerate(words):
+        if word not in save_verbs:
+            continue
+        # Casual prefixes are normal: "hmm save that", "cool save that", "can you save that".
+        if verb_index > 5:
+            continue
+        tail = words[verb_index + 1 :]
+        for pointer_index, pointer in enumerate(tail[:5]):
+            if pointer not in pointers:
+                continue
+            rest = tail[pointer_index + 1 :]
+            return all(word in allowed_after_pointer for word in rest)
+        for response_index, response_word in enumerate(tail[:6]):
+            if response_word not in response_words:
+                continue
+            rest = tail[response_index + 1 :]
+            return all(word in allowed_after_response for word in rest)
+    return False
 
 
 def _pending_url_from_history(history: list[ConversationTurn]) -> str | None:

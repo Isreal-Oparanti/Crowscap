@@ -15,6 +15,7 @@ import {
   Paperclip,
   Search,
   SlidersHorizontal,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -157,6 +158,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
   const [messages, setMessages] = useState<ChatMessage[]>(openingMessages);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [working, setWorking] = useState(false);
   const [due, setDue] = useState<DueRecallsResponse | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -167,6 +169,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
     setMessages(openingMessages);
     setConversationId(null);
     setDraft("");
+    setAttachedFile(null);
     setWorking(false);
     setDue(null);
 
@@ -234,7 +237,11 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
 
   async function sendMessage() {
     const text = draft.trim();
-    if (!text || working) return;
+    if ((!text && !attachedFile) || working) return;
+
+    if (attachedFile) {
+      return uploadPdf(attachedFile, text);
+    }
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -322,7 +329,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
     }
   }
 
-  async function uploadPdf(file: File) {
+  async function uploadPdf(file: File, draftText: string) {
     if (working) return;
 
     const isPdf =
@@ -337,6 +344,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
           text: "Please choose a PDF file. Crowscap currently supports text-based PDFs only.",
         },
       ]);
+      setAttachedFile(null);
       return;
     }
 
@@ -351,20 +359,27 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
           text: "That PDF is larger than 10MB. Try a smaller text-based PDF for now.",
         },
       ]);
+      setAttachedFile(null);
       return;
     }
+
+    const displayMessage = draftText.trim()
+      ? `${draftText.trim()}\n\n[Attached PDF: ${file.name}]`
+      : `Uploaded PDF: ${file.name}`;
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
-      text: `Uploaded PDF: ${file.name}`,
+      text: displayMessage,
     };
     setMessages((current) => [...current, userMessage]);
     setWorking(true);
+    setDraft("");
+    setAttachedFile(null);
 
     try {
       const response = normalizeChatResponse(
-        await uploadPdfToChat(file, conversationId),
+        await uploadPdfToChat(file, draftText, conversationId),
         "I processed the PDF.",
       );
       if (response.conversation_id) {
@@ -416,7 +431,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
       context={<ChatContext memories={contextMemories} due={due} />}
     >
       <div className="conversation-scroll min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
-        <div className="mx-auto w-full min-w-0 max-w-[780px] px-4 pb-40 pt-7 md:px-8 md:pt-10">
+        <div className="mx-auto w-full min-w-0 max-w-[780px] px-4 pb-[200px] pt-7 md:px-8 md:pb-40 md:pt-10">
           {due && due.due_count > 0 ? (
             <RecallNotice
               memory={due.memories[0] ?? null}
@@ -437,8 +452,9 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
       <Composer
         draft={draft}
         setDraft={setDraft}
+        attachedFile={attachedFile}
+        setAttachedFile={setAttachedFile}
         sendMessage={sendMessage}
-        uploadPdf={uploadPdf}
         working={working}
         textareaRef={textareaRef}
       />
@@ -997,15 +1013,17 @@ function ThinkingTurn() {
 function Composer({
   draft,
   setDraft,
+  attachedFile,
+  setAttachedFile,
   sendMessage,
-  uploadPdf,
   working,
   textareaRef,
 }: {
   draft: string;
   setDraft: (value: string) => void;
+  attachedFile: File | null;
+  setAttachedFile: (file: File | null) => void;
   sendMessage: () => void;
-  uploadPdf: (file: File) => void;
   working: boolean;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 }) {
@@ -1014,6 +1032,21 @@ function Composer({
   return (
     <div className="absolute inset-x-0 bottom-[72px] z-30 max-w-full bg-gradient-to-t from-white via-white to-transparent px-3 pb-3 pt-8 md:bottom-0 md:px-7 md:pb-5">
       <div className="mx-auto max-w-[780px]">
+        {attachedFile && (
+          <div className="mb-2 flex w-max max-w-full items-center justify-between gap-3 rounded-md bg-[#f0f1f2] px-3 py-1.5 text-[12px] font-medium text-[#4f5552] shadow-sm">
+            <div className="flex min-w-0 items-center gap-2">
+              <FileText size={14} className="shrink-0" />
+              <span className="truncate">{attachedFile.name}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAttachedFile(null)}
+              className="shrink-0 text-[#8b8e91] transition hover:text-[#111111]"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
         <div className="rounded-lg border border-[#cfd2d4] bg-white p-2 shadow-[0_16px_50px_rgba(17,17,17,0.12)] focus-within:border-[#92979a]">
           <textarea
             ref={textareaRef}
@@ -1049,7 +1082,7 @@ function Composer({
                 const file = event.target.files?.[0];
                 event.target.value = "";
                 if (file) {
-                  uploadPdf(file);
+                  setAttachedFile(file);
                 }
               }}
             />
@@ -1065,7 +1098,7 @@ function Composer({
               type="button"
               aria-label="Send"
               onClick={sendMessage}
-              disabled={!draft.trim() || working}
+              disabled={(!draft.trim() && !attachedFile) || working}
               className="ml-auto flex size-8 items-center justify-center rounded-md bg-[#111111] text-white transition hover:bg-black disabled:cursor-not-allowed disabled:bg-[#d3d5d6] [&_svg]:stroke-white"
             >
               <ArrowUp size={16} strokeWidth={2.3} />

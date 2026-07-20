@@ -1454,6 +1454,55 @@ def test_save_that_captures_previous_assistant_response() -> None:
         app.dependency_overrides.clear()
 
 
+def test_casual_save_that_captures_previous_assistant_response() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_memory_extractor] = lambda: FakeExtractor()
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+    app.dependency_overrides[get_memory_relation_detector] = lambda: FakeRelationDetector()
+
+    db = testing_session()
+    conversation = Conversation(user_id="test-user", title="Articulation advice")
+    db.add(conversation)
+    db.flush()
+    db.add(
+        ChatMessage(
+            conversation_id=conversation.id,
+            user_id="test-user",
+            role="assistant",
+            content=(
+                "Being articulate means making your meaning easy to follow while keeping "
+                "the weight of your intent intact."
+            ),
+        )
+    )
+    conversation_id = conversation.id
+    db.commit()
+    db.close()
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "Hmm save that for me", "conversation_id": conversation_id, "history": []},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "capture"
+        assert payload["saved"] is True
+
+        db = testing_session()
+        source = db.scalar(select(Source))
+        assert source is not None
+        assert source.raw_text is not None
+        assert "Being articulate means" in source.raw_text
+        assert "Hmm save that for me" not in source.raw_text
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_forget_what_you_just_saved_archives_recent_pdf_capture() -> None:
     override_db, testing_session = build_chat_db_override()
     app.dependency_overrides[get_db] = override_db
@@ -1548,6 +1597,89 @@ def test_forget_what_you_just_saved_archives_recent_pdf_capture() -> None:
         statuses = list(db.scalars(select(Memory.status).order_by(Memory.content)))
         assert statuses == ["archived", "archived"]
         assert db.scalar(select(func.count(MemoryArchiveEvent.id))) == 2
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_delete_that_archives_most_recent_capture_without_memory_id_prompt() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+
+    db = testing_session()
+    conversation = Conversation(user_id="test-user", title="Recent save")
+    source = Source(
+        user_id="test-user",
+        source_type="text",
+        title="Conversation advice",
+        raw_text="Being articulate means keeping meaning clear.",
+        extracted_text_hash="articulate-hash",
+    )
+    db.add_all([conversation, source])
+    db.flush()
+    capture = Capture(
+        user_id="test-user",
+        source_id=source.id,
+        status="ready",
+        inferred_intents=["remember"],
+    )
+    db.add(capture)
+    db.flush()
+    db.add_all(
+        [
+            Memory(
+                user_id="test-user",
+                source_id=source.id,
+                capture_id=capture.id,
+                memory_type="principle",
+                epistemic_label="advice",
+                content="Being articulate means keeping meaning clear.",
+                confidence="high",
+                source_strength="moderate",
+                embedding_json=[1.0, 0.0],
+            ),
+            ChatMessage(
+                conversation_id=conversation.id,
+                user_id="test-user",
+                role="assistant",
+                action="capture",
+                content="I kept this as 1 distinct memory.",
+                metadata_json={
+                    "action": "capture",
+                    "saved": True,
+                    "capture": {
+                        "capture_id": capture.id,
+                        "source_id": source.id,
+                        "source_type": "text",
+                        "source_title": source.title,
+                        "status": "ready",
+                        "inferred_intents": ["remember"],
+                        "memories": [],
+                    },
+                },
+            ),
+        ]
+    )
+    conversation_id = conversation.id
+    db.commit()
+    db.close()
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "Delete that", "conversation_id": conversation_id, "history": []},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "forget"
+        assert "Conversation advice" in payload["message"]
+        assert "archive memory <id>" not in (payload.get("next_step") or "")
+
+        db = testing_session()
+        assert db.scalar(select(Memory.status)) == "archived"
+        assert db.scalar(select(func.count(MemoryArchiveEvent.id))) == 1
         db.close()
     finally:
         app.dependency_overrides.clear()

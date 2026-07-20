@@ -148,16 +148,21 @@ export function AppShell({
               {subtitle}
             </p>
           </div>
-          <Link
-            href="/recall"
-            aria-label="Open recall notifications"
-            className="relative ml-auto flex size-9 items-center justify-center rounded-full text-[#44474a] transition hover:bg-[#f1f2f3]"
-          >
-            <Bell size={18} strokeWidth={1.8} />
-            {dueCount > 0 ? (
-              <span className="absolute right-0.5 top-0.5 size-2 rounded-full border-2 border-white bg-[#2d7058]" />
-            ) : null}
-          </Link>
+          <div className="ml-auto flex items-center gap-1">
+            <Link
+              href="/recall"
+              aria-label="Open recall notifications"
+              className="relative flex size-9 items-center justify-center rounded-full text-[#44474a] transition hover:bg-[#f1f2f3]"
+            >
+              <Bell size={18} strokeWidth={1.8} />
+              {dueCount > 0 ? (
+                <span className="absolute right-0.5 top-0.5 size-2 rounded-full border-2 border-white bg-[#2d7058]" />
+              ) : null}
+            </Link>
+            <div className="md:hidden">
+              <SignOutButton className="flex size-9 items-center justify-center rounded-full text-[#44474a] transition hover:bg-[#f1f2f3]" />
+            </div>
+          </div>
         </header>
         {children}
         <MobileNavigation pathname={pathname} dueCount={dueCount} />
