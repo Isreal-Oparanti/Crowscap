@@ -38,6 +38,7 @@ from app.services.chat_service import (
 )
 from app.services.embedding_service import get_memory_embedder
 from app.services.extraction_service import get_memory_extractor
+from app.services.ingestion_service import IngestionError
 from app.services.relationship_service import get_memory_relation_detector
 
 
@@ -684,6 +685,74 @@ def test_semantic_pending_url_confirmation_is_captured(monkeypatch) -> None:
         db = testing_session()
         assert db.scalar(select(func.count(Memory.id))) == 0
         assert db.scalar(select(func.count(Capture.id))) == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_unreadable_youtube_link_can_be_saved_as_reference_after_failure(monkeypatch) -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter("capture")
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+
+    attempted_urls: list[str] = []
+
+    def fail_create_url_capture(**kwargs) -> TextCaptureResponse:
+        attempted_urls.append(kwargs["payload"].url)
+        raise IngestionError(
+            "Crowscap could not read this YouTube video. It may be private, unavailable, age-restricted, or missing readable captions."
+        )
+
+    monkeypatch.setattr("app.services.chat_service.create_url_capture", fail_create_url_capture)
+
+    try:
+        client = TestClient(app)
+        preview_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "https://youtube.com/shorts/kwQV9CqUj1M?si=test",
+                "history": [],
+            },
+        )
+        assert preview_response.status_code == 200
+        conversation_id = preview_response.json()["conversation_id"]
+
+        failed_read_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "Yes",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+        assert failed_read_response.status_code == 200
+        failed_payload = failed_read_response.json()
+        assert failed_payload["action"] == "conversation"
+        assert failed_payload["saved"] is False
+        assert "could not read this link" in failed_payload["message"]
+        assert "I have not saved it yet" in failed_payload["message"]
+
+        reference_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "Okay just save it then",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+        assert reference_response.status_code == 200
+        payload = reference_response.json()
+        assert payload["action"] == "capture"
+        assert payload["saved"] is True
+        assert payload["capture"]["source_type"] == "reference"
+        assert "youtube.com/shorts/kwQV9CqUj1M" in payload["capture"]["original_content"]
+        assert attempted_urls == ["https://youtube.com/shorts/kwQV9CqUj1M?si=test"]
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Source.id))) == 1
+        assert db.scalar(select(func.count(Capture.id))) == 1
+        assert db.scalar(select(func.count(Memory.id))) == 1
         db.close()
     finally:
         app.dependency_overrides.clear()
@@ -1676,6 +1745,20 @@ def test_delete_that_archives_most_recent_capture_without_memory_id_prompt() -> 
         assert payload["action"] == "forget"
         assert "Conversation advice" in payload["message"]
         assert "archive memory <id>" not in (payload.get("next_step") or "")
+
+        recap_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "What memories did you just archive?",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+        assert recap_response.status_code == 200
+        recap_payload = recap_response.json()
+        assert recap_payload["action"] == "conversation"
+        assert "Being articulate means keeping meaning clear." in recap_payload["message"]
+        assert "private memory intelligence" not in recap_payload["message"]
 
         db = testing_session()
         assert db.scalar(select(Memory.status)) == "archived"

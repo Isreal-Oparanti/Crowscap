@@ -49,6 +49,7 @@ from app.services.capture_service import create_text_capture, initial_next_revie
 from app.services.embedding_service import MemoryEmbedder
 from app.services.extraction_service import MemoryExtractor
 from app.services.ingestion_service import (
+    IngestionError,
     create_pdf_capture_from_bytes,
     create_url_capture,
     unsupported_url_reason,
@@ -368,9 +369,11 @@ def process_chat_message(
     effective_history = persisted_history or payload.history
     pending_url = _pending_url_from_history(effective_history)
     grounded_local_reply = _grounded_local_conversation_reply(
+        db=db,
         message=payload.message,
         history=effective_history,
         conversation=conversation,
+        user_id=user_id,
     )
 
     logger.info(
@@ -646,17 +649,29 @@ def process_chat_message(
                 )
             else:
                 intent_text = _message_without_url(payload.message, url)
-                capture = create_url_capture(
-                    db=db,
-                    payload=UrlCaptureRequest(
-                        url=url,
-                        intent_text=intent_text or None,
-                    ),
-                    extractor=extractor,
-                    embedder=embedder,
-                    relation_detector=relation_detector,
-                    user_id=user_id,
-                )
+                try:
+                    capture = create_url_capture(
+                        db=db,
+                        payload=UrlCaptureRequest(
+                            url=url,
+                            intent_text=intent_text or None,
+                        ),
+                        extractor=extractor,
+                        embedder=embedder,
+                        relation_detector=relation_detector,
+                        user_id=user_id,
+                    )
+                except IngestionError as exc:
+                    response = _url_ingestion_failure_response(url=url, error_message=str(exc))
+                    response = _with_preference_learning(response, preference_learning)
+                    logger.info("\u2705 chat.message.complete action=url_ingestion_failed saved=False")
+                    return _persist_assistant_response(
+                        db=db,
+                        conversation=conversation,
+                        user_message=user_message,
+                        response=response,
+                        user_id=user_id,
+                    )
         elif _should_capture_pending_url(
             payload.message,
             pending_url=pending_url,
@@ -727,18 +742,41 @@ def process_chat_message(
                     response=response,
                     user_id=user_id,
                 )
-            else:
-                capture = create_url_capture(
+            elif _should_save_pending_url_as_reference_after_failed_read(
+                payload.message,
+                history=effective_history,
+            ):
+                capture = _create_reference_link_capture(
                     db=db,
-                    payload=UrlCaptureRequest(
-                        url=pending_url,
-                        intent_text="Confirmed from a previous link in chat.",
-                    ),
-                    extractor=extractor,
+                    url=pending_url,
+                    intent_text="Saved as a reference after Crowscap could not read the link content.",
                     embedder=embedder,
-                    relation_detector=relation_detector,
                     user_id=user_id,
                 )
+            else:
+                try:
+                    capture = create_url_capture(
+                        db=db,
+                        payload=UrlCaptureRequest(
+                            url=pending_url,
+                            intent_text="Confirmed from a previous link in chat.",
+                        ),
+                        extractor=extractor,
+                        embedder=embedder,
+                        relation_detector=relation_detector,
+                        user_id=user_id,
+                    )
+                except IngestionError as exc:
+                    response = _url_ingestion_failure_response(url=pending_url, error_message=str(exc))
+                    response = _with_preference_learning(response, preference_learning)
+                    logger.info("\u2705 chat.message.complete action=url_ingestion_failed saved=False")
+                    return _persist_assistant_response(
+                        db=db,
+                        conversation=conversation,
+                        user_message=user_message,
+                        response=response,
+                        user_id=user_id,
+                    )
         elif _is_save_previous_response_command(payload.message):
             response = _process_save_previous_response_request(
                 db=db,
@@ -1513,12 +1551,17 @@ def _conversation_reply(*, message: str, previous_user_turns: list[str]) -> str:
 
 def _grounded_local_conversation_reply(
     *,
+    db: Session,
     message: str,
     history: list[ConversationTurn],
     conversation: Conversation,
+    user_id: str | None,
 ) -> str | None:
     normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
     previous_user_turns = _conversation_user_messages(conversation)
+
+    if _asks_about_recent_archive(normalized):
+        return _recent_archive_summary_reply(db=db, conversation=conversation, user_id=user_id)
 
     if _is_first_message_question(normalized):
         return _conversation_reply(message=message, previous_user_turns=previous_user_turns)
@@ -1542,6 +1585,72 @@ def _grounded_local_conversation_reply(
         return f'I was reacting to this: "{subject}"'
 
     return None
+
+
+def _asks_about_recent_archive(normalized: str) -> bool:
+    if _is_forget_command(normalized):
+        return False
+    if not any(word in normalized for word in ("archive", "archived", "delete", "deleted", "remove", "removed")):
+        return False
+    if not any(marker in normalized for marker in ("what", "which", "show", "list", "tell me")):
+        return False
+    return any(marker in normalized for marker in ("just", "last", "recent", "that", "those"))
+
+
+def _recent_archive_summary_reply(
+    *,
+    db: Session,
+    conversation: Conversation,
+    user_id: str | None,
+) -> str:
+    query = (
+        select(MemoryArchiveEvent)
+        .where(MemoryArchiveEvent.created_at >= conversation.created_at)
+        .order_by(MemoryArchiveEvent.created_at.desc(), MemoryArchiveEvent.id.desc())
+        .limit(60)
+    )
+    query = query.where(MemoryArchiveEvent.user_id.is_(None) if user_id is None else MemoryArchiveEvent.user_id == user_id)
+    events = list(db.scalars(query))
+    scoped_events = [
+        event
+        for event in events
+        if isinstance(event.metadata_json, dict) and event.metadata_json.get("conversation_id") == conversation.id
+    ]
+    if scoped_events:
+        events = scoped_events
+    if not events:
+        return "I do not see a recent archive action in this chat."
+
+    latest = events[0]
+    latest_meta = latest.metadata_json or {}
+    capture_id = latest_meta.get("capture_id")
+    source_id = latest_meta.get("source_id")
+    if capture_id:
+        grouped_events = [
+            event
+            for event in events
+            if isinstance(event.metadata_json, dict) and event.metadata_json.get("capture_id") == capture_id
+        ]
+    else:
+        grouped_events = [latest]
+
+    memories: list[Memory] = []
+    for event in reversed(grouped_events):
+        memory = db.get(Memory, event.memory_id)
+        if memory is not None:
+            memories.append(memory)
+
+    if not memories:
+        return "I archived something recently, but I cannot recover the exact memory text from the database."
+
+    source = db.get(Source, source_id) if isinstance(source_id, str) else None
+    source_text = f" from {_source_display_name(source)}" if source is not None else ""
+    lines = [f"I just archived these {len(memories)} memories{source_text}:"]
+    for memory in memories[:8]:
+        lines.append(f"- {memory.content}")
+    if len(memories) > 8:
+        lines.append(f"- ...and {len(memories) - 8} more.")
+    return "\n".join(lines)
 
 
 def _asks_why_assistant_used_previous_phrase(normalized: str) -> bool:
@@ -1804,7 +1913,12 @@ def _archive_recent_capture_if_referenced(
             saved=False,
         )
 
-    archived_count = _archive_capture_memories(db=db, recent=recent, user_id=user_id)
+    archived_count = _archive_capture_memories(
+        db=db,
+        recent=recent,
+        user_id=user_id,
+        conversation_id=conversation.id,
+    )
     source_label = _source_display_name(recent.source)
     plural = "memory" if archived_count == 1 else "memories"
     return ChatResponse(
@@ -1871,6 +1985,7 @@ def _archive_capture_memories(
     db: Session,
     recent: RecentCaptureContext,
     user_id: str | None,
+    conversation_id: str,
 ) -> int:
     archived_count = 0
     for memory in recent.memories:
@@ -1890,6 +2005,7 @@ def _archive_capture_memories(
                 created_by="user",
                 metadata_json={
                     "capture_id": recent.capture.id,
+                    "conversation_id": conversation_id,
                     "source_id": recent.source.id,
                     "source_type": recent.source.source_type,
                     "archive_scope": "recent_capture",
@@ -3044,6 +3160,20 @@ def _create_reference_link_capture(
     )
 
 
+def _url_ingestion_failure_response(*, url: str, error_message: str) -> ChatResponse:
+    return ChatResponse(
+        action="conversation",
+        message=(
+            f"I could not read this link: {url}\n\n"
+            f"{error_message}\n\n"
+            "I have not saved it yet. If the link still matters, tell me to save it as a reference "
+            "and I will keep the URL without pretending I read the content."
+        ),
+        saved=False,
+        next_step="You can also paste the important point from the link and I will save that instead.",
+    )
+
+
 def _clean_reference_link_intent(intent_text: str | None) -> str | None:
     if not intent_text:
         return None
@@ -3082,7 +3212,14 @@ def _is_url_capture_confirmation(message: str) -> bool:
     normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
     confirmation_phrases = {
         "save it",
+        "save it anyway",
+        "save it then",
+        "save it as reference",
+        "save it as a reference",
         "save this link",
+        "save this link anyway",
+        "save this link as reference",
+        "save this link as a reference",
         "yes save it",
         "yes save this link",
         "yeah save it",
@@ -3100,10 +3237,43 @@ def _is_url_capture_confirmation(message: str) -> bool:
         return True
 
     command_patterns = (
-        r"^(?:please\s+)?(?:save|capture|remember|read|process|ingest)\s+(?:it|this|the\s+link)(?:\s+please)?$",
-        r"^(?:yes|yeah|yep|sure|ok|okay|alright)\s*,?\s*(?:please\s+)?(?:save|capture|remember|read|process|ingest)\s+(?:it|this|the\s+link)(?:\s+please)?$",
+        r"^(?:please\s+)?(?:save|capture|remember|read|process|ingest)\s+(?:it|this|the\s+link)(?:\s+(?:anyway|then|as\s+(?:a\s+)?reference))?(?:\s+please)?$",
+        r"^(?:yes|yeah|yep|sure|ok|okay|alright)\s*,?\s*(?:please\s+)?(?:save|capture|remember|read|process|ingest)\s+(?:it|this|the\s+link)(?:\s+(?:anyway|then|as\s+(?:a\s+)?reference))?(?:\s+please)?$",
     )
     return any(re.fullmatch(pattern, normalized) is not None for pattern in command_patterns)
+
+
+def _should_save_pending_url_as_reference_after_failed_read(
+    message: str,
+    *,
+    history: list[ConversationTurn],
+) -> bool:
+    if not _recent_assistant_reported_url_read_failure(history):
+        return False
+    normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
+    if re.search(r"\b(?:try again|retry|read it|process it|extract it)\b", normalized):
+        return False
+    if not re.search(r"\b(?:save|keep|remember|store|capture)\b", normalized):
+        return False
+    return bool(
+        re.search(r"\b(?:it|this|that|link|url|video|short|source|reference)\b", normalized)
+        or re.search(r"\b(?:anyway|then)\b", normalized)
+    )
+
+
+def _recent_assistant_reported_url_read_failure(history: list[ConversationTurn]) -> bool:
+    for turn in reversed(history[-6:]):
+        content = re.sub(r"\s+", " ", turn.content.strip().lower())
+        if turn.role == "assistant" and (
+            "i could not read this link" in content
+            or "crowscap could not read this youtube" in content
+            or "could not read this youtube" in content
+            or "could not read the link" in content
+        ):
+            return True
+        if turn.role == "assistant" and ("i kept this as" in content or "i kept this link as" in content):
+            return False
+    return False
 
 
 def _is_generic_affirmation(message: str) -> bool:

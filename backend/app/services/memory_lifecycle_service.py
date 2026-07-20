@@ -92,11 +92,15 @@ def list_archive_candidates(
     user_id: str | None = None,
 ) -> ArchiveCandidateListResponse:
     cutoff = utc_now() - timedelta(days=min_age_days)
+    # Apply a DB-side cap so we never load all memories into Python for scoring.
+    # The Python sort below will find the top-limit candidates from this window.
+    DB_SCAN_WINDOW = max(limit * 10, 200)
     query = (
         select(Memory, Source)
         .join(Source, Memory.source_id == Source.id)
         .where(Memory.status == "active")
         .order_by(Memory.created_at.asc())
+        .limit(DB_SCAN_WINDOW)
     )
     if user_id is None:
         query = query.where(Memory.user_id.is_(None))
@@ -135,7 +139,13 @@ def list_compression_candidates(
     limit: int = 20,
     user_id: str | None = None,
 ) -> CompressionCandidateListResponse:
-    memory_query = select(Memory, Source).where(Memory.status == "active")
+    # Apply a DB-side cap to avoid loading all memories into Python.
+    DB_SCAN_WINDOW = max(limit * 20, 500)
+    memory_query = (
+        select(Memory, Source)
+        .where(Memory.status == "active")
+        .limit(DB_SCAN_WINDOW)
+    )
     if user_id is None:
         memory_query = memory_query.where(Memory.user_id.is_(None))
     else:

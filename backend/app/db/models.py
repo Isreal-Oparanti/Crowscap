@@ -49,7 +49,7 @@ class Conversation(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
     user_id: Mapped[str | None] = mapped_column(String(36), index=True)
     title: Mapped[str] = mapped_column(String(120), default="New thought", nullable=False)
-    status: Mapped[str] = mapped_column(String(40), default="active", nullable=False)
+    status: Mapped[str] = mapped_column(String(40), default="active", nullable=False, index=True)
 
     messages: Mapped[list[ChatMessage]] = relationship(
         back_populates="conversation",
@@ -167,7 +167,7 @@ class Memory(Base, TimestampMixin):
     source_strength: Mapped[str] = mapped_column(String(20), default="unknown", nullable=False)
     importance_score: Mapped[float] = mapped_column(default=0.0, nullable=False)
     decay_score: Mapped[float] = mapped_column(default=0.0, nullable=False)
-    status: Mapped[str] = mapped_column(String(40), default="active", nullable=False)
+    status: Mapped[str] = mapped_column(String(40), default="active", nullable=False, index=True)
     embedding_json: Mapped[list[float] | None] = mapped_column(JSON)
     next_review_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     last_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -206,7 +206,7 @@ class Reminder(Base, TimestampMixin):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(40), default="scheduled", nullable=False, index=True)
-    save_as_memory: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    save_as_memory: Mapped[bool] = mapped_column(Integer, default=0, nullable=False)  # stored as int for SQLite compat
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 

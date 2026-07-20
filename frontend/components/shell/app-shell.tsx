@@ -4,7 +4,6 @@ import {
   BookOpenCheck,
   Bell,
   BrainCircuit,
-  Feather,
   MessageCircle,
   Plus,
   Search,
@@ -14,6 +13,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { BrandIcon } from "@/components/ui/brand-icon";
 import { getPreferences } from "@/lib/api";
 import type { UserPreferenceProfile } from "@/lib/types";
 
@@ -177,8 +177,8 @@ export function AppShell({
 
 function BrandMark() {
   return (
-    <div className="flex size-9 items-center justify-center rounded-md bg-[#111111] text-white shadow-[0_4px_16px_rgba(17,17,17,0.14)]">
-      <Feather size={18} strokeWidth={2.2} />
+    <div className="flex size-9 items-center justify-center rounded-md bg-[#09090b] text-white shadow-[0_4px_16px_rgba(9,9,11,0.2)]">
+      <BrandIcon className="size-[22px]" />
     </div>
   );
 }

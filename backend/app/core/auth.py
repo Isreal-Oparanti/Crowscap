@@ -58,8 +58,10 @@ def require_current_user(
         user_email = settings.crowscap_dev_user_email
         user_name = "Local developer"
 
-    assert user_id is not None
-    assert user_email is not None
+    # Explicit guards instead of assert — assert is stripped with -O (PYTHONOPTIMIZE)
+    if user_id is None or user_email is None:
+        logger.warning("🔒 auth.rejected reason=missing_identity_after_dev_fallback")
+        raise HTTPException(status_code=401, detail="Authentication required.")
 
     user_id = user_id.strip()
     user_email = user_email.strip().lower()

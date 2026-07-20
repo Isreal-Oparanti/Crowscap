@@ -43,6 +43,11 @@ saved thing, Crowscap should archive the most recent saved capture in the active
 conversation. It should not tell normal users to provide a memory id unless they
 are explicitly working at that lower level.
 
+After an archive action, questions such as "what did you just archive?" are
+current-chat facts. They should be answered from archive events in the database,
+including the actual memory text, not from model inference or generic product
+copy.
+
 ## URL Capture Safety
 
 A bare URL in chat is not enough evidence that the user wants permanent memory extraction. Bare URLs now create a confirmation response:
@@ -61,6 +66,12 @@ Some links are references, not extractable sources. WhatsApp invite links,
 Facebook share/reel links, Instagram links, X/Twitter links, and similar
 social/app-gated URLs should be kept as references when the user confirms their
 importance. Crowscap should not claim it can read private or app-gated content.
+
+Readable links should be attempted first. If extraction fails because a source
+is private, unavailable, age-restricted, or missing captions, Crowscap should
+say that clearly and leave it unsaved. If the user then says to save it anyway,
+the link should be saved as a reference rather than retrying the same failed
+extraction path.
 
 Short confirmations are scoped to current state:
 

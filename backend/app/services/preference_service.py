@@ -597,10 +597,26 @@ def _normalize_topic(topic: str) -> str:
 
 def _deprioritized_memory_types(*, db: Session, archive_events: list[MemoryArchiveEvent]) -> list[str]:
     counts: Counter[str] = Counter()
-    for event in archive_events:
-        if event.reason not in {"not_useful", "user_dismissed", "weak_evidence", "stale"}:
-            continue
-        memory = db.get(Memory, event.memory_id)
+def _deprioritized_memory_types(
+    *,
+    db: Session,
+    archive_events: list[MemoryArchiveEvent],
+) -> list[str]:
+    relevant_events = [
+        event for event in archive_events
+        if event.reason in {"not_useful", "user_dismissed", "weak_evidence", "stale"}
+    ]
+    if not relevant_events:
+        return []
+    # Batch-load all memories in one query instead of one db.get() per event
+    event_memory_ids = [e.memory_id for e in relevant_events]
+    memories_by_id = {
+        m.id: m
+        for m in db.scalars(select(Memory).where(Memory.id.in_(event_memory_ids)))
+    }
+    counts: Counter[str] = Counter()
+    for event in relevant_events:
+        memory = memories_by_id.get(event.memory_id)
         if memory is not None:
             counts[memory.memory_type] += 1
     return [memory_type for memory_type, count in counts.most_common(6) if count >= 2]
@@ -611,22 +627,33 @@ def _deprioritized_topics_from_archives(
     db: Session,
     archive_events: list[MemoryArchiveEvent],
 ) -> list[str]:
-    archived_memories: list[Memory] = []
-    for event in archive_events:
-        if event.reason not in {"not_useful", "user_dismissed", "weak_evidence", "stale"}:
-            continue
-        memory = db.get(Memory, event.memory_id)
-        if memory is not None:
-            archived_memories.append(memory)
+    relevant_events = [
+        event for event in archive_events
+        if event.reason in {"not_useful", "user_dismissed", "weak_evidence", "stale"}
+    ]
+    if not relevant_events:
+        return []
+    # Batch-load all memories in one query instead of one db.get() per event
+    event_memory_ids = [e.memory_id for e in relevant_events]
+    archived_memories = list(
+        db.scalars(select(Memory).where(Memory.id.in_(event_memory_ids)))
+    )
     return [topic for topic, count in _topic_counts_from_memories(archived_memories).most_common(8) if count >= 2]
 
 
 def _review_affinities(*, db: Session, reviews: list[RecallReview]) -> list[str]:
+    high_score_reviews = [r for r in reviews if r.evaluation_score >= 0.7]
+    if not high_score_reviews:
+        return []
+    # Batch-load all memory types in one query instead of one db.get() per review
+    review_memory_ids = [r.memory_id for r in high_score_reviews]
+    memories_by_id = {
+        m.id: m
+        for m in db.scalars(select(Memory).where(Memory.id.in_(review_memory_ids)))
+    }
     counts: Counter[str] = Counter()
-    for review in reviews:
-        if review.evaluation_score < 0.7:
-            continue
-        memory = db.get(Memory, review.memory_id)
+    for review in high_score_reviews:
+        memory = memories_by_id.get(review.memory_id)
         if memory is not None:
             counts[memory.memory_type] += 1
     return [memory_type for memory_type, count in counts.most_common(6) if count >= 2]

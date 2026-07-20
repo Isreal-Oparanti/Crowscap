@@ -4,6 +4,9 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
+from app.core.logging import get_logger
+
+logger = get_logger("db.session")
 
 settings = get_settings()
 
@@ -33,6 +36,8 @@ def check_database() -> bool:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
         return True
-    except Exception:
+    except Exception as exc:
+        # Log the full trace so we know WHY the database is unavailable
+        logger.exception("❌ db.check_failed error_type=%s", type(exc).__name__)
         return False
 

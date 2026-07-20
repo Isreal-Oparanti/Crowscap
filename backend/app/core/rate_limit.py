@@ -9,6 +9,11 @@ from app.core.auth import CurrentUser, require_current_user
 from app.core.config import get_settings
 
 
+# NOTE: This rate limiter uses a module-level in-process dict. It works
+# correctly in single-process deployments (one uvicorn worker). In multi-worker
+# deployments (e.g. Gunicorn with 4 workers), each worker maintains its own
+# bucket, so the effective per-user limit is limit / num_workers. For
+# production scale, replace _BUCKETS with a Redis-backed sliding window counter.
 class RateLimitExceeded(Exception):
     pass
 

@@ -8,7 +8,6 @@ import {
   ChevronRight,
   Clock3,
   CircleAlert,
-  Feather,
   FileText,
   GitCompareArrows,
   Link2,
@@ -23,6 +22,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { MemoryCardView } from "@/components/memory/memory-card";
 import { AppShell } from "@/components/shell/app-shell";
+import { BrandIcon } from "@/components/ui/brand-icon";
 import { MarkdownText } from "@/components/ui/markdown-text";
 import {
   getCurrentConversation,
@@ -431,7 +431,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
       context={<ChatContext memories={contextMemories} due={due} />}
     >
       <div className="conversation-scroll min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
-        <div className="mx-auto w-full min-w-0 max-w-[780px] px-4 pb-[200px] pt-7 md:px-8 md:pb-40 md:pt-10">
+        <div className="mx-auto w-full min-w-0 max-w-[780px] px-4 pt-7 md:px-8 md:pt-10">
           {due && due.due_count > 0 ? (
             <RecallNotice
               memory={due.memories[0] ?? null}
@@ -447,6 +447,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
             <div ref={endRef} />
           </div>
         </div>
+        <div className="h-[200px] shrink-0 md:h-[180px]" />
       </div>
 
       <Composer
@@ -549,8 +550,8 @@ function ChatTurn({ message }: { message: ChatMessage }) {
   return (
     <div className="rise-in min-w-0">
       <div className="flex min-w-0 items-start gap-3">
-        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-[#111111] text-white">
-          <Feather size={14} />
+        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-[#09090b] text-white shadow-sm">
+          <BrandIcon className="size-[18px]" />
         </div>
         <div className="min-w-0 flex-1">
           <MarkdownText
@@ -995,8 +996,8 @@ function RecallNotice({
 function ThinkingTurn() {
   return (
     <div className="flex items-center gap-3 text-[#6f7376]">
-      <div className="flex size-7 items-center justify-center rounded-md bg-[#111111] text-white">
-        <Feather size={14} />
+      <div className="flex size-7 items-center justify-center rounded-md bg-[#09090b] text-white shadow-sm">
+        <BrandIcon className="size-[18px]" />
       </div>
       <div className="flex gap-1">
         {[0, 1, 2].map((dot) => (

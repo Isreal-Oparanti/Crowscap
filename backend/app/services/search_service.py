@@ -260,7 +260,18 @@ def _load_searchable_memories(
     include_archived: bool,
     user_id: str | None,
 ) -> list[tuple[Memory, Source]]:
-    query = select(Memory, Source).join(Source, Memory.source_id == Source.id)
+    """Load memories for in-process cosine similarity fallback (SQLite only).
+
+    Capped at 1000 rows to prevent loading an unbounded result set into Python
+    memory. At scale, the pgvector path takes over and this function is never
+    reached.
+    """
+    SQLITE_FALLBACK_LIMIT = 1000
+    query = (
+        select(Memory, Source)
+        .join(Source, Memory.source_id == Source.id)
+        .limit(SQLITE_FALLBACK_LIMIT)
+    )
 
     if user_id is None:
         query = query.where(Memory.user_id.is_(None))
