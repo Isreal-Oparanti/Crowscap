@@ -10,6 +10,11 @@ from app.core.logging import get_logger
 
 logger = get_logger("db.vector")
 
+# Dimension of Qwen's text-embedding-v4 model output.
+# IMPORTANT: This must match the `vector(N)` column type defined in the pgvector
+# schema below. If you switch embedding models, update this constant AND run an
+# Alembic migration to change the column type (you cannot resize a vector column
+# in-place without re-embedding all stored memories).
 QWEN_EMBEDDING_DIMENSIONS = 1024
 
 

@@ -139,6 +139,11 @@ class QwenBeliefAuditor:
             try:
                 results = self.public_search.search(query=query, limit=payload.public_results_per_query)
             except PublicSearchError as exc:
+                logger.warning(
+                    "\u26a0\ufe0f belief_audit.public_search_failed query=%r error=%s",
+                    query,
+                    str(exc)[:200],
+                )
                 failures.append(str(exc))
                 continue
 

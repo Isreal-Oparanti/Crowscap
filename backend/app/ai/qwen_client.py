@@ -17,12 +17,21 @@ class QwenClientError(RuntimeError):
 
 
 class QwenClient:
-    """Small wrapper around Qwen Cloud's OpenAI-compatible API."""
+    """Small wrapper around Qwen Cloud's OpenAI-compatible API.
+
+    The underlying openai.OpenAI instance (and its httpx connection pool) is
+    constructed lazily on first use and then cached for the lifetime of this
+    QwenClient instance. This avoids re-creating the HTTP client on every call.
+    """
 
     def __init__(self) -> None:
         self.settings = get_settings()
+        self._client = None  # lazy-initialized by _build_client()
 
     def _build_client(self):
+        if self._client is not None:
+            return self._client
+
         if not self.settings.has_qwen_key:
             logger.warning("\u26a0\ufe0f qwen.key_missing env=DASHSCOPE_API_KEY")
             raise QwenClientError("DASHSCOPE_API_KEY is not configured.")
@@ -32,12 +41,13 @@ class QwenClient:
         except ImportError as exc:
             raise QwenClientError("The openai package is not installed.") from exc
 
-        return OpenAI(
+        self._client = OpenAI(
             api_key=self.settings.dashscope_api_key_value,
             base_url=self.settings.qwen_base_url,
             timeout=60.0,
             max_retries=2,
         )
+        return self._client
 
     def chat_once(self, prompt: str, *, model: str | None = None) -> str:
         client = self._build_client()

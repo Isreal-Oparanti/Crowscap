@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
@@ -57,17 +57,8 @@ ChatAction = Literal[
 ]
 RecallRating = Literal["needs_work", "partial", "solid", "strong"]
 
-EPISTEMIC_LABEL_VALUES = {
-    "factual_claim",
-    "opinion",
-    "advice",
-    "anecdote",
-    "prediction",
-    "framework",
-    "personal_reflection",
-    "unresolved",
-    "source_summary",
-}
+# Derived from the EpistemicLabel Literal so this set never drifts out of sync.
+EPISTEMIC_LABEL_VALUES: frozenset[str] = frozenset(get_args(EpistemicLabel))
 
 
 def normalize_label(value: object) -> object:

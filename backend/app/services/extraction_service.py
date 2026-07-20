@@ -87,7 +87,7 @@ class QwenMemoryExtractor:
             model=self.settings.qwen_fast_model,
             temperature=0.0,
             timeout_seconds=20.0,
-            max_retries=0,
+            max_retries=1,  # allow one retry on transient network errors
         )
         try:
             repaired = CaptureExtraction.model_validate(repaired_payload)

@@ -1,3 +1,14 @@
+"""MCP server for Crowscap.
+
+SECURITY MODEL: MCP operates at server-admin trust level. The `user_id`
+parameter on every tool is accepted from the MCP caller without further
+authentication — there is no proxy secret or JWT check at this layer.
+This is intentional for the hackathon demo context: the MCP server is
+only exposed on localhost (127.0.0.1) and is gated by
+CROWSCAP_MCP_ENABLED=true. In a multi-tenant production deployment, the
+caller identity should be resolved server-side from an authenticated
+session, not accepted as a plain string parameter.
+"""
 from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
@@ -93,7 +104,7 @@ def capture_text(
     user_note: str | None = None,
     intent_text: str | None = None,
     source_title: str | None = None,
-    user_id: str | None = None,
+    user_id: str | None = None,  # trusted caller-provided; see module security note
 ) -> dict:
     """[WRITE] Save text to Crowscap memory. Runs the full extraction, embedding, and relationship pipeline. Returns the created memory atoms. content must be at least 20 characters."""
     return capture_text_tool(

@@ -164,7 +164,7 @@ def create_youtube_capture(
         raise IngestionError("YouTube ingestion is not installed. Install yt-dlp.") from exc
 
     try:
-        with YoutubeDL({"quiet": True, "skip_download": True, "nocheckcertificate": True}) as ydl:
+        with YoutubeDL({"quiet": True, "skip_download": True}) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as exc:
         logger.warning(

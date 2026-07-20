@@ -33,6 +33,7 @@ def require_current_user(
     user_email: str | None = Header(default=None, alias="X-Crowscap-User-Email"),
     user_name: str | None = Header(default=None, alias="X-Crowscap-User-Name"),
     user_image: str | None = Header(default=None, alias="X-Crowscap-User-Image"),
+    user_provider: str | None = Header(default=None, alias="X-Crowscap-User-Provider"),
 ) -> CurrentUser:
     """Accept identity only from the trusted Next.js proxy.
 
@@ -78,6 +79,7 @@ def require_current_user(
         email=user_email,
         name=user_name,
         image_url=user_image,
+        provider=user_provider or "google",
     )
 
     return CurrentUser(id=user_id, email=user_email, name=user_name, image_url=user_image)
@@ -90,6 +92,7 @@ def _upsert_user(
     email: str,
     name: str | None,
     image_url: str | None,
+    provider: str = "google",
 ) -> None:
     user = db.get(User, user_id)
     if user is None:
@@ -98,7 +101,7 @@ def _upsert_user(
             user = existing_by_email
             user.id = user_id
         else:
-            user = User(id=user_id, email=email, provider="google")
+            user = User(id=user_id, email=email, provider=provider)
             db.add(user)
 
     user.email = email
