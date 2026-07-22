@@ -21,6 +21,19 @@ function errorMessageFromPayload(payload: unknown): string {
     if ("detail" in payload && typeof payload.detail === "string") {
       return payload.detail;
     }
+    // FastAPI validation errors return `detail` as an array of error objects.
+    // Surface the first human-readable message instead of a generic failure.
+    if ("detail" in payload && Array.isArray(payload.detail)) {
+      const first = payload.detail[0];
+      if (
+        typeof first === "object" &&
+        first !== null &&
+        "msg" in first &&
+        typeof first.msg === "string"
+      ) {
+        return `Crowscap could not accept that input: ${first.msg}`;
+      }
+    }
     if ("error" in payload && typeof payload.error === "string") {
       return payload.error;
     }
@@ -74,17 +87,31 @@ export function captureText(content: string): Promise<CaptureResponse> {
   });
 }
 
+// Keep in sync with backend ConversationTurn/ChatRequest limits.
+const MAX_HISTORY_TURN_CHARS = 4000;
+const MAX_HISTORY_TURNS = 12;
+
 export function sendChatMessage(
   message: string,
   history: ConversationTurn[],
   conversationId?: string | null,
 ): Promise<ChatResponse> {
+  // History is context, not payload. Clamp every turn so one long paste can
+  // never make subsequent requests in the conversation fail validation.
+  const safeHistory = history
+    .filter((turn) => turn.content.trim().length > 0)
+    .slice(-MAX_HISTORY_TURNS)
+    .map((turn) => ({
+      role: turn.role,
+      content: turn.content.slice(0, MAX_HISTORY_TURN_CHARS),
+    }));
+
   return request<ChatResponse>("chat", {
     method: "POST",
     body: JSON.stringify({
       message,
       conversation_id: conversationId,
-      history: history.slice(-12),
+      history: safeHistory,
     }),
   });
 }

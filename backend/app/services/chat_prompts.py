@@ -25,7 +25,7 @@ def _build_router_prompt(*, message: str, history: list[ConversationTurn], pendi
 
 Return JSON:
 {{
-  "action": "acknowledge" | "conversation" | "capture" | "answer" | "audit" | "forget" | "reminder" | "self",
+  "action": "acknowledge" | "conversation" | "capture" | "answer" | "audit" | "forget" | "reminder" | "self" | "recent",
   "reply": "short natural reply only when action is acknowledge, otherwise null",
   "reason": "brief classification reason"
 }}
@@ -39,7 +39,9 @@ Definitions:
 - forget: the user asks to forget, archive, stop showing, stop reminding, remove, or delete a memory or topic from active memory.
 - reminder: the user asks to remind them at a specific later time, with or without saving the content as memory.
 - self: the user asks what Crowscap is, what it does, how it works, who built it, what its purpose is, whether it is just a chatbot, or what its current limitations are.
+- recent: the user asks about the thing they JUST saved or sent in this conversation, referring to it deictically instead of by name. Examples: "whats the above about", "what's that about", "what is it about", "what did I just save", "summarize the above", "explain the link I just sent", "so what did you get from it". The recent conversation will show a save receipt from Crowscap (for example "I kept this as N memories" or "I kept this link as a reference") near the latest turns.
 
+Prefer recent over answer whenever the user is pointing at the most recent saved item ("the above", "that", "it", "the previous one", "the last one", "what I just sent") rather than asking a topic question across their whole memory. People almost always mean the immediately previous item, not something saved days ago. Only use answer when the user names a topic or explicitly asks across saved memories.
 Never classify thanks, "okay", "this makes sense", or simple agreement as capture.
 Never run saved-memory search for questions about only the current chat, such as "have I thanked you before in this chat?" or "what was the first thing I said?"
 Do not classify ordinary advice questions as answer just because they are questions.
@@ -114,6 +116,9 @@ Rules:
 - Do not add "what is still missing", "ideas worth comparing", or a next-step coaching section for simple factual or definition-style questions.
 - If the user's question is really about the immediate chat, answer the immediate chat fact directly and do not reinterpret their wording as meaningful.
 - Do not mention vector scores or internal retrieval.
+- Never display raw video IDs, URL slugs, tracking parameters, or internal memory IDs (for example "(iEFSQctQPjI)"). Refer to a saved link by its title if known, otherwise by the user's stated reason for keeping it (for example "the video you saved for your YC application"), otherwise by the site name. Include a full URL only when the user asks for the link itself.
+- If a saved link's content was never extracted, say in one plain sentence that only the link and the user's reason were kept. Do not speculate about what the video or page "probably", "likely", or "may" contain, and do not build comparisons on top of unverified guesses.
+- Answer in a confident, direct voice. If you do not know something, state it once, plainly, and move on; do not hedge repeatedly or pad the answer with uncertainty.
 - Follow the learned user preferences when they do not conflict with safety, honesty, or source-grounding.
 - If evidence strictness is strict, be clearer about what is supported vs only plausible.
 - If challenge style is direct, push back plainly while keeping the user's agency.

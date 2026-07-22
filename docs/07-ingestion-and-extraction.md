@@ -41,10 +41,17 @@ Dynamic JavaScript pages:
 
 YouTube:
 - Prefer transcript/caption extraction where available.
+- The minimum transcript length is duration-aware. Regular videos require 100
+  words; short-form videos (3 minutes or less, e.g. YouTube Shorts) require only
+  25 words, since a legitimate Shorts transcript is often under 100 words.
+  Rejecting those made the same URL succeed or fail unpredictably across
+  accounts and attempts.
+- For short-form videos, extraction is instructed to produce only the 1-3
+  genuinely distinct ideas the content contains, never padded counts.
 - If no transcript exists, allow user to paste transcript manually for MVP.
 - If transcript extraction fails but video metadata is available, save the link
-  as a reference with the known title and the user's reason. Do not imply the
-  transcript or video content was read.
+  as a reference with the known title, the video's own description (truncated),
+  and the user's reason. Do not imply the transcript or video content was read.
 - Speech-to-text can be a later feature if needed.
 
 PDF:

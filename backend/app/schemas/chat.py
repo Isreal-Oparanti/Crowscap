@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.ai.structured_outputs import ChatAction
 from app.schemas.belief import BeliefAuditResponse
@@ -10,15 +10,38 @@ from app.schemas.reminder import ReminderResponse
 from app.schemas.search import SearchResult
 
 
+MAX_HISTORY_TURN_CHARS = 4000
+MAX_HISTORY_TURNS = 12
+MAX_CHAT_MESSAGE_CHARS = 40_000
+
+
 class ConversationTurn(BaseModel):
+    """A single prior turn sent by the client for context.
+
+    History is advisory context, never authoritative data (the server prefers
+    its own persisted history). Oversized turns are truncated instead of
+    rejected: a hard max_length here once made every request in a conversation
+    fail validation forever after one long paste entered the history.
+    """
+
     role: Literal["user", "assistant"]
-    content: str = Field(min_length=1, max_length=4000)
+    content: str = Field(min_length=1)
+
+    @field_validator("content", mode="after")
+    @classmethod
+    def _truncate_content(cls, value: str) -> str:
+        return value[:MAX_HISTORY_TURN_CHARS]
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(min_length=1, max_length=10_000)
+    message: str = Field(min_length=1, max_length=MAX_CHAT_MESSAGE_CHARS)
     conversation_id: str | None = None
-    history: list[ConversationTurn] = Field(default_factory=list, max_length=12)
+    history: list[ConversationTurn] = Field(default_factory=list)
+
+    @field_validator("history", mode="after")
+    @classmethod
+    def _limit_history(cls, value: list[ConversationTurn]) -> list[ConversationTurn]:
+        return value[-MAX_HISTORY_TURNS:]
 
 
 class ChatResponse(BaseModel):

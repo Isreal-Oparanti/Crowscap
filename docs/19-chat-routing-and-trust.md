@@ -16,6 +16,24 @@ Open-ended natural-language questions are routed by the Qwen classifier. This in
 
 When a message is classified as `self`, Crowscap answers from its fixed product knowledge. It must not improvise a generic assistant identity or say it lacks cross-session memory.
 
+## Long Pastes Are Captures
+
+Saving long content is the core product loop, so long pastes get the strongest
+protection in routing:
+
+- Any message of 500+ characters deterministically routes to capture unless an
+  earlier, higher-confidence rule (forget, reminder, URL confirmation) applies.
+- Preference detection never fires on messages longer than 280 characters, so
+  a long paste containing phrases like "please", "review", or "every day" can
+  never be reclassified as a preference command. This ordering matters: the
+  preference check runs before the length-based capture rule, and without the
+  length gate a 12-paragraph paste was once acknowledged as "recall frequency:
+  daily" instead of being saved.
+- Request validation must tolerate long content. The message limit is 40,000
+  characters, and client-sent history turns are truncated rather than
+  rejected. A conversation must never become permanently unusable because one
+  long message entered its history.
+
 ## Current-Chat Facts
 
 Questions such as "what was my first message?", "what did I just say?", and "have I thanked you in this chat?" are session facts. They are resolved from the persisted `messages` rows for the active conversation.
@@ -91,8 +109,22 @@ Link-specific follow-ups such as "what is the link above about?" should resolve
 to the most recent captured source in the active conversation. If that source was
 readable, Crowscap should answer from the memory cards and source snapshot. If it
 was only saved as a reference, Crowscap should say exactly what it knows: the URL,
-the user's reason for saving it, and any safe metadata such as a video title. It
-must not borrow context from older links or nearby memories.
+the user's reason for saving it, and any safe metadata such as a video title or
+description. It must not borrow context from older links or nearby memories.
+
+Deictic follow-ups without a named subject — "whats the above about", "what was
+that about", "what did I just save", "summarize it" — mean the immediately
+previous saved item, not a topic search across all memories. These resolve
+deterministically to the latest capture in the active conversation, and the
+router has a dedicated `recent` action for the same intent phrased less exactly.
+Falling through to broad memory retrieval for these questions is a bug: it
+surfaces older, unrelated memories and produces a hedging synthesis answer.
+
+Answers about a reference-only link must never speculate about its content
+("probably", "likely", "may emphasize") and must never display raw video IDs,
+URL slugs, or internal memory IDs in prose. Refer to the item by title, by the
+user's stated reason, or by site name; show the full URL only on a dedicated
+link line or when the user asks for the link itself.
 
 It should not inject just-saved source context into ordinary definition or
 general conversation questions. For example, after saving a theology video,

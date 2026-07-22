@@ -58,6 +58,7 @@ from app.services.memory_lifecycle_service import archive_memory
 from app.services.preference_service import (
     PreferenceLearningResult,
     format_preference_context,
+    get_or_create_user_preferences,
     is_explicit_preference_statement,
     learn_preferences_from_message,
     maybe_autonomously_update_preferences,
@@ -312,18 +313,30 @@ def process_chat_message(
     )
     db.add(user_message)
     db.flush()
-    preference_learning = learn_preferences_from_message(
-        db=db,
-        message=payload.message,
-        message_id=user_message.id,
-        user_id=user_id,
-    )
-    autonomous_learning = maybe_autonomously_update_preferences(db=db, user_id=user_id)
-    if autonomous_learning.updates:
-        logger.info(
-            "🧭 preferences.autonomous_updates_stored updates=%s",
-            len(autonomous_learning.updates),
+    # Preference learning is a background concern. It must never break the
+    # chat turn, so any failure here is logged and swallowed.
+    try:
+        preference_learning = learn_preferences_from_message(
+            db=db,
+            message=payload.message,
+            message_id=user_message.id,
+            user_id=user_id,
         )
+    except Exception:
+        logger.exception("\u26a0\ufe0f preferences.learning_failed conversation_id=%s", conversation.id)
+        preference_learning = PreferenceLearningResult(
+            profile=get_or_create_user_preferences(db=db, user_id=user_id),
+            updates=[],
+        )
+    try:
+        autonomous_learning = maybe_autonomously_update_preferences(db=db, user_id=user_id)
+        if autonomous_learning.updates:
+            logger.info(
+                "🧭 preferences.autonomous_updates_stored updates=%s",
+                len(autonomous_learning.updates),
+            )
+    except Exception:
+        logger.exception("\u26a0\ufe0f preferences.autonomous_update_failed conversation_id=%s", conversation.id)
     preferences = preference_learning.profile
     model_history = _model_prompt_history(
         db=db,
@@ -415,6 +428,29 @@ def process_chat_message(
                 preferences=preferences,
             )
         logger.info("\u2705 chat.message.complete action=conversation saved=False")
+        response = ChatResponse(action="conversation", message=reply, saved=False)
+        response = _with_preference_learning(response, preference_learning)
+        return _persist_assistant_response(
+            db=db,
+            conversation=conversation,
+            user_message=user_message,
+            response=response,
+            user_id=user_id,
+        )
+
+    if route.action == "recent":
+        reply = _recent_link_content_reply(
+            db=db,
+            conversation=conversation,
+            user_id=user_id,
+            require_url=False,
+        )
+        if reply is None:
+            reply = (
+                "I do not see anything saved in this chat yet, so there is nothing recent "
+                "for me to describe. Save a link or note first and ask me again."
+            )
+        logger.info("\u2705 chat.message.complete action=recent saved=False")
         response = ChatResponse(action="conversation", message=reply, saved=False)
         response = _with_preference_learning(response, preference_learning)
         return _persist_assistant_response(
@@ -1092,6 +1128,9 @@ def _should_include_recent_capture_context(
         "these",
         "those",
         "there",
+        "above",
+        "previous",
+        "last",
         "deep",
         "interesting",
         "serious",
@@ -1245,7 +1284,14 @@ def _with_preference_learning(
     response: ChatResponse,
     learning: PreferenceLearningResult,
 ) -> ChatResponse:
-    if learning.updates:
+    """Attach preference updates only for explicit preference commands.
+
+    Preference learning is a background system. It surfaces in chat only when
+    the whole turn was the user telling Crowscap how to behave (action
+    "acknowledge"). For every other action the learning still persists
+    silently, but the chat reply and UI stay focused on what the user asked.
+    """
+    if learning.updates and response.action == "acknowledge":
         response.preference_updates = learning.updates
         response.preferences = preference_response(learning.profile)
     return response
@@ -1474,6 +1520,15 @@ def _grounded_local_conversation_reply(
         if reply := _recent_link_content_reply(db=db, conversation=conversation, user_id=user_id):
             return reply
 
+    if _asks_about_recent_capture(normalized):
+        if reply := _recent_link_content_reply(
+            db=db,
+            conversation=conversation,
+            user_id=user_id,
+            require_url=False,
+        ):
+            return reply
+
     if _asks_about_recent_archive(normalized):
         return _recent_archive_summary_reply(db=db, conversation=conversation, user_id=user_id)
 
@@ -1534,11 +1589,35 @@ def _asks_about_recent_link_content(normalized: str) -> bool:
     return any(re.fullmatch(pattern, normalized) is not None for pattern in patterns)
 
 
+def _asks_about_recent_capture(normalized: str) -> bool:
+    """Deictic questions about the most recently saved item, without naming it.
+
+    Examples: "whats the above about", "what was that about", "what did i just
+    save". These resolve to the latest capture in this conversation, never to a
+    broad memory search. Safe by construction: the reply helper returns None
+    when no recent capture exists, so routing falls through unchanged.
+    """
+    if _is_explicit_memory_query(normalized) or _is_explicit_belief_audit_query(normalized):
+        return False
+    patterns = (
+        r"^what'?s?\s+(?:the\s+)?(?:above|previous(?:\s+one)?|last\s+one)(?:\s+about)?$",
+        r"^what\s+(?:is|was)\s+(?:the\s+)?(?:above|previous(?:\s+one)?|last\s+one)(?:\s+about)?$",
+        r"^what'?s?\s+(?:that|this|it)\s+about$",
+        r"^what\s+(?:is|was)\s+(?:that|this|it)\s+about$",
+        r"^what\s+did\s+i\s+just\s+(?:save|send|share|paste|give\s+you)$",
+        r"^what\s+did\s+you\s+just\s+(?:save|keep|get)(?:\s+from\s+(?:that|this|it))?$",
+        r"^summari[sz]e\s+(?:the\s+)?(?:above|previous(?:\s+one)?|last\s+one|that|this|it)$",
+        r"^tell\s+me\s+about\s+(?:the\s+)?(?:above|previous(?:\s+one)?|last\s+one)$",
+    )
+    return any(re.fullmatch(pattern, normalized) is not None for pattern in patterns)
+
+
 def _recent_link_content_reply(
     *,
     db: Session,
     conversation: Conversation,
     user_id: str | None,
+    require_url: bool = True,
 ) -> str | None:
     recent = _latest_captured_source_from_conversation(
         db=db,
@@ -1550,7 +1629,7 @@ def _recent_link_content_reply(
         return None
 
     url = recent.source.original_url or recent.source.resolved_url or "that link"
-    if recent.source.original_url is None and recent.source.resolved_url is None:
+    if require_url and recent.source.original_url is None and recent.source.resolved_url is None:
         return None
 
     if recent.source.source_type == "reference":
@@ -1563,11 +1642,13 @@ def _recent_link_content_reply(
     ]
     source_kind = _source_kind_label(recent.source)
     title = (recent.source.title or "").strip()
-    opening = (
-        f"That {source_kind} is saved as: {title}."
-        if title
-        else f"I saved that {source_kind}: {url}."
-    )
+    has_url = recent.source.original_url is not None or recent.source.resolved_url is not None
+    if title:
+        opening = f"That {source_kind} is saved as: {title}."
+    elif has_url:
+        opening = f"I saved that {source_kind}: {url}."
+    else:
+        opening = f"That is the {source_kind} you just saved."
 
     if active_memories:
         lines = [
@@ -1593,21 +1674,24 @@ def _recent_link_content_reply(
 def _recent_reference_link_reply(source: Source, *, url: str) -> str:
     reason = _reference_reason_from_source(source)
     known_title = _reference_known_title_from_source(source)
-    known_title_line = f"What I know: the title appears to be \"{known_title}\".\n\n" if known_title else ""
+    known_description = _reference_known_description_from_source(source)
+
+    lines: list[str] = []
+    if known_title:
+        lines.append(f'That is "{known_title}".')
+    if known_description:
+        lines.append(f"From its own description: {_snippet(known_description, max_chars=320)}")
     if reason:
-        return (
-            f"I only saved that link as a reference: {url}\n\n"
-            f"{known_title_line}"
-            "I do not have readable content from this specific link because Crowscap could not extract it at capture time.\n\n"
-            f"What I do know is why you kept it: {reason}\n\n"
-            "If you paste the key point from it, I can keep that context too."
+        lines.append(f"You saved it because: {reason}")
+    if not known_title and not known_description:
+        lines.append(
+            "I kept that link as a reference, but I could not read its content at capture time, "
+            "so I will not guess what it says."
         )
-    return (
-        f"I only saved that link as a reference: {url}\n\n"
-        f"{known_title_line}"
-        "I do not have readable content from it because Crowscap could not extract it at capture time. "
-        "Add a short reason or paste the useful part, and I will keep the context around it."
-    )
+        if not reason:
+            lines.append("Paste the key point from it and I will keep that context too.")
+    lines.append(f"Link: {url}")
+    return "\n\n".join(lines)
 
 
 def _source_kind_label(source: Source) -> str:
@@ -1617,6 +1701,8 @@ def _source_kind_label(source: Source) -> str:
         return "article"
     if source.source_type == "pdf":
         return "PDF"
+    if source.source_type == "text":
+        return "note"
     return "source"
 
 
@@ -1634,6 +1720,12 @@ def _reference_known_title_from_source(source: Source) -> str | None:
     metadata = source.metadata_json or {}
     title = metadata.get("reference_title") or metadata.get("title")
     return title.strip() if isinstance(title, str) and title.strip() else None
+
+
+def _reference_known_description_from_source(source: Source) -> str | None:
+    metadata = source.metadata_json or {}
+    description = metadata.get("reference_description") or metadata.get("description")
+    return description.strip() if isinstance(description, str) and description.strip() else None
 
 
 def _recent_archive_summary_reply(
@@ -3167,10 +3259,13 @@ def _create_reference_link_capture(
     clean_intent = _clean_reference_link_intent(intent_text)
     reference_metadata = dict(source_metadata or {})
     known_title = _clean_reference_metadata_title(reference_metadata.get("title"))
+    known_description = _clean_reference_metadata_title(reference_metadata.get("description"))
     title = known_title or _reference_link_title(url)
     raw_text = f"Reference link: {url}"
     if known_title:
         raw_text += f"\nKnown title: {known_title}"
+    if known_description:
+        raw_text += f"\nKnown description: {known_description}"
     if clean_intent:
         raw_text += f"\nWhy it matters: {clean_intent}"
 
@@ -3179,6 +3274,8 @@ def _create_reference_link_capture(
         memory_parts.append(f"for: {clean_intent}")
     if known_title:
         memory_parts.append(f"\nTitle: {known_title}")
+    if known_description:
+        memory_parts.append(f"\nAbout: {_snippet(known_description, max_chars=300)}")
     memory_parts.append(f"\nLink: {url}")
     memory_content = " ".join(memory_parts).replace(" \n", "\n")
     embedding = embedder.embed_texts([memory_content])[0]
@@ -3189,6 +3286,7 @@ def _create_reference_link_capture(
             "reference_only": True,
             "reason": clean_intent,
             "reference_title": known_title,
+            "reference_description": known_description,
         }
     )
 

@@ -1,0 +1,415 @@
+
+
+CROWSCAP
+Product Requirements Document
+Internal. Confidential. For founding team use only.
+--------------------------------------------------------------------------------
+
+Version:   1.0
+Date:   July 2026
+Authors:   Isreal Oparanti, Crowscap founding team
+Live product:   https://crowscap.xyz
+Repository:   https://github.com/Isreal-Oparanti/Crowscap
+
+
+
+--------------------------------------------------------------------------------
+Table of Contents
+1. Purpose of this document
+2. The problem(from lived experience)
+3. Why existing tools fail
+4. The Crowscap thesis
+5. What Crowscap is
+6. Who it is for
+7. How it works(the memory lifecycle)
+8. Core features(current version)
+9. The epistemic layer(what makes us different)
+10. Competitive landscape
+11. Architecture and technical decisions
+12. What we do not do
+13. Product roadmap
+14. Long-term vision
+15. Success metrics
+16. Open questions
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+1. Purpose of this document
+This document exists for one reason: to make sure everyone building Crowscap understands not just what we are building, but why it deserves to exist.
+ This is the complete picture of the problem, the thinking behind our solution, the decisions we have made, and the ones we are still working through. It is written so that any person joining this team can read it and immediately understand the heart of what Crowscap is trying to do.
+It is also a living document. As we learn from users, the product will change. When it does, this document changes with it. If anything in here is outdated, update it. If anything is unclear, clarify it. The purpose is alignment, not bureaucracy.
+--------------------------------------------------------------------------------
+2. The problem  --  from lived experience
+Crowscap did not start from a market analysis or a trend report. It started from a specific frustration that the founder lived personally and has since seen reflected in almost every person he has spoken to about it.
+Here is the pattern:
+
+A person encounters something useful. An article about startup distribution. A YouTube video explaining a framework. A book chapter that changes how they think about something. A conversation fragment they do not want to lose.
+They save it. To WhatsApp. To Notion. To a browser bookmark. To a note they will never open again. Something in them says this matters, I will need this later.
+They never return to it.
+The link joins hundreds of others in a graveyard. The idea that felt important decays. And weeks later, in a conversation where that knowledge would have been useful, they know they know something but cannot reach it. They give a vague answer. They look uncertain. The knowledge was there. It just was not accessible when it mattered.
+
+But the problem is deeper than forgotten links.
+
+The human brain does not work like a database. We do not store information cleanly and retrieve it on demand. We compress, distort, emotionally tag, and reconstruct things. We remember the shape of an idea but lose the details. We remember the feeling but not the facts. And crucially: we confuse familiarity with understanding.
+When someone has seen an idea repeated enough times, it starts to feel true. Not because they have verified it. Not because they understand it deeply. Simply because it sounds familiar. That false familiarity is dangerous. It leads to confidently held beliefs that have no evidence behind them. It leads to people quoting things they have never actually checked. It leads to decision-making built on a foundation of accumulated vibes rather than verified knowledge.
+
+--------------------------------------------------------------------------------
+   "I kept saving things I intended to learn. I never actually learned them. And the things I did learn, I could not defend in a conversation when I needed them. That gap between consuming information and actually knowing something well enough to use it is what Crowscap is built to close."
+    --  Isreal Oparanti
+
+This is not a problem that belongs to a niche. It belongs to anyone who learns. Students who read widely but cannot recall what they studied. Founders who consume knowledge about building companies but cannot execute on it because they never internalized it. Professionals who stay informed but cannot synthesize what they know into clear, defensible positions. Writers who research extensively and then forget what they found.
+The brain forgets by design. It keeps what gets repeated and discards what does not. That is not a flaw. The flaw is that the tools people use today do nothing to work with this reality. They help you save more. They do not help you remember better.
+--------------------------------------------------------------------------------
+3. Why existing tools fail
+Every tool in the current landscape treats the problem as a storage problem. Save more, organize better, search faster. But the problem is not storage. It is retention, application, and honest self-assessment about what you actually know versus what you merely recognize.
+
+Note-taking tools
+Notion, Obsidian, Roam Research. These are sophisticated filing cabinets. They are excellent at organizing what you deliberately put in them. They do nothing to test whether you have understood what you saved. They do not resurface the right thing at the right time. They do not tell you when two things you believe contradict each other. They require continuous manual curation to stay useful, which most people never do.
+
+Read-it-later tools
+Pocket, Instapaper, Readwise. These solve the capture problem for articles. Readwise in particular resurfaces highlights through email digests. But highlights are not understanding. Reading a sentence again is not the same as being able to explain the idea behind it, apply it to a real situation, or compare it honestly against other things you believe. These tools resurface information. They do not build knowledge.
+
+AI chat tools
+ChatGPT, Claude, Gemini. These are extraordinarily capable at answering questions from their own training data. But they do not know what you have learned. They cannot tell you what you specifically believe about a topic and how confident you should be in that belief. They have no memory of your intellectual history. Every conversation starts from zero. They are powerful general knowledge systems, not personal knowledge systems.
+
+NotebookLM
+This is the competitor most people assume is closest to Crowscap. It is not. NotebookLM is a project-scoped research assistant. You upload documents for a specific task, it helps you explore them, and you close the notebook when the project is done. It does not build a lifelong knowledge library. It does not cross-reference ideas from different projects saved at different times. It does not schedule recall. It does not detect when something you uploaded to one notebook contradicts something in another. It is a research tool. Crowscap is a memory system.
+
+Recall.ai
+Recall is currently the most direct competitor in this space. It captures content from multiple sources, extracts key ideas, connects related concepts, and includes spaced repetition. It is well funded and has a browser extension and mobile app. We respect what they have built.
+Where we differ: Recall does not evaluate whether what you believe is actually well-supported. It connects ideas by topic similarity but does not tell you when two ideas you have saved are in tension with each other. It does not run a belief audit that shows you where your understanding is strong and where you have gaps. It does not distinguish between a verified fact, a confident opinion, and unverified startup advice. It stores and surfaces. Crowscap stores, surfaces, evaluates, and gently challenges.
+
+The common thread
+Every existing tool is passive. It waits for you to come to it. It stores what you give it and retrieves it when you ask. Crowscap is being built to be active. It pays attention to what you have saved, watches for patterns and contradictions, and comes to you with the right thing at the right time. The relationship is different. Not a filing system you occasionally open. A thinking partner that is always quietly working.
+--------------------------------------------------------------------------------
+4. The Crowscap thesis
+Most tools help you save information. Crowscap helps saved information become knowledge you can question, recall, and use.
+
+That distinction sounds simple. It is not.
+Storage is easy. Retrieval is harder. But what Crowscap is actually trying to do is harder still: help a person develop a relationship with their own accumulated learning that is honest, organized, and actively improving over time.
+This means:
+  oo   Knowing not just what you saved, but what you believe and why.
+  oo   Knowing how confident you should be in each belief based on the evidence behind it.
+  oo   Knowing when two things you believe are in tension and forcing you to decide which you actually hold.
+  oo   Knowing what you might be wrong about or missing, and surfacing that gently without judgment.
+  oo   Resurfacing the right memory at the right moment, not because it is overdue on a schedule, but because it is relevant to what you are thinking about right now.
+
+The long-term ambition: Crowscap should help people not just save what they learn, but become wiser because of it.
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+5. What Crowscap is
+Crowscap is a conversational memory intelligence system.
+Users interact with it through a chat interface. They share anything: a thought, an article link, a YouTube video, a PDF, a conversation fragment. Crowscap processes it into structured, source-aware memory and makes it searchable, recallable, auditable, and improvable over time.
+It is not a note-taking app. It is not a chatbot. It is not a search engine. It is a system that treats your accumulated learning as a living knowledge graph and helps you work with it intelligently.
+The chat interface was a deliberate choice. Most people already know how to talk to an AI. They should not need to understand memory graphs, database schemas, or extraction pipelines to get value from Crowscap. They should be able to say "save this", "what do I know about startup distribution", "remind me about this in two days", or "what have I been wrong about lately" and have it just work.
+--------------------------------------------------------------------------------
+6. Who it is for
+The primary user is someone who takes their own learning seriously and feels the gap between how much they consume and how much they actually retain and apply.
+More specifically:
+
+The over-saver
+Has hundreds of saved links, WhatsApp forwards, Notion pages, and browser bookmarks they never revisit. Knows they have saved useful things but cannot access them when needed. Lives in a state of information guilt.
+
+The serious learner
+Reads books, watches educational content, follows thought leaders in their field. Retains the broad strokes but loses the details that make ideas actually usable. Wants to build deep, reliable knowledge not just surface familiarity.
+
+The builder
+Founders, product managers, developers who need to stay informed and make good decisions with that information. Cannot afford to hold beliefs they cannot back up. Needs to know the difference between something they have verified and something they merely heard from a convincing voice online.
+
+The reflective professional
+Writers, consultants, researchers, educators. People whose work depends on synthesizing what they know and presenting it clearly. People who need to be able to defend their positions with confidence.
+
+What these users share: they are not passive consumers of information. They are people who want to grow intellectually and are frustrated that the tools available to them do not help them do that effectively.
+Who Crowscap is not for: people who want a general AI assistant for tasks. People who are not interested in their own intellectual development. People looking for a productivity tool that automates work. Crowscap is a knowledge tool, not a task manager.
+--------------------------------------------------------------------------------
+7. How it works  --  the memory lifecycle
+Every piece of content that enters Crowscap moves through a defined lifecycle. Understanding this lifecycle is essential for anyone building on the product.
+
+  1.  Capture
+The user submits content. This can be: raw text pasted into the chat, a URL to an article or blog post, a YouTube link (transcript extracted automatically), a PDF upload, or a conversational message that the system recognizes as worth saving. The system preserves the original source exactly as submitted. This is non-negotiable. The original is always retrievable.
+
+  2.  Extract
+Qwen processes the content and breaks it into atomic memory objects. Each object is a single idea, not a summary of many ideas. Types include: claim, principle, action, warning, definition, example, question, and reference. Each atom gets an epistemic label (factual claim, opinion, advice, anecdote, prediction, framework, personal reflection, or unresolved) and a confidence level (low, medium, high, or unknown) with a specific reason for that confidence level. Source strength is also assessed: weak, moderate, or strong based on what kind of source the content came from.
+
+  3.  Embed
+Every memory atom is converted into a 1024-dimensional vector using Qwen text-embedding-v4. This vector encodes the semantic meaning of the memory and is stored in PostgreSQL with pgvector. This is what enables meaning-based search: finding memories about "getting a product to customers" even when those exact words were never used.
+
+  4.  Relate
+When new memories are saved, the system searches for existing memories with similar semantic content. For each candidate pair above a similarity threshold, Qwen evaluates the relationship: does this new memory confirm, contradict, extend, or qualify something already saved? Meaningful relationships are stored in the memory relations table. This is how Crowscap builds a knowledge graph rather than a flat list of notes.
+
+  5.  Recall
+Memories are scheduled for resurfacing using a modified spaced repetition algorithm. The scheduling considers: how well the user recalled it last time, how confident the memory is, how many contradictions exist for it (fragile memories need more review), and what the user has been thinking about recently. The system surfaces one memory at a time, not a queue. It asks a generative question adapted to the memory type, not a generic flashcard prompt. User responses update the scheduling and recall score.
+
+  6.  Audit
+The belief audit synthesizes across all memories related to a topic. It shows: what the user appears to believe, which memories support it strongly, which memories raise questions, what the weakest link in their understanding is, and what public evidence leads are worth exploring. The audit does not tell the user they are wrong. It shows the full picture and lets them decide.
+
+  7.  Adapt
+Over time, the system learns how the user wants to engage. Explicit preferences (stated directly in conversation) and implicit signals (what they archive, how they respond to recall, what topics they save most) build a preference profile. This profile shapes answer style, recall frequency, topic weighting, and evidence strictness. The system gets measurably more useful the longer someone uses it.
+
+  8.  Forget
+Not everything should stay surfaced forever. Users can archive memories they no longer want appearing in search, recall, or audits. The system will eventually also automatically deprioritize memories that score low on confidence, have not been reviewed in a long time, and have not been referenced by other memories. The original source is always preserved. Forgetting in Crowscap means stopping the noise, not deleting the history.
+--------------------------------------------------------------------------------
+8. Core features  --  current version
+The following features are built and live at crowscap.xyz as of July 2026.
+
+Multi-format capture
+Text, URLs, YouTube links, and PDFs can all be submitted through the chat interface. The system automatically detects the type and routes it to the appropriate extraction pipeline. The user does not need to specify what kind of content they are submitting. Trafilatura handles article extraction, yt-dlp handles YouTube transcripts, and PyMuPDF handles PDFs. Deduplication by content hash prevents the same content from being processed twice.
+
+Atomic memory extraction
+Qwen extracts distinct ideas from content as separate objects rather than summaries. Each memory is typed, labeled epistemically, scored for confidence, and given a source strength assessment. The extraction prompt is written to ensure each memory is self-contained: understandable without reading the original source. Temperature is set to zero for consistent, structured output validated by Pydantic before storage.
+
+Semantic memory search
+Search works by meaning, not keywords. Queries are embedded using the same model as memories and compared using cosine similarity in pgvector. A similarity threshold filters irrelevant results. Results are ranked and returned with match scores and source attribution. Searching "how do I reach customers" returns memories about distribution, marketing channels, and customer acquisition even if those exact words were never used.
+
+Contradiction and relationship detection
+When new memories are saved, nearby memories are found and evaluated for relationships. Qwen-turbo classifies each pair: confirms, contradicts, extends, or qualifies. Meaningful relationships are stored and displayed. This is what allows Crowscap to tell a user: "you have saved two ideas about launch timing that pull in different directions. Which do you actually believe?"
+
+Spaced recall
+Memories are scheduled for review using a modified SM-2 algorithm extended with signals from confidence scores, contradiction count, and contextual relevance to recent saves and conversations. The system surfaces one memory at a time through the recall interface with a generative question adapted to the memory type. Recall responses are stored and shape future scheduling.
+
+Belief audit
+Users can ask Crowscap to synthesize what they know about any topic. The system retrieves relevant memories, evaluates their collective strength and consistency, identifies contradictions, assesses the weakest link in the current understanding, and surfaces public evidence leads worth exploring. Results are presented with uncertainty acknowledged. Crowscap does not tell users they are wrong. It shows them the full picture.
+
+Preference learning
+The system detects preference signals in conversation and saves them explicitly. When a user says "I prefer shorter answers", "challenge my assumptions more", or "I mostly care about startups", those preferences update a stored profile. That profile is injected into system prompts and shapes how Crowscap responds. Implicit signals from behavior (what gets archived, how recall is scored, what topics are saved most) supplement explicit preferences over time.
+
+Conversation persistence
+Conversations are stored in the database and restored after refresh. The system does not lose context between sessions. Chat history is injected with a rolling summary mechanism to keep context window usage bounded as conversations grow.
+
+Archiving
+Users can tell the system to archive memories they no longer want surfaced. Archived memories disappear from search, recall, and audits. The original source is preserved. This is user-controlled forgetting: reducing noise without destroying history.
+
+MCP server
+Crowscap exposes its memory tools through a Model Context Protocol server over Server-Sent Events. External AI agents can call search_memory, audit_belief, get_due_recalls, capture_memory, and archive_memory through this endpoint. This makes Crowscap not just a product but a memory infrastructure layer that other agents can use.
+
+Original source preservation
+Every capture preserves the original text exactly as submitted. Users can always view the original source alongside extracted memories. Memory atoms are derived from the source, never a replacement for it.
+--------------------------------------------------------------------------------
+9. The epistemic layer  --  what makes us different
+This section deserves its own heading because it is the heart of what Crowscap does that no other tool does.
+Epistemic means relating to knowledge and the degree to which beliefs are justified. The epistemic layer in Crowscap is the system that tracks not just what you have saved, but what you believe, why you believe it, how well-supported it is, and what you might be missing.
+
+Memory typing
+Not all saved content is the same kind of thing. A peer-reviewed finding is different from a founder opinion. A repeatable framework is different from a single anecdote. A prediction about the future is different from a documented historical fact. Crowscap classifies every memory by type (claim, principle, action, warning, definition, example, question, reference) and epistemic label (factual claim, opinion, advice, anecdote, prediction, framework, personal reflection, unresolved). This classification shapes how the memory is presented, how confident the user should be, and how it is treated in audits.
+
+Confidence scoring
+Every memory carries a confidence level with a specific reason. "High confidence: this was stated as a definitive result in a peer-reviewed paper" is meaningfully different from "high confidence: this was stated definitively by the source, but the source is a single founder opinion with no cited evidence." The distinction between confident delivery and well-supported claim is one that most people miss. Crowscap surfaces it explicitly.
+
+Source strength assessment
+The quality of a memory is shaped by the quality of its source. A principle from an empirically validated study is stronger than the same principle stated in a motivational blog post. Crowscap assesses source strength at capture time and factors it into confidence scoring, recall priority, and audit synthesis.
+
+Contradiction and tension detection
+A contradiction is when two saved beliefs cannot both be true. A tension is when two saved beliefs are both valid but pull in different directions depending on context or timing. Most tools flatten both into neutral storage. Crowscap surfaces them. "You have saved these two things about launch timing. They disagree. Which do you actually hold?" That question is the beginning of real thinking.
+
+The belief audit
+The belief audit synthesizes across the full memory graph for a topic and presents a clear picture: what you appear to believe, what supports it, what challenges it, and what the weakest link in your current understanding is. It does not tell you what to believe. It shows you what your own saved knowledge says, with honesty about uncertainty. This is the feature that most directly addresses the gap between familiarity and understanding.
+
+Proactive ignorance gap surfacing (in development)
+The most ambitious part of the epistemic layer. When a user saves a claim or belief, Crowscap will quietly search for credible counterpoints and alternative framings. Not immediately, and not in a way that feels like being corrected. But surfaced gently during a recall session: "You believe this. One thing worth considering is..." The goal is not to destabilize the user. It is to help them notice what they may not have considered and decide for themselves whether to update their understanding.
+--------------------------------------------------------------------------------
+10. Competitive landscape
+The following table summarizes where Crowscap stands relative to the tools people currently use to solve adjacent problems.
+
+Feature
+Crowscap
+Recall.ai
+NotebookLM
+Readwise
+Notion AI
+Multi-format capture
+Yes
+Yes
+Yes
+Partial
+Partial
+Atomic memory extraction
+Yes
+Partial
+No
+No
+No
+Epistemic labeling
+Yes
+No
+No
+No
+No
+Confidence scoring
+Yes
+No
+No
+No
+No
+Contradiction detection
+Yes
+No
+No
+No
+No
+Belief audit
+Yes
+No
+No
+No
+No
+Spaced recall
+Yes
+Yes
+No
+Partial
+No
+Preference learning
+Yes
+No
+No
+No
+No
+MCP / agent access
+Yes
+No
+No
+No
+No
+Lifelong cross-session memory
+Yes
+Yes
+No
+No
+Partial
+Original source preserved
+Yes
+Partial
+Yes
+Partial
+Yes
+Proactive gap surfacing
+Planned
+No
+No
+No
+No
+
+The single column where we are most differentiated is the epistemic layer. Everything above the belief audit row, other tools have partial or full implementations of. Below that row, we are alone. That is the product direction that matters most.
+--------------------------------------------------------------------------------
+11. Architecture and technical decisions
+This section documents the key architectural decisions and why they were made. It is not intended as implementation documentation but as a record of the reasoning behind the structure.
+
+Chat-first interface
+We chose a chat interface rather than a dashboard or a notes interface because it is the most natural way people already interact with AI systems. It eliminates onboarding friction and allows a single input to serve multiple purposes: capturing content, asking questions, setting reminders, requesting audits, and setting preferences. The user never needs to decide which mode they are in.
+
+Atomic memories, not documents
+The most important architectural decision. Every other tool stores documents or highlight collections. We store atomic ideas. A 3000 word article becomes 7 or 8 self-contained memory objects. This has several consequences: search retrieval is far more precise, context window usage in RAG is dramatically lower (retrieving 7 atoms instead of a full article), recall can target specific ideas rather than whole sources, and contradiction detection can work at the level of individual claims rather than documents.
+
+PostgreSQL with pgvector
+We keep vector search inside the primary database rather than using a separate vector store. This simplifies the architecture, reduces operational complexity, and keeps semantic search co-located with relational queries. For our scale this is the correct tradeoff.
+
+Qwen Cloud for all AI tasks
+We use three Qwen models for different tasks. qwen-plus for extraction and belief audits where quality matters most. qwen-turbo for relationship detection where speed matters and the task is classification rather than generation. qwen3.7-plus for deep RAG chat responses where reasoning depth is required. text-embedding-v4 for all embedding generation. Using different models for different tasks rather than one model for everything is a deliberate cost and quality optimization.
+
+Temperature zero for extraction
+All structured extraction calls run at temperature zero. This makes outputs deterministic and consistent. The same content run through extraction twice produces nearly identical memory atoms. This consistency is essential for a system that is building a knowledge graph over time.
+
+RAG with atomic retrieval
+When a user asks a question through the chat interface, the system embeds the query, retrieves the most semantically relevant memory atoms, injects them into the system prompt, and generates a response grounded in what the user has actually saved. This is retrieval augmented generation with atomic units rather than document chunks. The result is more precise, uses far less context, and stays grounded in the user's own knowledge rather than the model's general training.
+
+MCP as external interface
+The MCP server is a thin adapter layer over existing backend services. It does not contain business logic. It validates inputs and calls the same services the chat interface uses. This means any improvement to the underlying services automatically improves the MCP interface. External agents get the same quality of memory tools that internal users get.
+
+Deployment
+Backend runs on Alibaba Cloud ECS with Nginx as reverse proxy and systemd for process management. Frontend is deployed on Vercel. Database is Neon PostgreSQL. This separation keeps infrastructure costs low while maintaining reliability.
+--------------------------------------------------------------------------------
+12. What we do not do
+Clarity about what Crowscap is not is as important as clarity about what it is.
+
+  oo   We do not claim to know the truth. Crowscap evaluates how well-supported beliefs are based on what the user has saved. It does not have access to ground truth. It works with the evidence the user provides.
+  oo   We do not tell users they are wrong. The system surfaces tensions and gaps. It asks questions. The user decides what to update and what to keep.
+  oo   We do not automate thinking. The goal is to help people think better, not to think for them. Crowscap is a tool for intellectual development, not a replacement for it.
+  oo   We do not manage tasks or projects. Crowscap handles knowledge and memory. Life reminders are a lightweight exception: they fire once and disappear. They do not enter the memory lifecycle.
+  oo   We do not save everything. Content that does not pass basic quality signals should not enter the memory graph. Accidental saves, irrelevant links, and low-quality content should be preventable and reversible.
+  oo   We do not surface content the user has archived. Archived means archived. It is retrievable if the user goes looking, but it does not appear in search, recall, or audits.
+--------------------------------------------------------------------------------
+13. Product roadmap
+What follows is an honest account of where the product is and where it is going. Timelines are intentionally absent because they depend on team size, user feedback, and what we learn.
+
+Current: Foundation (July 2026)
+The core loop is working. Multi-format capture, atomic extraction, semantic search, relationship detection, belief audit, spaced recall, preference learning, conversation persistence, archiving, and MCP server are all live. The product is deployed and usable at crowscap.xyz.
+
+Next: Retention and trust
+The immediate priorities are proving that the habit forms and that users trust the system with their real knowledge.
+  oo   Onboard 50 real users and measure day-7 retention as the primary signal.
+  oo   Platform Better Redesign, expecially the landing page.
+  oo   Fix known edge cases in capture: YouTube Shorts, accidental links, WhatsApp group invites.
+  oo   Add the confirmation step for URL captures before processing.
+  oo   Add 30-second undo after any capture.
+  oo   Improve the recall selection logic to prioritize contextual relevance over overdue date.
+  oo   Add the "why this now" explanation to every recall card.
+  oo   Tighten intent classification so conversational messages do not trigger unnecessary memory search.
+  oo   Build the evaluation harness comparing atomic RAG against naive document RAG with real metrics.
+
+Following: Depth and proactivity
+Once retention is proven, the product deepens.
+  oo   Proactive ignorance gap surfacing: the background intelligence layer that finds credible counterpoints to saved beliefs and surfaces them gently during recall.
+  oo   Action tracking: converting action-type memories into trackable commitments with status.
+  oo   Memory compression: identifying clusters of near-duplicate memories and offering to merge them into one stronger canonical memory.
+  oo   Richer memory detail view showing source, all related memories, recall history, and evidence strength.
+  oo   Public evidence integration directly into the belief audit, not just as leads but as retrievable sources.
+
+Later: Platform and mobile
+As the core product proves its value, distribution expands.
+  oo   Mobile-first recall and notification flows so recall reaches users where they actually are.
+  oo   Browser extension for one-click capture without opening the app.
+  oo   Deeper MCP integration and developer documentation for teams building on the memory layer.
+  oo   API tier for developers who want to embed Crowscap memory into their own products.
+  oo   Team and shared knowledge features for organizations.
+--------------------------------------------------------------------------------
+14. Long-term vision
+The long-term vision for Crowscap is to become the most trusted personal memory intelligence system in the world.
+
+Trust in this context means: when Crowscap tells you something about what you believe, you can rely on it. When it surfaces a tension between two ideas you hold, you know the tension is real. When it tells you your confidence in something is low, you trust that assessment. When it surfaces a counterpoint to a belief, you know it is credible.
+That kind of trust is built slowly and lost instantly. Every product decision we make should be evaluated against whether it builds or erodes trust.
+
+Ambient capture (long-term)
+The most ambitious version of capture requires no deliberate action from the user. A browser extension runs quietly in the background, noticing what the user reads, how long they spend on it, what they re-read or highlight. At the end of a reading session, it asks: "You spent 12 minutes on this article. Want me to extract what matters?" One tap yes. The capture happens from behavior, not from a deliberate decision to save. This almost completely eliminates the capture friction that is currently the biggest barrier to the habit forming.
+
+Memory as infrastructure
+Through the MCP server, Crowscap becomes a memory layer that any AI agent can use. In the future, a user could be working inside any AI-powered tool, a writing assistant, a research tool, a business planning agent, and that agent could call Crowscap to access what this specific person has learned and believes. The user's knowledge follows them everywhere, not just inside Crowscap's own interface. This shifts Crowscap from a product people use to infrastructure that powers intelligent experiences wherever the user works.
+
+The wiser user
+The ultimate measure of whether Crowscap is working is not daily active users or retention rates. It is whether people who use Crowscap consistently become meaningfully better at using what they know. They defend their beliefs with more precision. They notice when they are holding a belief with insufficient evidence. They apply what they have learned to real decisions at the right moment. They know the difference between what they understand and what they merely recognize.
+That is a harder outcome to measure. It is also the only outcome that matters.
+--------------------------------------------------------------------------------
+15. Success metrics
+Metrics should measure what actually matters, not what is easy to count.
+
+Primary metrics
+  oo   Day-7 retention: the percentage of users who return within 7 days of first capture without being explicitly reminded. This is the signal that the habit is forming.
+  oo   Recall engagement rate: the percentage of surfaced recall items that receive a substantive response rather than being dismissed or skipped.
+  oo   Capture-to-recall ratio: for users who have been active more than 30 days, are they recalling things they saved earlier? This indicates the system is functioning as a memory system, not just a capture tool.
+
+Secondary metrics
+  oo   Belief audit usage: how many users have run at least one belief audit? This indicates they are using the epistemic features and not just the capture and search features.
+  oo   Contradiction discovery: how many users have seen and engaged with a contradiction or tension surfaced by the system? Engagement with this feature is a signal of the product's unique value being experienced.
+  oo   Preference profile completeness: users with more complete preference profiles get more tailored experiences. Tracking how quickly profiles fill in indicates how well the preference detection is working.
+
+What we do not optimize for
+  oo   Time in app: Crowscap should be efficient. A user who gets what they need in 5 minutes and leaves is doing exactly what the product is designed for.
+  oo   Number of memories saved: more is not better. Quality and recall engagement matter more than volume.
+  oo   Daily active users before retention is proven: growing a user base before the product is reliably valuable is building on a weak foundation.
+--------------------------------------------------------------------------------
+16. Open questions
+These are questions the team needs to work through. They are not blockers but they require honest answers before the relevant parts of the product are built.
+
+  oo   What is the right monetization model? Freemium SaaS seems obvious, but what specifically is free and what is paid? The epistemic features (belief audit, contradiction detection) are the most valuable and should probably be gated on paid tiers. But if they are gated, users may never discover why Crowscap is different from other tools.
+  oo   How do we handle content that the user has saved that is later shown to be factually wrong? The system should not silently update beliefs without the user's involvement. But surfacing the information in a way that does not feel like an accusation requires careful design.
+  oo   What is the right cadence for proactive recall? Too frequent and it becomes an obligation. Too infrequent and the habit does not form. This will need empirical testing with real users across different usage patterns.
+  oo   How do we handle users who save very low quality content consistently? Do we flag it? Ignore it? Filter it silently? The answer has implications for user trust and product integrity.
+  oo   When do we build mobile? The product is currently web only. Recall and notifications are significantly more powerful on mobile. But mobile adds engineering complexity at a stage where focus matters more than coverage.
+       Crowscap PRD v1.0   |   July 2026   |   Internal and confidential
+                                       
