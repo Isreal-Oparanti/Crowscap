@@ -320,7 +320,10 @@ def process_chat_message(
     )
     autonomous_learning = maybe_autonomously_update_preferences(db=db, user_id=user_id)
     if autonomous_learning.updates:
-        preference_learning.updates.extend(autonomous_learning.updates)
+        logger.info(
+            "🧭 preferences.autonomous_updates_stored updates=%s",
+            len(autonomous_learning.updates),
+        )
     preferences = preference_learning.profile
     model_history = _model_prompt_history(
         db=db,
@@ -496,56 +499,24 @@ def process_chat_message(
                     user_id=user_id,
                 )
             elif _is_reference_only_url(url):
-                if not _has_explicit_url_capture_intent(payload.message):
-                    response = ChatResponse(
-                        action="conversation",
-                        message=_url_capture_confirmation_prompt(url=url),
-                        saved=False,
-                        next_step="Reply with a short reason, or say \"save it\" to keep the link itself.",
-                    )
-                    response = _with_preference_learning(response, preference_learning)
-                    logger.info("\u2705 chat.message.complete action=url_reference_confirmation saved=False")
-                    return _persist_assistant_response(
-                        db=db,
-                        conversation=conversation,
-                        user_message=user_message,
-                        response=response,
-                        user_id=user_id,
-                    )
                 capture = _create_reference_link_capture(
                     db=db,
                     url=url,
-                    intent_text=_message_without_url(payload.message, url) or None,
+                    intent_text=_url_message_intent_text(payload.message, url),
                     embedder=embedder,
                     user_id=user_id,
                 )
             elif reason := unsupported_url_reason(url):
-                response = ChatResponse(
-                    action="conversation",
-                    message=reason,
-                    saved=False,
-                    next_step=(
-                        "If the link matters, paste a short note about why and I can save that context instead."
-                    ),
-                )
-                response = _with_preference_learning(response, preference_learning)
-                logger.info("\u2705 chat.message.complete action=url_unsupported saved=False")
-                return _persist_assistant_response(
+                response = _reference_link_chat_response(
                     db=db,
-                    conversation=conversation,
-                    user_message=user_message,
-                    response=response,
+                    url=url,
+                    intent_text=_url_message_intent_text(payload.message, url),
+                    embedder=embedder,
                     user_id=user_id,
-                )
-            elif not _has_explicit_url_capture_intent(payload.message):
-                response = ChatResponse(
-                    action="conversation",
-                    message=_url_capture_confirmation_prompt(url=url),
-                    saved=False,
-                    next_step="Reply with \"save this link\" if you want Crowscap to read and remember it.",
+                    unreadable_reason=reason,
                 )
                 response = _with_preference_learning(response, preference_learning)
-                logger.info("\u2705 chat.message.complete action=url_confirmation saved=False")
+                logger.info("\u2705 chat.message.complete action=url_unsupported_reference saved=True")
                 return _persist_assistant_response(
                     db=db,
                     conversation=conversation,
@@ -554,7 +525,7 @@ def process_chat_message(
                     user_id=user_id,
                 )
             else:
-                intent_text = _message_without_url(payload.message, url)
+                intent_text = _url_message_intent_text(payload.message, url)
                 try:
                     capture = create_url_capture(
                         db=db,
@@ -568,9 +539,16 @@ def process_chat_message(
                         user_id=user_id,
                     )
                 except IngestionError as exc:
-                    response = _url_ingestion_failure_response(url=url, error_message=str(exc))
+                    response = _reference_link_chat_response(
+                        db=db,
+                        url=url,
+                        intent_text=intent_text,
+                        embedder=embedder,
+                        user_id=user_id,
+                        unreadable_reason=str(exc),
+                    )
                     response = _with_preference_learning(response, preference_learning)
-                    logger.info("\u2705 chat.message.complete action=url_ingestion_failed saved=False")
+                    logger.info("\u2705 chat.message.complete action=url_ingestion_failed_reference saved=True")
                     return _persist_assistant_response(
                         db=db,
                         conversation=conversation,
@@ -626,21 +604,29 @@ def process_chat_message(
                 capture = _create_reference_link_capture(
                     db=db,
                     url=pending_url,
-                    intent_text=_pending_link_confirmation_intent(payload.message),
+                    intent_text=_pending_link_intent_text(
+                        payload.message,
+                        history=effective_history,
+                        pending_url=pending_url,
+                    ),
                     embedder=embedder,
                     user_id=user_id,
                 )
             elif reason := unsupported_url_reason(pending_url):
-                response = ChatResponse(
-                    action="conversation",
-                    message=reason,
-                    saved=False,
-                    next_step=(
-                        "If the link matters, paste a short note about why and I can save that context instead."
+                response = _reference_link_chat_response(
+                    db=db,
+                    url=pending_url,
+                    intent_text=_pending_link_intent_text(
+                        payload.message,
+                        history=effective_history,
+                        pending_url=pending_url,
                     ),
+                    embedder=embedder,
+                    user_id=user_id,
+                    unreadable_reason=reason,
                 )
                 response = _with_preference_learning(response, preference_learning)
-                logger.info("\u2705 chat.message.complete action=url_unsupported saved=False")
+                logger.info("\u2705 chat.message.complete action=url_unsupported_reference saved=True")
                 return _persist_assistant_response(
                     db=db,
                     conversation=conversation,
@@ -655,17 +641,26 @@ def process_chat_message(
                 capture = _create_reference_link_capture(
                     db=db,
                     url=pending_url,
-                    intent_text="Saved as a reference after Crowscap could not read the link content.",
+                    intent_text=_pending_link_intent_text(
+                        payload.message,
+                        history=effective_history,
+                        pending_url=pending_url,
+                    ),
                     embedder=embedder,
                     user_id=user_id,
                 )
             else:
+                pending_intent = _pending_link_intent_text(
+                    payload.message,
+                    history=effective_history,
+                    pending_url=pending_url,
+                )
                 try:
                     capture = create_url_capture(
                         db=db,
                         payload=UrlCaptureRequest(
                             url=pending_url,
-                            intent_text="Confirmed from a previous link in chat.",
+                            intent_text=pending_intent,
                         ),
                         extractor=extractor,
                         embedder=embedder,
@@ -673,9 +668,16 @@ def process_chat_message(
                         user_id=user_id,
                     )
                 except IngestionError as exc:
-                    response = _url_ingestion_failure_response(url=pending_url, error_message=str(exc))
+                    response = _reference_link_chat_response(
+                        db=db,
+                        url=pending_url,
+                        intent_text=pending_intent,
+                        embedder=embedder,
+                        user_id=user_id,
+                        unreadable_reason=str(exc),
+                    )
                     response = _with_preference_learning(response, preference_learning)
-                    logger.info("\u2705 chat.message.complete action=url_ingestion_failed saved=False")
+                    logger.info("\u2705 chat.message.complete action=url_ingestion_failed_reference saved=True")
                     return _persist_assistant_response(
                         db=db,
                         conversation=conversation,
@@ -1466,6 +1468,10 @@ def _grounded_local_conversation_reply(
     normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
     previous_user_turns = _conversation_user_messages(conversation)
 
+    if _asks_about_recent_link_content(normalized):
+        if reply := _recent_reference_link_reply(db=db, conversation=conversation, user_id=user_id):
+            return reply
+
     if _asks_about_recent_archive(normalized):
         return _recent_archive_summary_reply(db=db, conversation=conversation, user_id=user_id)
 
@@ -1501,6 +1507,60 @@ def _asks_about_recent_archive(normalized: str) -> bool:
     if not any(marker in normalized for marker in ("what", "which", "show", "list", "tell me")):
         return False
     return any(marker in normalized for marker in ("just", "last", "recent", "that", "those"))
+
+
+def _asks_about_recent_link_content(normalized: str) -> bool:
+    if not any(marker in normalized for marker in ("link", "url", "video", "short", "page", "article")):
+        return False
+    patterns = (
+        r"^what'?s?\s+in\s+(?:that|this|the)\s+(?:link|url|video|short|page|article)$",
+        r"^what\s+is\s+in\s+(?:that|this|the)\s+(?:link|url|video|short|page|article)$",
+        r"^what'?s?\s+(?:that|this|the)\s+(?:link|url|video|short|page|article)\s+about$",
+        r"^what\s+is\s+(?:that|this|the)\s+(?:link|url|video|short|page|article)\s+about$",
+        r"^what\s+did\s+(?:that|this|the)\s+(?:link|url|video|short|page|article)\s+say$",
+        r"^summari[sz]e\s+(?:that|this|the)\s+(?:link|url|video|short|page|article)$",
+    )
+    return any(re.fullmatch(pattern, normalized) is not None for pattern in patterns)
+
+
+def _recent_reference_link_reply(
+    *,
+    db: Session,
+    conversation: Conversation,
+    user_id: str | None,
+) -> str | None:
+    recent = _latest_captured_source_from_conversation(
+        db=db,
+        conversation=conversation,
+        user_id=user_id,
+        source_type_hint="reference",
+    )
+    if recent is None:
+        return None
+
+    url = recent.source.original_url or recent.source.resolved_url or "that link"
+    reason = _reference_reason_from_source(recent.source)
+    if reason:
+        return (
+            f"I only saved that link as a reference, so I do not know what is inside it yet.\n\n"
+            f"What I do know is why you kept it: {reason}\n\n"
+            "If you paste the key point from the link, I can turn that into memory too."
+        )
+    return (
+        f"I only saved the URL for now: {url}\n\n"
+        "I do not know what is inside it yet. Add a short reason or paste the useful part, "
+        "and I will keep the context around it."
+    )
+
+
+def _reference_reason_from_source(source: Source) -> str | None:
+    raw_text = source.raw_text or ""
+    match = re.search(r"^Why it matters:\s*(.+)$", raw_text, flags=re.I | re.M)
+    if match:
+        return match.group(1).strip()
+    metadata = source.metadata_json or {}
+    reason = metadata.get("reason")
+    return reason.strip() if isinstance(reason, str) and reason.strip() else None
 
 
 def _recent_archive_summary_reply(
@@ -2046,8 +2106,8 @@ def _process_save_previous_response_request(
         return ChatResponse(
             action="capture",
             message=(
-                "I do not have a previous answer in this chat to save yet. "
-                "Send the note or source you want me to remember."
+                "There is not a useful answer right before this to save. "
+                "Send the idea, source, or link you want kept."
             ),
             saved=False,
         )
@@ -2090,11 +2150,15 @@ def _latest_assistant_response_for_saving(
     conversation: Conversation,
     user_id: str | None,
 ) -> ChatMessage | None:
+    # Deictic save commands ("save this", "keep that") should resolve only to
+    # the immediately preceding assistant reply. Skipping over receipts or
+    # greetings to find an older answer would save something the user did not
+    # point at.
     query = (
         select(ChatMessage)
         .where(ChatMessage.conversation_id == conversation.id, ChatMessage.role == "assistant")
         .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
-        .limit(20)
+        .limit(1)
     )
     if conversation.user_id is not None:
         query = query.where(ChatMessage.user_id == conversation.user_id)
@@ -2103,15 +2167,64 @@ def _latest_assistant_response_for_saving(
     else:
         query = query.where(ChatMessage.user_id.is_(None))
 
-    for message in db.scalars(query):
-        metadata = message.metadata_json or {}
-        if metadata.get("action") == "capture" and metadata.get("saved") is True:
-            continue
-        if "I have not saved it yet" in message.content:
-            continue
-        if message.content.strip():
-            return message
-    return None
+    message = db.scalar(query)
+    if message is None or not _is_saveworthy_assistant_response(message):
+        return None
+    return message
+
+
+def _is_saveworthy_assistant_response(message: ChatMessage) -> bool:
+    content = re.sub(r"\s+", " ", message.content.strip())
+    if not content:
+        return False
+
+    metadata = message.metadata_json or {}
+    action = metadata.get("action")
+    if action in {"capture", "reminder", "forget", "acknowledge", "self"}:
+        return False
+    if metadata.get("saved") is True:
+        return False
+
+    normalized = content.lower()
+    blocked_markers = (
+        "i have not saved it yet",
+        "i found this link:",
+        "i could not read this link",
+        "crowscap could not read",
+        "i kept this as",
+        "i kept this link as",
+        "memory receipt",
+        "preference learned",
+        "try again",
+        "there is not a useful answer right before this to save",
+        "i need the actual content before i can save it",
+    )
+    if any(marker in normalized for marker in blocked_markers):
+        return False
+
+    greeting_replies = {
+        "hello",
+        "hey",
+        "hey.",
+        "hello!",
+        "great!",
+        "yes?",
+        "hmmm",
+        "hmm",
+        "deep indeed.",
+        "i agree, it's quite thought-provoking.",
+        "i agree, it is quite thought-provoking.",
+        "hey. what are you thinking about?",
+        "you are welcome. i am here when you want to keep going.",
+    }
+    if normalized.strip(" .!?") in {reply.strip(" .!?") for reply in greeting_replies}:
+        return False
+
+    words = re.findall(r"[a-z0-9']+", normalized)
+    if len(content) < 80 or len(words) < 10:
+        return False
+
+    return True
 
 
 def _process_reminder_request(
@@ -2892,6 +3005,10 @@ def _message_without_url(message: str, url: str) -> str:
     return re.sub(r"\s+", " ", message.replace(url, " ")).strip()
 
 
+def _url_message_intent_text(message: str, url: str) -> str | None:
+    return _clean_reference_link_intent(_message_without_url(message, url))
+
+
 def _message_without_urls(message: str) -> str:
     without_urls = re.sub(r"https?://[^\s)>\]]+", " ", message)
     without_empty_markdown = re.sub(r"\[\s*\]\s*\(\s*\)", " ", without_urls)
@@ -3066,6 +3183,59 @@ def _create_reference_link_capture(
     )
 
 
+def _reference_link_chat_response(
+    *,
+    db: Session,
+    url: str,
+    intent_text: str | None,
+    embedder: MemoryEmbedder,
+    user_id: str | None,
+    unreadable_reason: str | None = None,
+) -> ChatResponse:
+    capture = _create_reference_link_capture(
+        db=db,
+        url=url,
+        intent_text=intent_text,
+        embedder=embedder,
+        user_id=user_id,
+    )
+    has_reason = _reference_capture_has_reason(capture)
+    if unreadable_reason and has_reason:
+        message = (
+            "I kept this link as a reference with your reason attached.\n\n"
+            "I could not read the content itself, so I will not pretend I know what is inside it."
+        )
+    elif unreadable_reason:
+        message = (
+            "I kept this link as a reference.\n\n"
+            "I could not read the content itself, so I only saved the URL for now."
+        )
+    elif has_reason:
+        message = "I kept this link as a reference with your reason attached."
+    else:
+        message = "I kept this link as a reference."
+
+    next_step = None
+    if not has_reason:
+        next_step = (
+            'Add a short reason like "for my YC application" if you want me to bring this back '
+            "with better context."
+        )
+
+    return ChatResponse(
+        action="capture",
+        message=message,
+        saved=True,
+        capture=capture,
+        next_step=next_step,
+    )
+
+
+def _reference_capture_has_reason(capture: TextCaptureResponse) -> bool:
+    original = capture.original_content or ""
+    return "Why it matters:" in original
+
+
 def _url_ingestion_failure_response(*, url: str, error_message: str) -> ChatResponse:
     return ChatResponse(
         action="conversation",
@@ -3085,7 +3255,11 @@ def _clean_reference_link_intent(intent_text: str | None) -> str | None:
         return None
     cleaned = re.sub(r"\s+", " ", intent_text.strip()).strip(" .,:;!?")
     cleaned = re.sub(
-        r"^(?:yes|yeah|yep|sure|ok|okay|alright|please|save|capture|remember|keep|read|process|ingest|handle|it|this|link|the)+\b",
+        r"^(?:(?:yes|yeah|yep|yup|sure|ok|okay|alright)\b[\s,]*)?"
+        r"(?:(?:please\s+)?(?:save|capture|remember|keep|store|read|process|ingest|handle)\s+)?"
+        r"(?:(?:it|this|that|the)\s+)?"
+        r"(?:(?:link|url|video|short|shorts|source)\s*)?"
+        r"(?:,?\s*(?:please|for me|then|anyway)\b)?",
         "",
         cleaned,
         flags=re.I,
@@ -3112,6 +3286,38 @@ def _pending_link_confirmation_intent(message: str) -> str | None:
     if _is_generic_affirmation(message) or _is_url_capture_confirmation(message):
         return None
     return message
+
+
+def _pending_link_intent_text(
+    message: str,
+    *,
+    history: list[ConversationTurn],
+    pending_url: str,
+) -> str | None:
+    pieces: list[str] = []
+    previous_intent = _pending_link_context_from_history(history=history, pending_url=pending_url)
+    current_intent = _pending_link_confirmation_intent(message)
+    for piece in (previous_intent, current_intent):
+        cleaned = _clean_reference_link_intent(piece)
+        if cleaned and cleaned.lower() not in {existing.lower() for existing in pieces}:
+            pieces.append(cleaned)
+    if not pieces:
+        return None
+    return " ".join(pieces)[:300]
+
+
+def _pending_link_context_from_history(
+    *,
+    history: list[ConversationTurn],
+    pending_url: str,
+) -> str | None:
+    for turn in reversed(history[-10:]):
+        if turn.role != "user":
+            continue
+        if pending_url not in turn.content:
+            continue
+        return _url_message_intent_text(turn.content, pending_url)
+    return None
 
 
 def _is_url_capture_confirmation(message: str) -> bool:

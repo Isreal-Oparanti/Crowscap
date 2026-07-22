@@ -133,14 +133,16 @@ This prevents two failure modes:
 - Treating every user message as something to save.
 - Letting the model guess factual conversation history instead of reading stored messages.
 
-Normal conversation stays normal. Knowledge questions use memory retrieval. Capture requires user intent.
+Normal conversation stays normal. Knowledge questions use memory retrieval. Capture preserves the user's intent without turning casual replies into memories.
 
 Recent reliability rules:
 
 - A substantial note that includes a URL is saved as the user's note, not reduced to a link preview.
-- Bare URLs ask for confirmation before saving.
-- Facebook, WhatsApp, Instagram, X/Twitter, and similar social links are saved as references when confirmed; the backend does not claim it can extract private or app-gated content from them.
+- Bare URLs are kept as references or extracted when readable, so the user does not lose links they dropped quickly.
+- Facebook, WhatsApp, Instagram, X/Twitter, and similar social links are saved as references with the user's surrounding intent when available; the backend does not claim it can extract private or app-gated content from them.
+- If a readable URL fails extraction, the URL is saved as a reference and Crowscap clearly says it could not read the content.
 - Short confirmations such as `yeah`, `sure`, and `go ahead` only confirm a pending action when one exists.
+- Short save commands such as `save this` only save a substantive previous assistant answer; they do not save greetings, receipts, errors, or product prompts.
 - Follow-up questions about the current chat, such as `what question?`, are answered from recent conversation state instead of memory search.
 - Generic definition questions, such as `what is thought-provoking?`, do not automatically pull just-saved source context.
 

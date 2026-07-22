@@ -4,7 +4,7 @@ Crowscap should not treat every message as a memory operation. The chat layer ha
 
 1. Normal conversation stays normal.
 2. Factual questions about the current chat are answered from stored chat messages, not generated from memory search.
-3. External sources are saved only when the user clearly intends to save them.
+3. External sources preserve the user's intent: readable sources are extracted when possible, and unreadable sources are kept as references without invented content.
 
 ## Intent Routing
 
@@ -50,13 +50,11 @@ copy.
 
 ## URL Capture Safety
 
-A bare URL in chat is not enough evidence that the user wants permanent memory extraction. Bare URLs now create a confirmation response:
-
-> I found this link. I have not saved it yet. Reply "save this link" if you want Crowscap to read and remember it.
-
-If the user explicitly says "save this", "remember this", "read later", "capture this", or similar around the URL, Crowscap captures it immediately.
-
-This keeps accidental links out of long-term memory while preserving the fast capture flow for intentional saves.
+Users often drop links quickly because they do not want to lose them. Crowscap
+therefore keeps URL messages instead of treating them as accidental noise.
+Readable links are extracted when possible. Links that cannot be reliably read
+are saved as references, with the user's surrounding words kept as the reason
+when available.
 
 If a message contains substantial user-written content plus a URL, the content
 is treated as the primary thing to save. The backend should not collapse a real
@@ -64,20 +62,24 @@ note into a link preview just because a URL appears inside it.
 
 Some links are references, not extractable sources. WhatsApp invite links,
 Facebook share/reel links, Instagram links, X/Twitter links, and similar
-social/app-gated URLs should be kept as references when the user confirms their
-importance. Crowscap should not claim it can read private or app-gated content.
+social/app-gated URLs should be kept as references immediately. Crowscap should
+not claim it can read private or app-gated content.
 
 Readable links should be attempted first. If extraction fails because a source
 is private, unavailable, age-restricted, or missing captions, Crowscap should
-say that clearly and leave it unsaved. If the user then says to save it anyway,
-the link should be saved as a reference rather than retrying the same failed
-extraction path.
+say that clearly and save the URL as a reference rather than retrying the same
+failed extraction path or pretending it knows what is inside.
 
 Short confirmations are scoped to current state:
 
 - If a pending URL exists, replies like "yeah", "sure", and "go ahead" may confirm it.
 - If the user declines with "no thanks" or "ignore it", the pending URL stays unsaved.
 - If no pending URL exists, a later "yeah" must remain conversation and must not trigger capture.
+
+Short save commands are also scoped to current state. `save this`, `save that`,
+and similar messages should save a substantive previous assistant answer. They
+must not save greetings, receipts, errors, link prompts, or generic product
+copy as memories.
 
 ## Recent Source Context
 
@@ -92,4 +94,4 @@ not as a forced interpretation of the saved video.
 
 ## Why This Exists
 
-The product promise is not just "Crowscap remembers." It is "Crowscap remembers correctly, with user intent." Exact conversation facts require retrieval. Knowledge synthesis requires RAG. Capture requires intent. Mixing those paths creates confident wrongness and memory pollution.
+The product promise is not just "Crowscap remembers." It is "Crowscap remembers correctly, with user intent." Exact conversation facts require retrieval. Knowledge synthesis requires RAG. Capture must preserve intent without inventing content. Mixing those paths creates confident wrongness and memory pollution.

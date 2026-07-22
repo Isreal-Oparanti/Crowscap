@@ -72,7 +72,7 @@ The chat layer also separates three kinds of context:
 
 - Conversation facts, such as "what was my first message?", are answered from stored chat messages.
 - Knowledge questions, such as "what do I know about distribution?", use semantic retrieval.
-- Capture actions require user intent, so accidental links or short confirmations do not become permanent memory.
+- Capture actions preserve user intent: useful notes become memory, readable links are extracted when possible, and unreadable links are kept as honest references instead of becoming invented summaries.
 
 ## Alibaba Cloud and Qwen Cloud Usage
 

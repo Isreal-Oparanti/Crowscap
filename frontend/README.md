@@ -78,8 +78,8 @@ Crowscap should feel like a private learning workspace, not a generic chatbot.
 The interface should:
 
 - Let normal conversation remain normal.
-- Ask for confirmation before saving accidental links.
-- Treat non-extractable social links as references when the user says why they matter.
+- Keep dropped links as references and enrich them when readable.
+- Treat non-extractable social links as references without pretending the app read private content.
 - Show memory receipts after successful captures.
 - Keep original source text accessible.
 - Surface one useful recall instead of overwhelming the user with a backlog.
@@ -91,10 +91,10 @@ The interface should:
 
 1. Sign in with Google.
 2. Paste a useful paragraph and confirm memory cards appear.
-3. Paste a bare link and confirm Crowscap asks before saving it.
+3. Paste a bare link and confirm Crowscap keeps it as a reference or extracts it if readable.
 4. Paste a note that contains a URL and confirm the note is saved as a note, not collapsed into only the URL.
-5. Paste a Facebook, WhatsApp, or other social link and confirm Crowscap offers to keep it as a reference instead of claiming it can read private content.
-6. Reply naturally, such as `yeah` or `yes please`, and confirm it only acts when there is a pending link or reminder.
+5. Paste a Facebook, WhatsApp, or other social link and confirm Crowscap keeps the URL and any stated reason without claiming it can read private content.
+6. Reply naturally, such as `yeah` or `yes please`, and confirm it only acts when there is a pending action.
 7. Ask a local conversation follow-up, such as `what question?`, and confirm Crowscap refers to the actual earlier chat line.
 8. Ask a normal definition or conversational question and confirm unrelated memories do not appear.
 9. Search for a saved idea by meaning, not exact wording.

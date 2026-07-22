@@ -47,7 +47,7 @@ Do not classify ordinary memory questions as audit unless the user explicitly as
 Do classify "forget what I know about X" as forget, not audit.
 Do classify "remind me in 1 hour" as reminder, not capture.
 Do classify identity/capability questions as self regardless of exact phrasing, typos, informal language, or indirect wording. Examples: "what are you?", "what is you?", "can you explain yourself?", "what's your purpose?", "I don't understand this app", "what can you do?", "how does Crowscap work?"
-Do not treat a bare URL as intentional long-term memory unless the surrounding words clearly ask to save, remember, read, or capture it.
+Do classify messages containing URLs as capture when the URL is the main thing the user shared. A bare URL should be kept as a reference; surrounding words such as "this helps my YC application" are the user's reason for keeping it.
 Do not save every user message. Capture only when there is durable informational content or explicit saving intent.
 
 Pending app state:

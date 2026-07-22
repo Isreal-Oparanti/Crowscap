@@ -5,7 +5,7 @@ hackathon proof of deployment.
 
 ## Current Deployment
 
-- Provider: Alibaba Cloud ECS
+- Provider: Alibaba Cloud ECS                   
 - Region: US Virginia
 - Instance: `ecs.c9i.large`
 - OS: Ubuntu 24.04 LTS
