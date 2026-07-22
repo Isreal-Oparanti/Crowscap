@@ -42,6 +42,9 @@ Dynamic JavaScript pages:
 YouTube:
 - Prefer transcript/caption extraction where available.
 - If no transcript exists, allow user to paste transcript manually for MVP.
+- If transcript extraction fails but video metadata is available, save the link
+  as a reference with the known title and the user's reason. Do not imply the
+  transcript or video content was read.
 - Speech-to-text can be a later feature if needed.
 
 PDF:
@@ -141,4 +144,3 @@ Each failure should suggest a fallback:
 - upload a PDF.
 - add a transcript.
 - retry later.
-

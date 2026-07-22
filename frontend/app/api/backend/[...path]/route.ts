@@ -27,7 +27,6 @@ async function proxy(
     );
   }
 
-  const { path } = await context.params;
   const target = new URL(
     `${BACKEND_URL}/api/v1/${path.join("/")}${request.nextUrl.search}`,
   );

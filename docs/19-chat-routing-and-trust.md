@@ -87,6 +87,13 @@ After a successful capture, Crowscap may use the just-saved source for short
 follow-ups that clearly refer to it, such as "what does this mean?" or "why is
 that important?"
 
+Link-specific follow-ups such as "what is the link above about?" should resolve
+to the most recent captured source in the active conversation. If that source was
+readable, Crowscap should answer from the memory cards and source snapshot. If it
+was only saved as a reference, Crowscap should say exactly what it knows: the URL,
+the user's reason for saving it, and any safe metadata such as a video title. It
+must not borrow context from older links or nearby memories.
+
 It should not inject just-saved source context into ordinary definition or
 general conversation questions. For example, after saving a theology video,
 "what is thought-provoking?" should be answered as a normal definition question,

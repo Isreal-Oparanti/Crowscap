@@ -1592,16 +1592,20 @@ def _recent_link_content_reply(
 
 def _recent_reference_link_reply(source: Source, *, url: str) -> str:
     reason = _reference_reason_from_source(source)
+    known_title = _reference_known_title_from_source(source)
+    known_title_line = f"What I know: the title appears to be \"{known_title}\".\n\n" if known_title else ""
     if reason:
         return (
             f"I only saved that link as a reference: {url}\n\n"
-            "I do not know what is inside this specific link because Crowscap could not read it at capture time.\n\n"
+            f"{known_title_line}"
+            "I do not have readable content from this specific link because Crowscap could not extract it at capture time.\n\n"
             f"What I do know is why you kept it: {reason}\n\n"
             "If you paste the key point from it, I can keep that context too."
         )
     return (
         f"I only saved that link as a reference: {url}\n\n"
-        "I do not know what is inside it because Crowscap could not read the content at capture time. "
+        f"{known_title_line}"
+        "I do not have readable content from it because Crowscap could not extract it at capture time. "
         "Add a short reason or paste the useful part, and I will keep the context around it."
     )
 
@@ -1624,6 +1628,12 @@ def _reference_reason_from_source(source: Source) -> str | None:
     metadata = source.metadata_json or {}
     reason = metadata.get("reason")
     return reason.strip() if isinstance(reason, str) and reason.strip() else None
+
+
+def _reference_known_title_from_source(source: Source) -> str | None:
+    metadata = source.metadata_json or {}
+    title = metadata.get("reference_title") or metadata.get("title")
+    return title.strip() if isinstance(title, str) and title.strip() else None
 
 
 def _recent_archive_summary_reply(
@@ -3152,20 +3162,35 @@ def _create_reference_link_capture(
     intent_text: str | None,
     embedder: MemoryEmbedder,
     user_id: str | None,
+    source_metadata: dict | None = None,
 ) -> TextCaptureResponse:
     clean_intent = _clean_reference_link_intent(intent_text)
-    title = _reference_link_title(url)
+    reference_metadata = dict(source_metadata or {})
+    known_title = _clean_reference_metadata_title(reference_metadata.get("title"))
+    title = known_title or _reference_link_title(url)
     raw_text = f"Reference link: {url}"
+    if known_title:
+        raw_text += f"\nKnown title: {known_title}"
     if clean_intent:
         raw_text += f"\nWhy it matters: {clean_intent}"
 
-    memory_content = (
-        f"Saved reference link for: {clean_intent}\nLink: {url}"
-        if clean_intent
-        else f"Saved reference link: {url}"
-    )
+    memory_parts = ["Saved reference link"]
+    if clean_intent:
+        memory_parts.append(f"for: {clean_intent}")
+    if known_title:
+        memory_parts.append(f"\nTitle: {known_title}")
+    memory_parts.append(f"\nLink: {url}")
+    memory_content = " ".join(memory_parts).replace(" \n", "\n")
     embedding = embedder.embed_texts([memory_content])[0]
     content_hash = hashlib.sha256(f"{user_id or 'anon'}:{url}:{clean_intent or ''}".encode("utf-8")).hexdigest()
+    reference_metadata.update(
+        {
+            "input_kind": reference_metadata.get("input_kind") or "reference_link",
+            "reference_only": True,
+            "reason": clean_intent,
+            "reference_title": known_title,
+        }
+    )
 
     source = Source(
         user_id=user_id,
@@ -3175,11 +3200,7 @@ def _create_reference_link_capture(
         title=title,
         raw_text=raw_text,
         extracted_text_hash=content_hash,
-        metadata_json={
-            "input_kind": "reference_link",
-            "reference_only": True,
-            "reason": clean_intent,
-        },
+        metadata_json={key: value for key, value in reference_metadata.items() if value is not None},
     )
     db.add(source)
     db.flush()
@@ -3202,7 +3223,7 @@ def _create_reference_link_capture(
         memory_type="reference",
         epistemic_label="source_summary",
         content=memory_content,
-        summary=clean_intent or "Saved reference link",
+        summary=clean_intent or known_title or "Saved reference link",
         confidence="high" if clean_intent else "medium",
         confidence_reason=(
             "The user gave a reason for keeping this reference."
@@ -3254,6 +3275,7 @@ def _reference_link_chat_response(
     embedder: MemoryEmbedder,
     user_id: str | None,
     unreadable_reason: str | None = None,
+    source_metadata: dict | None = None,
 ) -> ChatResponse:
     capture = _create_reference_link_capture(
         db=db,
@@ -3261,17 +3283,20 @@ def _reference_link_chat_response(
         intent_text=intent_text,
         embedder=embedder,
         user_id=user_id,
+        source_metadata=source_metadata,
     )
     has_reason = _reference_capture_has_reason(capture)
+    known_title = _reference_known_title_from_capture(capture)
+    title_line = f"\n\nI found the title: {known_title}" if known_title else ""
     if unreadable_reason and has_reason:
         message = (
             "I kept this link as a reference with your reason attached.\n\n"
-            "I could not read the content itself, so I will not pretend I know what is inside it."
+            f"I could not extract enough readable content to make memory cards, so I will not pretend I know more than that.{title_line}"
         )
     elif unreadable_reason:
         message = (
             "I kept this link as a reference.\n\n"
-            "I could not read the content itself, so I only saved the URL for now."
+            f"I could not extract enough readable content to make memory cards, so I saved the URL for now.{title_line}"
         )
     elif has_reason:
         message = "I kept this link as a reference with your reason attached."
@@ -3297,6 +3322,19 @@ def _reference_link_chat_response(
 def _reference_capture_has_reason(capture: TextCaptureResponse) -> bool:
     original = capture.original_content or ""
     return "Why it matters:" in original
+
+
+def _reference_known_title_from_capture(capture: TextCaptureResponse) -> str | None:
+    original = capture.original_content or ""
+    match = re.search(r"^Known title:\s*(.+)$", original, flags=re.I | re.M)
+    return match.group(1).strip() if match else None
+
+
+def _clean_reference_metadata_title(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    compact = re.sub(r"\s+", " ", value.strip())
+    return compact[:500] if compact else None
 
 
 def _url_ingestion_failure_response(*, url: str, error_message: str) -> ChatResponse:

@@ -810,6 +810,56 @@ def test_unreadable_youtube_link_can_be_saved_as_reference_after_failure(monkeyp
         app.dependency_overrides.clear()
 
 
+def test_youtube_reference_keeps_metadata_title_when_transcript_is_unusable(monkeypatch) -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter("capture")
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+
+    def fail_create_url_capture(**kwargs) -> TextCaptureResponse:
+        raise IngestionError(
+            "This video's transcript is too short to extract useful memories.",
+            metadata={"title": "3 common YC interview mistakes", "video_id": "ythRYUxLEks"},
+        )
+
+    monkeypatch.setattr("app.services.chat_service.create_url_capture", fail_create_url_capture)
+
+    try:
+        client = TestClient(app)
+        save_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": (
+                    "this link will be useful for my yc application "
+                    "https://youtube.com/shorts/ythRYUxLEks?si=test"
+                ),
+                "history": [],
+            },
+        )
+        assert save_response.status_code == 200
+        payload = save_response.json()
+        assert payload["capture"]["source_type"] == "reference"
+        assert "3 common YC interview mistakes" in payload["message"]
+        assert "Known title: 3 common YC interview mistakes" in payload["capture"]["original_content"]
+        conversation_id = payload["conversation_id"]
+
+        question_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "whats the link above about",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+        assert question_response.status_code == 200
+        question_payload = question_response.json()
+        assert "3 common YC interview mistakes" in question_payload["message"]
+        assert "yc application" in question_payload["message"].lower()
+        assert "do not have readable content" in question_payload["message"]
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_local_definition_after_capture_does_not_pull_saved_source_context(monkeypatch) -> None:
     override_db, testing_session = build_chat_db_override()
     app.dependency_overrides[get_db] = override_db
@@ -1795,7 +1845,7 @@ def test_recent_reference_link_content_question_stays_honest(monkeypatch) -> Non
         payload = question_response.json()
         assert payload["action"] == "conversation"
         assert payload["saved"] is False
-        assert "do not know what is inside" in payload["message"]
+        assert "do not have readable content" in payload["message"]
         assert "yc application" in payload["message"].lower()
     finally:
         app.dependency_overrides.clear()
@@ -1852,7 +1902,7 @@ def test_link_above_question_uses_latest_reference_not_older_link_reason(monkeyp
         assert payload["action"] == "conversation"
         assert "https://youtu.be/iEFSQctQPjI?si=test" in payload["message"]
         assert "yc application" not in payload["message"].lower()
-        assert "do not know what is inside" in payload["message"]
+        assert "do not have readable content" in payload["message"]
     finally:
         app.dependency_overrides.clear()
 

@@ -10,6 +10,7 @@ from app.schemas.capture import UrlCaptureRequest
 from app.services.ingestion_service import (
     FetchedContent,
     IngestionError,
+    _youtube_reference_metadata,
     clean_transcript,
     create_pdf_capture_from_bytes,
     create_url_capture,
@@ -82,6 +83,30 @@ def test_youtube_url_detection_supports_common_formats() -> None:
     assert extract_youtube_video_id("https://youtu.be/abc123") == "abc123"
     assert extract_youtube_video_id("https://www.youtube.com/shorts/abc123") == "abc123"
     assert extract_youtube_video_id("https://m.youtube.com/shorts/abc123?si=share") == "abc123"
+
+
+def test_youtube_reference_metadata_preserves_known_title() -> None:
+    metadata = _youtube_reference_metadata(
+        {
+            "title": " 3 common YC interview mistakes ",
+            "uploader": "Founder School",
+            "duration": 58,
+            "upload_date": "20260719",
+            "view_count": 12000,
+        },
+        video_id="ythRYUxLEks",
+    )
+
+    assert metadata == {
+        "input_kind": "youtube_reference",
+        "video_id": "ythRYUxLEks",
+        "source_type_hint": "youtube",
+        "channel": "Founder School",
+        "duration": 58,
+        "publish_date": "20260719",
+        "view_count": 12000,
+        "title": "3 common YC interview mistakes",
+    }
 
 
 def test_whatsapp_invite_url_is_marked_unsupported() -> None:
