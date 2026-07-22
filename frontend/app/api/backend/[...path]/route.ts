@@ -67,11 +67,24 @@ async function proxy(
       return NextResponse.json({ detail }, { status: response.status });
     }
 
+    const responseHeaders = new Headers();
+    responseHeaders.set("Content-Type", responseContentType);
+    
+    const setCookies = response.headers.getSetCookie ? response.headers.getSetCookie() : [];
+    if (setCookies.length > 0) {
+      for (const cookie of setCookies) {
+        responseHeaders.append("Set-Cookie", cookie);
+      }
+    } else {
+      const setCookieStr = response.headers.get("set-cookie");
+      if (setCookieStr) {
+        responseHeaders.set("Set-Cookie", setCookieStr);
+      }
+    }
+
     return new NextResponse(responseBody, {
       status: response.status,
-      headers: {
-        "Content-Type": responseContentType,
-      },
+      headers: responseHeaders,
     });
   } catch {
     return NextResponse.json(
