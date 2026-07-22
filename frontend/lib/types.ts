@@ -106,7 +106,8 @@ export type ChatResponse = {
     | "audit"
     | "forget"
     | "reminder"
-    | "self";
+    | "self"
+    | "recent";
   message: string;
   conversation_id: string | null;
   user_message_id: string | null;
