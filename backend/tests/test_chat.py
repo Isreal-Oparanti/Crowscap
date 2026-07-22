@@ -257,6 +257,70 @@ def test_acknowledgement_is_not_saved_as_memory() -> None:
         app.dependency_overrides.clear()
 
 
+def test_long_paste_is_captured_not_treated_as_preference() -> None:
+    """A long pasted text that happens to contain preference-like phrases
+    ("every day", "please", "review") must be captured as content, never
+    misread as a preference command."""
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter("capture")
+    app.dependency_overrides[get_memory_extractor] = lambda: FakeExtractor()
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+    app.dependency_overrides[get_memory_relation_detector] = lambda: FakeRelationDetector()
+
+    long_paste = (
+        "Success is highly personal. Please remember that showing up every day matters "
+        "more than intensity. Review your goals often and don't let comparison steal focus. "
+    ) * 12
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": long_paste, "history": []},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["saved"] is True
+        assert payload["preference_updates"] == []
+
+        db = testing_session()
+        profile = db.scalar(select(UserPreference))
+        assert profile is None or profile.recall_frequency is None
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_oversized_history_turn_does_not_poison_conversation() -> None:
+    """After one very long message enters a conversation, later requests carry
+    it in history. That must never fail validation and lock the whole chat."""
+    override_db, _testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter(
+        "conversation", reply="Still here."
+    )
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "are you still working?",
+                "history": [
+                    {"role": "user", "content": "x" * 9000},
+                    {"role": "assistant", "content": "I kept this as 4 memories."},
+                ],
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["message"]
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_explicit_preference_updates_profile_without_saving_memory() -> None:
     override_db, testing_session = build_chat_db_override()
     app.dependency_overrides[get_db] = override_db
@@ -855,7 +919,8 @@ def test_youtube_reference_keeps_metadata_title_when_transcript_is_unusable(monk
         question_payload = question_response.json()
         assert "3 common YC interview mistakes" in question_payload["message"]
         assert "yc application" in question_payload["message"].lower()
-        assert "do not have readable content" in question_payload["message"]
+        # With a known title the reply should lead with what it knows, not hedge.
+        assert "Link:" in question_payload["message"]
     finally:
         app.dependency_overrides.clear()
 
@@ -1845,7 +1910,7 @@ def test_recent_reference_link_content_question_stays_honest(monkeypatch) -> Non
         payload = question_response.json()
         assert payload["action"] == "conversation"
         assert payload["saved"] is False
-        assert "do not have readable content" in payload["message"]
+        assert "could not read its content" in payload["message"]
         assert "yc application" in payload["message"].lower()
     finally:
         app.dependency_overrides.clear()
@@ -1902,7 +1967,77 @@ def test_link_above_question_uses_latest_reference_not_older_link_reason(monkeyp
         assert payload["action"] == "conversation"
         assert "https://youtu.be/iEFSQctQPjI?si=test" in payload["message"]
         assert "yc application" not in payload["message"].lower()
-        assert "do not have readable content" in payload["message"]
+        assert "could not read its content" in payload["message"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_whats_the_above_about_resolves_to_latest_capture(monkeypatch) -> None:
+    """Deictic questions like 'whats the above about' must resolve to the most
+    recent capture in the conversation, never fall through to a broad memory
+    search over older items."""
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter("capture")
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+
+    def fail_create_url_capture(**kwargs) -> TextCaptureResponse:
+        raise IngestionError("This video has no readable captions.")
+
+    monkeypatch.setattr("app.services.chat_service.create_url_capture", fail_create_url_capture)
+
+    try:
+        client = TestClient(app)
+        save_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": (
+                    "i will need this video when applying for yc "
+                    "https://youtube.com/shorts/ythRYUxLEks?si=test"
+                ),
+                "history": [],
+            },
+        )
+        assert save_response.status_code == 200
+        conversation_id = save_response.json()["conversation_id"]
+
+        question_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "whats the above about",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+
+        assert question_response.status_code == 200
+        payload = question_response.json()
+        assert payload["action"] == "conversation"
+        assert payload["saved"] is False
+        assert "applying for yc" in payload["message"].lower()
+        # Bare video IDs must never leak into prose outside the full link line.
+        assert "(ythRYUxLEks)" not in payload["message"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_recent_route_with_no_captures_replies_gracefully() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter("recent")
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "what did I just save", "history": []},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "conversation"
+        assert payload["saved"] is False
+        assert "nothing recent" in payload["message"].lower()
     finally:
         app.dependency_overrides.clear()
 

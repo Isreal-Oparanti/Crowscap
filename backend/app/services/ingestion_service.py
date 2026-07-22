@@ -30,6 +30,11 @@ MAX_PDF_BYTES = 10 * 1024 * 1024
 MIN_PDF_BYTES = 1024
 MIN_EXTRACTED_CHARS = 100
 MIN_TRANSCRIPT_WORDS = 100
+# Short-form videos (YouTube Shorts and similar) legitimately have short
+# transcripts. Requiring 100 words made the same URL succeed or fail
+# unpredictably, so short videos get a proportionate minimum instead.
+SHORT_VIDEO_MAX_DURATION_SECONDS = 180
+MIN_SHORT_VIDEO_TRANSCRIPT_WORDS = 25
 MAX_TRANSCRIPT_WORDS = 15_000
 USER_AGENT = "CrowscapBot/0.1 (+https://crowscap.local)"
 
@@ -209,7 +214,10 @@ def create_youtube_capture(
             metadata=youtube_metadata,
         ) from exc
     word_count = len(transcript.split())
-    if word_count < MIN_TRANSCRIPT_WORDS:
+    duration = info.get("duration")
+    is_short_video = isinstance(duration, (int, float)) and duration <= SHORT_VIDEO_MAX_DURATION_SECONDS
+    min_words = MIN_SHORT_VIDEO_TRANSCRIPT_WORDS if is_short_video else MIN_TRANSCRIPT_WORDS
+    if word_count < min_words:
         metadata = {**youtube_metadata, "transcript_word_count": word_count}
         raise IngestionError(
             "This video's transcript is too short to extract useful memories.",
@@ -243,6 +251,12 @@ def create_youtube_capture(
         source_instruction=(
             "This content came from a spoken video transcript. The speaker may repeat "
             "themselves or use filler language. Prioritize distinct ideas over every statement."
+            + (
+                " This is a short-form video with very little content; extract only the 1-3 "
+                "genuinely distinct ideas it contains. Do not pad the count."
+                if is_short_video
+                else ""
+            )
         ),
         extractor=extractor,
         embedder=embedder,
@@ -527,6 +541,7 @@ def _choose_caption_track(info: dict[str, Any]) -> dict[str, str] | None:
 
 def _youtube_reference_metadata(info: dict[str, Any], *, video_id: str) -> dict[str, Any]:
     title = info.get("title")
+    description = info.get("description")
     metadata: dict[str, Any] = {
         "input_kind": "youtube_reference",
         "video_id": video_id,
@@ -538,6 +553,8 @@ def _youtube_reference_metadata(info: dict[str, Any], *, video_id: str) -> dict[
     }
     if isinstance(title, str) and title.strip():
         metadata["title"] = title.strip()[:500]
+    if isinstance(description, str) and description.strip():
+        metadata["description"] = re.sub(r"\s+", " ", description.strip())[:800]
     return {key: value for key, value in metadata.items() if value is not None}
 
 

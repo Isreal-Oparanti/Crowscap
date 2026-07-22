@@ -54,7 +54,20 @@ Response:
 }
 ```
 
-`action` is one of `acknowledge`, `conversation`, `capture`, `answer`, `audit`, `forget`, `reminder`, or `self`.
+`action` is one of `acknowledge`, `conversation`, `capture`, `answer`, `audit`, `forget`, `reminder`, `self`, or `recent`.
+
+Input limits and tolerance:
+
+- `message` accepts up to 40,000 characters. Long pastes are the core capture
+  use case and must never be rejected for ordinary lengths.
+- `history` is advisory context only; the server prefers its own persisted
+  conversation history. Client-sent history turns are truncated to 4,000
+  characters and capped at the last 12 turns instead of being rejected.
+  Hard-rejecting oversized history once caused a poisoned-conversation bug:
+  after one long paste, every later request in that chat failed validation.
+- `preference_updates` and `preferences` are populated only on `acknowledge`
+  turns where the whole message was an explicit preference command. Incidental
+  preference learning never surfaces in chat responses.
 
 When the user explicitly states a preference, the same endpoint updates the durable preference profile without saving a memory:
 

@@ -43,6 +43,32 @@ Examples:
 
 These update `user_preferences`.
 
+### Preference detection boundaries
+
+A preference is a short command aimed at Crowscap, never a phrase buried inside
+pasted content. The extractor enforces two hard boundaries:
+
+1. Length gate: messages longer than 280 characters are never mined for
+   explicit preferences. Long messages are content the user wants saved or
+   discussed. Without this gate, a pasted essay containing "every day" and
+   "please review" was misread as "recall frequency: daily" — and, worse, the
+   whole paste was routed as a preference acknowledgment instead of a capture.
+2. Sentence scoping: ambient phrases like "every day" or "once a week" only
+   count as recall-frequency preferences when the same sentence is actually
+   about recall, reminders, or review.
+
+### Preference learning is a background system
+
+Preference learning must never surface in chat except when the entire turn was
+the user explicitly telling Crowscap how to behave (an acknowledge turn like
+"I prefer short answers"). For every other action — capture, answer,
+conversation — learned preferences persist silently and are visible only
+through the preferences endpoint (and, later, a settings surface).
+
+Preference learning is also failure-isolated: any exception inside preference
+extraction or the autonomous update is logged and swallowed. A preference bug
+must never break a chat turn.
+
 ### Confidence Tiers
 
 Explicit preferences are high confidence. They come directly from user language and normally get a confidence score around `0.9`.

@@ -54,6 +54,7 @@ ChatAction = Literal[
     "forget",
     "reminder",
     "self",
+    "recent",
 ]
 RecallRating = Literal["needs_work", "partial", "solid", "strong"]
 
@@ -216,6 +217,11 @@ class ChatRoute(BaseModel):
             "capabilities": "self",
             "identity": "self",
             "self_knowledge": "self",
+            "recent_capture": "recent",
+            "recent_save": "recent",
+            "just_saved": "recent",
+            "last_saved": "recent",
+            "about_recent": "recent",
         }
         return aliases.get(normalized, normalized) if isinstance(normalized, str) else normalized
 

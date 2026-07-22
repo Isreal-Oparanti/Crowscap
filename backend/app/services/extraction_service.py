@@ -158,6 +158,7 @@ The response must be JSON with this exact shape:
 
 Rules:
 - Return the smallest useful number of memories, usually 1 to 8 for short text.
+- Scale the number of memories with the amount of real content. Very short content (under 150 words, such as a short video transcript or a one-line note) almost always contains only 1 to 3 genuinely distinct ideas. Never split one idea into multiple near-duplicate memories to inflate the count.
 - Split only when the text contains distinct ideas, actions, examples, questions, or intentions.
 - Each memory must pass the isolation test: it should make sense without reading the original source.
 - Use "intention" when the user has not consumed the source yet.

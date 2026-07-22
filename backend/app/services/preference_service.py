@@ -304,8 +304,19 @@ def is_explicit_preference_statement(message: str) -> bool:
     return bool(_extract_preference_updates(message))
 
 
+# A preference is a short command aimed at Crowscap ("I prefer short answers"),
+# never something buried inside pasted content. Long messages are content the
+# user wants saved or discussed; mining them for preference-like phrases caused
+# false positives such as a pasted essay containing "every day" being read as
+# "recall frequency: daily".
+MAX_PREFERENCE_MESSAGE_CHARS = 280
+
+
 def _extract_preference_updates(message: str) -> list[tuple[str, object, str]]:
-    normalized = re.sub(r"\s+", " ", message.strip().lower())
+    stripped = message.strip()
+    if len(stripped) > MAX_PREFERENCE_MESSAGE_CHARS:
+        return []
+    normalized = re.sub(r"\s+", " ", stripped.lower())
     if not normalized:
         return []
 
@@ -429,14 +440,22 @@ def _review_time(normalized: str) -> str | None:
 
 
 def _recall_frequency(normalized: str) -> str | None:
-    if _has_any(normalized, ("daily recall", "recall daily", "every day", "each day")):
-        return "daily"
-    if _has_any(normalized, ("weekly recall", "recall weekly", "once a week")):
-        return "weekly"
-    if _has_any(normalized, ("less often", "not too often", "less recall")):
-        return "low"
-    if _has_any(normalized, ("more often", "more recall", "recall me more")):
-        return "high"
+    # "every day" / "each day" appear constantly in ordinary content, so they
+    # only count when the same sentence is actually about recall or reminders.
+    recall_context = ("recall", "remind", "review", "quiz")
+    for sentence in re.split(r"[.?!]", normalized):
+        if _has_any(sentence, ("daily recall", "recall daily")):
+            return "daily"
+        if _has_any(sentence, ("every day", "each day", "daily")) and _has_any(sentence, recall_context):
+            return "daily"
+        if _has_any(sentence, ("weekly recall", "recall weekly")):
+            return "weekly"
+        if _has_any(sentence, ("once a week", "weekly")) and _has_any(sentence, recall_context):
+            return "weekly"
+        if _has_any(sentence, ("less often", "not too often", "less recall")) and _has_any(sentence, recall_context):
+            return "low"
+        if _has_any(sentence, ("more often", "more recall", "recall me more")) and _has_any(sentence, recall_context):
+            return "high"
     return None
 
 
