@@ -7,6 +7,8 @@ const BACKEND_URL = (
   process.env.CROWSCAP_BACKEND_URL ?? "http://127.0.0.1:8000"
 ).replace(/\/$/, "");
 
+const RETRYABLE_PROXY_STATUSES = new Set([502, 503, 504]);
+
 async function proxy(
   request: NextRequest,
   context: { params: Promise<{ path: string[] }> },
@@ -37,7 +39,7 @@ async function proxy(
         ? undefined
         : await request.arrayBuffer();
     const contentType = request.headers.get("content-type");
-    const response = await fetch(target, {
+    const requestInit: RequestInit = {
       method: request.method,
       headers: {
         Accept: "application/json",
@@ -51,7 +53,8 @@ async function proxy(
       },
       body,
       cache: "no-store",
-    });
+    };
+    const response = await fetchBackendWithRetry(target, requestInit);
     const responseBody = await response.text();
     const responseContentType =
       response.headers.get("content-type") ?? "application/json";
@@ -63,8 +66,19 @@ async function proxy(
           ? trimmed
           : response.ok
             ? "Crowscap returned an unexpected non-JSON response."
-            : "Crowscap backend returned an unexpected error.";
-      return NextResponse.json({ detail }, { status: response.status });
+            : RETRYABLE_PROXY_STATUSES.has(response.status)
+              ? "Crowscap's memory service is temporarily unreachable. Please check your connection and try again."
+              : "Crowscap backend returned an unexpected error.";
+      return NextResponse.json(
+        {
+          detail,
+          error_code: RETRYABLE_PROXY_STATUSES.has(response.status)
+            ? "memory_service_unavailable"
+            : "backend_unexpected_response",
+          retryable: RETRYABLE_PROXY_STATUSES.has(response.status),
+        },
+        { status: response.status },
+      );
     }
 
     const responseHeaders = new Headers();
@@ -90,11 +104,49 @@ async function proxy(
     return NextResponse.json(
       {
         detail:
-          "Crowscap could not reach the local memory service. Start the FastAPI backend and try again.",
+          "Crowscap could not reach the memory service. Please check your connection and try again.",
+        error_code: "memory_service_unreachable",
+        retryable: true,
       },
       { status: 503 },
     );
   }
+}
+
+async function fetchBackendWithRetry(
+  target: URL,
+  requestInit: RequestInit,
+): Promise<Response> {
+  const canRetry = requestInit.method === "GET" || requestInit.method === "HEAD";
+  const attempts = canRetry ? 2 : 1;
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetch(target, requestInit);
+      if (
+        canRetry &&
+        attempt < attempts &&
+        RETRYABLE_PROXY_STATUSES.has(response.status)
+      ) {
+        await sleep(250);
+        continue;
+      }
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (!canRetry || attempt >= attempts) break;
+      await sleep(250);
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Backend request failed.");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export const GET = proxy;

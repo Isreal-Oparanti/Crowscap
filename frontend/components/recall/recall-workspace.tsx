@@ -70,7 +70,10 @@ export function RecallWorkspace({
       if (!isInitial && document.visibilityState === "hidden") return;
       getDueRecalls(50)
         .then((response) => {
-          if (!cancelled) setData(response);
+          if (!cancelled) {
+            setData(response);
+            setError(null);
+          }
         })
         .catch((requestError) => {
           if (cancelled) return;
@@ -86,7 +89,7 @@ export function RecallWorkspace({
     };
 
     refreshDue(true);
-    const intervalId = window.setInterval(() => refreshDue(false), 90_000);
+    const intervalId = window.setInterval(() => refreshDue(false), 180_000);
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") refreshDue(false);
     };

@@ -176,6 +176,10 @@ def create_youtube_capture(
             video_id,
             type(exc).__name__,
         )
+        if _looks_like_network_failure(exc):
+            raise IngestionError(
+                "Crowscap could not reach YouTube right now. This looks like a network/DNS issue. Please check your connection and try again."
+            ) from exc
         raise IngestionError(
             "Crowscap could not read this YouTube video. It may be private, unavailable, age-restricted, or missing readable captions."
         ) from exc
@@ -195,6 +199,11 @@ def create_youtube_capture(
         caption_text = _download_caption_text(track["url"])
         transcript = clean_transcript(caption_text)
     except Exception as exc:
+        if _looks_like_network_failure(exc):
+            raise IngestionError(
+                "Crowscap found captions for this YouTube video, but could not reach YouTube to download them right now. Please check your connection and try again.",
+                metadata=youtube_metadata,
+            ) from exc
         raise IngestionError(
             "Crowscap found captions for this YouTube video, but could not download them right now.",
             metadata=youtube_metadata,
@@ -332,7 +341,7 @@ def _safe_request(method: str, url: str, *, headers: dict[str, str]) -> httpx.Re
     current = validate_public_url(url, enforce_max_length=False)
     with httpx.Client(timeout=15.0, follow_redirects=False, headers=headers) as client:
         for _ in range(6):
-            response = client.request(method, current)
+            response = _request_with_retries(client, method, current)
             if response.status_code not in {301, 302, 303, 307, 308}:
                 return response
             location = response.headers.get("location")
@@ -340,6 +349,27 @@ def _safe_request(method: str, url: str, *, headers: dict[str, str]) -> httpx.Re
                 return response
             current = validate_public_url(urljoin(current, location), enforce_max_length=False)
         raise IngestionError("This URL redirects too many times.")
+
+
+def _request_with_retries(client: httpx.Client, method: str, url: str) -> httpx.Response:
+    last_error: Exception | None = None
+    attempts = 2 if method.upper() in {"GET", "HEAD"} else 1
+    for attempt in range(1, attempts + 1):
+        try:
+            return client.request(method, url)
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            last_error = exc
+            logger.warning(
+                "\u26a0\ufe0f capture.url.network_retry method=%s url=%s attempt=%s/%s error_type=%s",
+                method,
+                url,
+                attempt,
+                attempts,
+                type(exc).__name__,
+            )
+    raise IngestionError(
+        "Crowscap could not reach this link right now. This looks like a network/DNS issue. Please check your connection and try again."
+    ) from last_error
 
 
 def _assert_hostname_is_public(hostname: str) -> None:
@@ -360,6 +390,37 @@ def _assert_hostname_is_public(hostname: str) -> None:
             or ip.is_unspecified
         ):
             raise IngestionError("This URL resolves to a private or unsafe network address.")
+
+
+def _looks_like_network_failure(exc: Exception) -> bool:
+    if isinstance(exc, (httpx.TimeoutException, httpx.TransportError, socket.gaierror, TimeoutError, ConnectionError)):
+        return True
+
+    parts: list[str] = []
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        parts.append(f"{type(current).__name__}: {current}")
+        current = current.__cause__ or current.__context__
+
+    text = " ".join(parts).lower()
+    return any(
+        marker in text
+        for marker in (
+            "getaddrinfo",
+            "failed to resolve",
+            "name resolution",
+            "temporary failure",
+            "network is unreachable",
+            "connection reset",
+            "connection aborted",
+            "connection refused",
+            "timed out",
+            "timeout",
+            "unable to connect",
+        )
+    )
 
 
 def _robots_allows(url: str) -> bool:

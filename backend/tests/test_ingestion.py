@@ -1,3 +1,4 @@
+import httpx
 import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -10,6 +11,7 @@ from app.schemas.capture import UrlCaptureRequest
 from app.services.ingestion_service import (
     FetchedContent,
     IngestionError,
+    _request_with_retries,
     _youtube_reference_metadata,
     clean_transcript,
     create_pdf_capture_from_bytes,
@@ -114,6 +116,24 @@ def test_whatsapp_invite_url_is_marked_unsupported() -> None:
 
     assert reason is not None
     assert "WhatsApp group invite links" in reason
+
+
+def test_public_url_network_failure_gets_clear_retryable_message() -> None:
+    class FailingClient:
+        calls = 0
+
+        def request(self, method: str, url: str):
+            self.calls += 1
+            raise httpx.ConnectError("getaddrinfo failed")
+
+    client = FailingClient()
+
+    with pytest.raises(IngestionError) as error:
+        _request_with_retries(client, "GET", "https://example.com/article")
+
+    assert client.calls == 2
+    assert "network/DNS issue" in str(error.value)
+    assert "try again" in str(error.value).lower()
 
 
 def test_clean_transcript_removes_timestamps_and_duplicates() -> None:

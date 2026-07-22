@@ -33,14 +33,21 @@ function errorMessageFromPayload(payload: unknown): string {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = init?.body instanceof FormData;
-  const response = await fetch(`/api/backend/${path}`, {
-    ...init,
-    headers: {
-      Accept: "application/json",
-      ...(init?.body && !isFormData ? { "Content-Type": "application/json" } : {}),
-      ...init?.headers,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`/api/backend/${path}`, {
+      ...init,
+      headers: {
+        Accept: "application/json",
+        ...(init?.body && !isFormData ? { "Content-Type": "application/json" } : {}),
+        ...init?.headers,
+      },
+    });
+  } catch {
+    throw new Error(
+      "Crowscap could not reach the memory service. Please check your internet connection and try again.",
+    );
+  }
 
   const rawPayload = await response.text();
   let payload: unknown = null;

@@ -84,6 +84,7 @@ type ChatMessage =
       role: "assistant";
       kind: "error";
       text: string;
+      retryText?: string;
     };
 
 function openingMessagesFor(user: AppShellUser): ChatMessage[] {
@@ -148,6 +149,16 @@ function normalizeChatResponse(
   };
 }
 
+function conversationTurnsFrom(messages: ChatMessage[]): ConversationTurn[] {
+  return messages
+    .filter((message) => !(message.role === "assistant" && message.kind === "error"))
+    .map<ConversationTurn>((message) => ({
+      role: message.role,
+      content: message.text,
+    }))
+    .slice(-12);
+}
+
 export function ChatWorkspace({ user }: { user: AppShellUser }) {
   const userKey = user.id ?? user.email ?? user.name ?? "anonymous";
   const openingMessages = useMemo(() => openingMessagesFor(user), [
@@ -179,13 +190,11 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
         .then((response) => {
           if (!cancelled) setDue(response);
         })
-        .catch(() => {
-          if (!cancelled) setDue(null);
-        });
+        .catch(() => undefined);
     };
 
     refreshDue();
-    const intervalId = window.setInterval(refreshDue, 90_000);
+    const intervalId = window.setInterval(refreshDue, 300_000);
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") refreshDue();
     };
@@ -243,6 +252,16 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
       return uploadPdf(attachedFile, text);
     }
 
+    await sendTextMessage(text);
+  }
+
+  async function retryTextMessage(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || working) return;
+    await sendTextMessage(trimmed);
+  }
+
+  async function sendTextMessage(text: string) {
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
@@ -253,12 +272,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
     setWorking(true);
 
     try {
-      const history = messages
-        .map<ConversationTurn>((message) => ({
-          role: message.role,
-          content: message.text,
-        }))
-        .slice(-12);
+      const history = conversationTurnsFrom(messages);
       const response = normalizeChatResponse(
         await sendChatMessage(text, history, conversationId),
         "I heard you.",
@@ -321,6 +335,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
             error instanceof Error
               ? error.message
               : "I could not complete that thought.",
+          retryText: text,
         },
       ]);
     } finally {
@@ -441,7 +456,12 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
 
           <div className="mt-8 space-y-8">
             {messages.map((message) => (
-              <ChatTurn key={message.id} message={message} />
+              <ChatTurn
+                key={message.id}
+                message={message}
+                onRetry={retryTextMessage}
+                retryDisabled={working}
+              />
             ))}
             {working ? <ThinkingTurn /> : null}
             <div ref={endRef} />
@@ -536,7 +556,15 @@ function hydratePersistedMessage(message: PersistedChatMessage): ChatMessage {
   };
 }
 
-function ChatTurn({ message }: { message: ChatMessage }) {
+function ChatTurn({
+  message,
+  onRetry,
+  retryDisabled = false,
+}: {
+  message: ChatMessage;
+  onRetry?: (text: string) => void;
+  retryDisabled?: boolean;
+}) {
   if (message.role === "user") {
     return (
       <div className="rise-in flex justify-end">
@@ -578,6 +606,10 @@ function ChatTurn({ message }: { message: ChatMessage }) {
           {message.kind === "error" ? (
             <button
               type="button"
+              onClick={() => {
+                if (message.retryText) onRetry?.(message.retryText);
+              }}
+              disabled={!message.retryText || retryDisabled}
               className="mt-3 text-[11px] font-bold text-[#9b4c51] underline decoration-[#d8b8ba] underline-offset-4"
             >
               Try again
