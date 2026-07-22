@@ -27,6 +27,7 @@ from app.db.session import get_db
 from app.main import app
 from app.schemas.belief import BeliefAuditResponse, PublicEvidenceResult
 from app.schemas.capture import MemoryCardResponse, TextCaptureResponse
+from app.schemas.chat import ChatResponse
 from app.schemas.search import SearchResponse, SearchResult
 from app.services.belief_audit_service import get_belief_auditor
 from app.services.chat_service import (
@@ -1796,6 +1797,165 @@ def test_recent_reference_link_content_question_stays_honest(monkeypatch) -> Non
         assert payload["saved"] is False
         assert "do not know what is inside" in payload["message"]
         assert "yc application" in payload["message"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_link_above_question_uses_latest_reference_not_older_link_reason(monkeypatch) -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter("capture")
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+
+    def fail_create_url_capture(**kwargs) -> TextCaptureResponse:
+        raise IngestionError("This video has no readable captions.")
+
+    monkeypatch.setattr("app.services.chat_service.create_url_capture", fail_create_url_capture)
+
+    try:
+        client = TestClient(app)
+        first_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": (
+                    "this video will be useful during my yc application "
+                    "https://youtube.com/shorts/ythRYUxLEks?si=test"
+                ),
+                "history": [],
+            },
+        )
+        assert first_response.status_code == 200
+        conversation_id = first_response.json()["conversation_id"]
+
+        second_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "https://youtu.be/iEFSQctQPjI?si=test",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+        assert second_response.status_code == 200
+        assert second_response.json()["capture"]["source_type"] == "reference"
+
+        question_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "whats the link above about",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+
+        assert question_response.status_code == 200
+        payload = question_response.json()
+        assert payload["action"] == "conversation"
+        assert "https://youtu.be/iEFSQctQPjI?si=test" in payload["message"]
+        assert "yc application" not in payload["message"].lower()
+        assert "do not know what is inside" in payload["message"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_recent_link_question_uses_extracted_source_memories() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter("answer")
+
+    db = testing_session()
+    conversation = Conversation(user_id="test-user", title="Video source")
+    source = Source(
+        user_id="test-user",
+        source_type="youtube",
+        title="Founder-led sales lesson",
+        original_url="https://youtu.be/demo123",
+        resolved_url="https://www.youtube.com/watch?v=demo123",
+        raw_text="A transcript about founder-led sales and customer learning.",
+        extracted_text_hash="demo123",
+    )
+    db.add_all([conversation, source])
+    db.flush()
+    capture = Capture(
+        user_id="test-user",
+        source_id=source.id,
+        status="ready",
+        inferred_intents=["learned", "apply"],
+    )
+    db.add(capture)
+    db.flush()
+    memory = Memory(
+        user_id="test-user",
+        source_id=source.id,
+        capture_id=capture.id,
+        memory_type="principle",
+        epistemic_label="advice",
+        content="Founders should sell early so customer objections shape the product.",
+        summary="Founder-led sales sharpens product learning.",
+        confidence="high",
+        source_strength="moderate",
+        embedding_json=[1.0, 0.0],
+    )
+    db.add(memory)
+    db.flush()
+    receipt = TextCaptureResponse(
+        capture_id=capture.id,
+        source_id=source.id,
+        source_type="youtube",
+        source_title=source.title,
+        original_content=source.raw_text,
+        status="ready",
+        inferred_intents=["learned", "apply"],
+        memories=[
+            MemoryCardResponse(
+                id=memory.id,
+                source_type="youtube",
+                memory_type="principle",
+                epistemic_label="advice",
+                content=memory.content,
+                summary=memory.summary,
+                confidence="high",
+                confidence_reason=None,
+                source_strength="moderate",
+                embedding_dimensions=2,
+            )
+        ],
+    )
+    db.add(
+        ChatMessage(
+            conversation_id=conversation.id,
+            user_id="test-user",
+            role="assistant",
+            content="I kept this as 1 distinct memory.",
+            action="capture",
+            metadata_json=ChatResponse(
+                action="capture",
+                message="I kept this as 1 distinct memory.",
+                saved=True,
+                capture=receipt,
+            ).model_dump(mode="json"),
+        )
+    )
+    conversation_id = conversation.id
+    db.commit()
+    db.close()
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "what is the link above about",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "conversation"
+        assert "Founder-led sales lesson" in payload["message"]
+        assert "customer objections shape the product" in payload["message"]
+        assert "do not know what is inside" not in payload["message"]
     finally:
         app.dependency_overrides.clear()
 

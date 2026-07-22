@@ -617,7 +617,7 @@ function ReminderReceipt({ data }: { data: ChatResponse }) {
 }
 
 function MemoryReceipt({ data }: { data: CaptureResponse }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const [view, setView] = useState<"memories" | "original">("memories");
 
   return (

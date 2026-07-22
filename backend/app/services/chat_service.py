@@ -546,6 +546,7 @@ def process_chat_message(
                         embedder=embedder,
                         user_id=user_id,
                         unreadable_reason=str(exc),
+                        source_metadata=getattr(exc, "metadata", None),
                     )
                     response = _with_preference_learning(response, preference_learning)
                     logger.info("\u2705 chat.message.complete action=url_ingestion_failed_reference saved=True")
@@ -675,6 +676,7 @@ def process_chat_message(
                         embedder=embedder,
                         user_id=user_id,
                         unreadable_reason=str(exc),
+                        source_metadata=getattr(exc, "metadata", None),
                     )
                     response = _with_preference_learning(response, preference_learning)
                     logger.info("\u2705 chat.message.complete action=url_ingestion_failed_reference saved=True")
@@ -1469,7 +1471,7 @@ def _grounded_local_conversation_reply(
     previous_user_turns = _conversation_user_messages(conversation)
 
     if _asks_about_recent_link_content(normalized):
-        if reply := _recent_reference_link_reply(db=db, conversation=conversation, user_id=user_id):
+        if reply := _recent_link_content_reply(db=db, conversation=conversation, user_id=user_id):
             return reply
 
     if _asks_about_recent_archive(normalized):
@@ -1512,18 +1514,27 @@ def _asks_about_recent_archive(normalized: str) -> bool:
 def _asks_about_recent_link_content(normalized: str) -> bool:
     if not any(marker in normalized for marker in ("link", "url", "video", "short", "page", "article")):
         return False
+    if "above" in normalized and re.search(
+        r"\b(?:what|whats|what's|summari[sz]e|about|inside|in|say|says|contain|contains)\b",
+        normalized,
+    ):
+        return True
     patterns = (
         r"^what'?s?\s+in\s+(?:that|this|the)\s+(?:link|url|video|short|page|article)$",
         r"^what\s+is\s+in\s+(?:that|this|the)\s+(?:link|url|video|short|page|article)$",
         r"^what'?s?\s+(?:that|this|the)\s+(?:link|url|video|short|page|article)\s+about$",
         r"^what\s+is\s+(?:that|this|the)\s+(?:link|url|video|short|page|article)\s+about$",
+        r"^what'?s?\s+(?:the\s+)?(?:link|url|video|short|page|article)\s+(?:above|before)\s+about$",
+        r"^what\s+is\s+(?:the\s+)?(?:link|url|video|short|page|article)\s+(?:above|before)\s+about$",
         r"^what\s+did\s+(?:that|this|the)\s+(?:link|url|video|short|page|article)\s+say$",
+        r"^what\s+did\s+(?:the\s+)?(?:link|url|video|short|page|article)\s+(?:above|before)\s+say$",
         r"^summari[sz]e\s+(?:that|this|the)\s+(?:link|url|video|short|page|article)$",
+        r"^summari[sz]e\s+(?:the\s+)?(?:link|url|video|short|page|article)\s+(?:above|before)$",
     )
     return any(re.fullmatch(pattern, normalized) is not None for pattern in patterns)
 
 
-def _recent_reference_link_reply(
+def _recent_link_content_reply(
     *,
     db: Session,
     conversation: Conversation,
@@ -1533,24 +1544,76 @@ def _recent_reference_link_reply(
         db=db,
         conversation=conversation,
         user_id=user_id,
-        source_type_hint="reference",
+        source_type_hint=None,
     )
     if recent is None:
         return None
 
     url = recent.source.original_url or recent.source.resolved_url or "that link"
-    reason = _reference_reason_from_source(recent.source)
+    if recent.source.original_url is None and recent.source.resolved_url is None:
+        return None
+
+    if recent.source.source_type == "reference":
+        return _recent_reference_link_reply(recent.source, url=url)
+
+    active_memories = [
+        memory
+        for memory in recent.memories
+        if memory.status == "active" and memory.content.strip()
+    ]
+    source_kind = _source_kind_label(recent.source)
+    title = (recent.source.title or "").strip()
+    opening = (
+        f"That {source_kind} is saved as: {title}."
+        if title
+        else f"I saved that {source_kind}: {url}."
+    )
+
+    if active_memories:
+        lines = [
+            f"- {_snippet(memory.content, max_chars=220)}"
+            for memory in active_memories[:5]
+        ]
+        return opening + "\n\nWhat I have from it:\n" + "\n".join(lines)
+
+    raw_text = (recent.source.raw_text or "").strip()
+    if raw_text:
+        return (
+            opening
+            + "\n\nI have the source text, but no active memory cards from it are available right now. "
+            + _snippet(raw_text, max_chars=420)
+        )
+
+    return (
+        opening
+        + "\n\nI do not have readable content from it in memory yet, so I should not guess what it says."
+    )
+
+
+def _recent_reference_link_reply(source: Source, *, url: str) -> str:
+    reason = _reference_reason_from_source(source)
     if reason:
         return (
-            f"I only saved that link as a reference, so I do not know what is inside it yet.\n\n"
+            f"I only saved that link as a reference: {url}\n\n"
+            "I do not know what is inside this specific link because Crowscap could not read it at capture time.\n\n"
             f"What I do know is why you kept it: {reason}\n\n"
-            "If you paste the key point from the link, I can turn that into memory too."
+            "If you paste the key point from it, I can keep that context too."
         )
     return (
-        f"I only saved the URL for now: {url}\n\n"
-        "I do not know what is inside it yet. Add a short reason or paste the useful part, "
-        "and I will keep the context around it."
+        f"I only saved that link as a reference: {url}\n\n"
+        "I do not know what is inside it because Crowscap could not read the content at capture time. "
+        "Add a short reason or paste the useful part, and I will keep the context around it."
     )
+
+
+def _source_kind_label(source: Source) -> str:
+    if source.source_type == "youtube":
+        return "YouTube video"
+    if source.source_type == "article":
+        return "article"
+    if source.source_type == "pdf":
+        return "PDF"
+    return "source"
 
 
 def _reference_reason_from_source(source: Source) -> str | None:

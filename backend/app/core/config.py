@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     crowscap_dev_user_id: str = "dev_local_user"
     crowscap_dev_user_email: str = "dev@crowscap.local"
 
+    crowscap_admin_username: str = "admin"
+    crowscap_admin_password: str = "launchpad"
+    crowscap_jwt_secret: str = "a_very_insecure_default_secret_for_dev_only_change_me_in_prod"
+
+
     @property
     def has_qwen_key(self) -> bool:
         return bool(self.dashscope_api_key_value)

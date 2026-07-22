@@ -11,8 +11,11 @@ async function proxy(
   request: NextRequest,
   context: { params: Promise<{ path: string[] }> },
 ) {
+  const { path } = await context.params;
+  const isAdminRoute = path[0] === "admin";
+
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id || !session.user.email) {
+  if (!isAdminRoute && (!session?.user?.id || !session.user.email)) {
     return NextResponse.json({ detail: "Authentication required." }, { status: 401 });
   }
 
@@ -41,12 +44,11 @@ async function proxy(
         Accept: "application/json",
         ...(body && contentType ? { "Content-Type": contentType } : {}),
         "X-Crowscap-Proxy-Secret": proxySecret,
-        "X-Crowscap-User-Id": session.user.id,
-        "X-Crowscap-User-Email": session.user.email,
-        ...(session.user.name ? { "X-Crowscap-User-Name": session.user.name } : {}),
-        ...(session.user.image
-          ? { "X-Crowscap-User-Image": session.user.image }
-          : {}),
+        ...(request.headers.get("cookie") ? { "Cookie": request.headers.get("cookie")! } : {}),
+        ...(session?.user?.id ? { "X-Crowscap-User-Id": session.user.id } : {}),
+        ...(session?.user?.email ? { "X-Crowscap-User-Email": session.user.email } : {}),
+        ...(session?.user?.name ? { "X-Crowscap-User-Name": session.user.name } : {}),
+        ...(session?.user?.image ? { "X-Crowscap-User-Image": session.user.image } : {}),
       },
       body,
       cache: "no-store",

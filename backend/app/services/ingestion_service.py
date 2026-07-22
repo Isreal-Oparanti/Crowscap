@@ -37,6 +37,10 @@ USER_AGENT = "CrowscapBot/0.1 (+https://crowscap.local)"
 class IngestionError(RuntimeError):
     """Raised when an external source cannot be safely ingested."""
 
+    def __init__(self, message: str, *, metadata: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.metadata = metadata or {}
+
 
 @dataclass(frozen=True)
 class FetchedContent:
@@ -179,17 +183,29 @@ def create_youtube_capture(
     if not isinstance(info, dict):
         raise IngestionError("Crowscap could not read this YouTube video metadata.")
 
+    youtube_metadata = _youtube_reference_metadata(info, video_id=video_id)
     track = _choose_caption_track(info)
     if track is None:
         raise IngestionError(
-            "This video does not have captions available. Crowscap cannot process videos without transcripts."
+            "This video does not have captions available. Crowscap cannot process videos without transcripts.",
+            metadata=youtube_metadata,
         )
 
-    caption_text = _download_caption_text(track["url"])
-    transcript = clean_transcript(caption_text)
+    try:
+        caption_text = _download_caption_text(track["url"])
+        transcript = clean_transcript(caption_text)
+    except Exception as exc:
+        raise IngestionError(
+            "Crowscap found captions for this YouTube video, but could not download them right now.",
+            metadata=youtube_metadata,
+        ) from exc
     word_count = len(transcript.split())
     if word_count < MIN_TRANSCRIPT_WORDS:
-        raise IngestionError("This video's transcript is too short to extract useful memories.")
+        metadata = {**youtube_metadata, "transcript_word_count": word_count}
+        raise IngestionError(
+            "This video's transcript is too short to extract useful memories.",
+            metadata=metadata,
+        )
     if word_count > MAX_TRANSCRIPT_WORDS:
         transcript = " ".join(transcript.split()[:MAX_TRANSCRIPT_WORDS])
 
@@ -446,6 +462,22 @@ def _choose_caption_track(info: dict[str, Any]) -> dict[str, str] | None:
         if selected:
             return {"kind": kind, "language": language, "url": selected["url"]}
     return None
+
+
+def _youtube_reference_metadata(info: dict[str, Any], *, video_id: str) -> dict[str, Any]:
+    title = info.get("title")
+    metadata: dict[str, Any] = {
+        "input_kind": "youtube_reference",
+        "video_id": video_id,
+        "source_type_hint": "youtube",
+        "channel": info.get("uploader") or info.get("channel"),
+        "duration": info.get("duration"),
+        "publish_date": info.get("upload_date"),
+        "view_count": info.get("view_count"),
+    }
+    if isinstance(title, str) and title.strip():
+        metadata["title"] = title.strip()[:500]
+    return {key: value for key, value in metadata.items() if value is not None}
 
 
 def _pick_caption_format(tracks: list[dict[str, Any]]) -> dict[str, Any] | None:
