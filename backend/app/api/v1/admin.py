@@ -3,12 +3,17 @@ import jwt
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, delete
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.admin_auth import require_admin
-from app.db.models import User, utc_now
+from app.db.models import (
+    User, Conversation, ChatMessage, UserPreference, Source, Capture,
+    ProcessingJob, Memory, RecallReview, Reminder, ActionItem,
+    MemoryArchiveEvent, MemoryPerspectiveNote, MemoryRelation,
+    utc_now
+)
 from app.db.session import get_db
 
 router = APIRouter(tags=["admin"])
@@ -121,6 +126,21 @@ def delete_user(
     if not user:
         return {"success": False, "message": "User not found"}
         
+    # Manually cascade delete all associated data because there are no strict FK constraints
+    db.execute(delete(MemoryRelation).where(MemoryRelation.user_id == user_id))
+    db.execute(delete(MemoryPerspectiveNote).where(MemoryPerspectiveNote.user_id == user_id))
+    db.execute(delete(MemoryArchiveEvent).where(MemoryArchiveEvent.user_id == user_id))
+    db.execute(delete(ActionItem).where(ActionItem.user_id == user_id))
+    db.execute(delete(Reminder).where(Reminder.user_id == user_id))
+    db.execute(delete(RecallReview).where(RecallReview.user_id == user_id))
+    db.execute(delete(Memory).where(Memory.user_id == user_id))
+    db.execute(delete(ProcessingJob).where(ProcessingJob.user_id == user_id))
+    db.execute(delete(Capture).where(Capture.user_id == user_id))
+    db.execute(delete(Source).where(Source.user_id == user_id))
+    db.execute(delete(UserPreference).where(UserPreference.user_id == user_id))
+    db.execute(delete(ChatMessage).where(ChatMessage.user_id == user_id))
+    db.execute(delete(Conversation).where(Conversation.user_id == user_id))
+
     db.delete(user)
     db.commit()
     return {"success": True}
