@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, func, select
@@ -39,7 +40,6 @@ from app.services.chat_service import (
 )
 from app.services.embedding_service import get_memory_embedder
 from app.services.extraction_service import get_memory_extractor
-from app.services.ingestion_service import IngestionError
 from app.services.relationship_service import get_memory_relation_detector
 
 
@@ -91,6 +91,29 @@ class FakeRelationDetector:
         user_id: str | None = None,
     ) -> list:
         return []
+
+
+def stub_url_enrichment_job(
+    monkeypatch,
+    *,
+    captured_urls: list[str] | None = None,
+    captured_intents: list[str | None] | None = None,
+) -> None:
+    def fake_create_url_capture_job(**kwargs):
+        payload = kwargs["payload"]
+        if captured_urls is not None:
+            captured_urls.append(payload.url)
+        if captured_intents is not None:
+            captured_intents.append(payload.intent_text)
+        index = len(captured_urls or []) or 1
+        return SimpleNamespace(
+            job_id=f"job-{index}",
+            status="queued",
+            status_url=f"/api/v1/jobs/job-{index}",
+        )
+
+    monkeypatch.setattr("app.services.chat_service.create_url_capture_job", fake_create_url_capture_job)
+    monkeypatch.setattr("app.services.chat_service.run_url_capture_job", lambda job_id: None)
 
 
 class FakeSynthesizer:
@@ -481,39 +504,16 @@ def test_first_message_question_reads_complete_persisted_history() -> None:
 def test_bare_url_is_captured_without_confirmation(monkeypatch) -> None:
     override_db, testing_session = build_chat_db_override()
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
 
     captured_urls: list[str] = []
     captured_intents: list[str | None] = []
 
-    def fake_create_url_capture(**kwargs) -> TextCaptureResponse:
-        captured_urls.append(kwargs["payload"].url)
-        captured_intents.append(kwargs["payload"].intent_text)
-        return TextCaptureResponse(
-            capture_id="capture-1",
-            source_id="source-1",
-            source_type="article",
-            source_title="Example research",
-            original_content="Example article body",
-            status="ready",
-            inferred_intents=["reference"],
-            memories=[
-                MemoryCardResponse(
-                    id="memory-1",
-                    source_type="article",
-                    memory_type="reference",
-                    epistemic_label="source_summary",
-                    content="Example research article.",
-                    summary=None,
-                    confidence="medium",
-                    confidence_reason="The user shared the link as something to keep.",
-                    source_strength="moderate",
-                    embedding_dimensions=2,
-                    relationships=[],
-                )
-            ],
-        )
-
-    monkeypatch.setattr("app.services.chat_service.create_url_capture", fake_create_url_capture)
+    stub_url_enrichment_job(
+        monkeypatch,
+        captured_urls=captured_urls,
+        captured_intents=captured_intents,
+    )
 
     try:
         client = TestClient(app)
@@ -526,13 +526,14 @@ def test_bare_url_is_captured_without_confirmation(monkeypatch) -> None:
         payload = response.json()
         assert payload["action"] == "capture"
         assert payload["saved"] is True
-        assert payload["capture"]["source_type"] == "article"
+        assert payload["capture"]["source_type"] == "reference"
+        assert payload["capture"]["metadata_json"]["enrichment_status"] == "queued"
         assert captured_urls == ["https://example.com/research"]
         assert captured_intents == [None]
 
         db = testing_session()
-        assert db.scalar(select(func.count(Memory.id))) == 0
-        assert db.scalar(select(func.count(Capture.id))) == 0
+        assert db.scalar(select(func.count(Memory.id))) == 1
+        assert db.scalar(select(func.count(Capture.id))) == 1
         db.close()
     finally:
         app.dependency_overrides.clear()
@@ -545,10 +546,10 @@ def test_substantial_note_with_url_is_saved_as_text_not_link_preview(monkeypatch
     app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
     app.dependency_overrides[get_memory_relation_detector] = lambda: FakeRelationDetector()
 
-    def fail_url_capture(**kwargs) -> TextCaptureResponse:
+    def fail_url_capture_job(**kwargs):
         raise AssertionError("Mixed learning notes with links must not route to URL ingestion.")
 
-    monkeypatch.setattr("app.services.chat_service.create_url_capture", fail_url_capture)
+    monkeypatch.setattr("app.services.chat_service.create_url_capture_job", fail_url_capture_job)
 
     note = (
         "One of the hardest parts of building a product is finding the right team to execute. "
@@ -583,39 +584,16 @@ def test_substantial_note_with_url_is_saved_as_text_not_link_preview(monkeypatch
 def test_explicit_save_link_with_url_still_uses_url_ingestion(monkeypatch) -> None:
     override_db, testing_session = build_chat_db_override()
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
 
     captured_urls: list[str] = []
     captured_intents: list[str | None] = []
 
-    def fake_create_url_capture(**kwargs) -> TextCaptureResponse:
-        captured_urls.append(kwargs["payload"].url)
-        captured_intents.append(kwargs["payload"].intent_text)
-        return TextCaptureResponse(
-            capture_id="capture-1",
-            source_id="source-1",
-            source_type="article",
-            source_title="Example article",
-            original_content="Example article body",
-            status="ready",
-            inferred_intents=["read_later"],
-            memories=[
-                MemoryCardResponse(
-                    id="memory-1",
-                    source_type="article",
-                    memory_type="reference",
-                    epistemic_label="source_summary",
-                    content="Read the example article.",
-                    summary=None,
-                    confidence="high",
-                    confidence_reason="The user explicitly asked Crowscap to save the link.",
-                    source_strength="strong",
-                    embedding_dimensions=2,
-                    relationships=[],
-                )
-            ],
-        )
-
-    monkeypatch.setattr("app.services.chat_service.create_url_capture", fake_create_url_capture)
+    stub_url_enrichment_job(
+        monkeypatch,
+        captured_urls=captured_urls,
+        captured_intents=captured_intents,
+    )
 
     try:
         client = TestClient(app)
@@ -630,10 +608,12 @@ def test_explicit_save_link_with_url_still_uses_url_ingestion(monkeypatch) -> No
         assert payload["saved"] is True
         assert captured_urls == ["https://example.com/research"]
         assert captured_intents == [None]
+        assert payload["capture"]["source_type"] == "reference"
+        assert payload["capture"]["metadata_json"]["enrichment_status"] == "queued"
 
         db = testing_session()
-        assert db.scalar(select(func.count(Memory.id))) == 0
-        assert db.scalar(select(func.count(Capture.id))) == 0
+        assert db.scalar(select(func.count(Memory.id))) == 1
+        assert db.scalar(select(func.count(Capture.id))) == 1
         db.close()
     finally:
         app.dependency_overrides.clear()
@@ -643,37 +623,11 @@ def test_confirmed_pending_url_is_captured(monkeypatch) -> None:
     override_db, testing_session = build_chat_db_override()
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_chat_router] = lambda: FixedRouter("capture")
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
 
     captured_urls: list[str] = []
 
-    def fake_create_url_capture(**kwargs) -> TextCaptureResponse:
-        captured_urls.append(kwargs["payload"].url)
-        return TextCaptureResponse(
-            capture_id="capture-1",
-            source_id="source-1",
-            source_type="article",
-            source_title="Example article",
-            original_content="Example article body",
-            status="ready",
-            inferred_intents=["read_later"],
-            memories=[
-                MemoryCardResponse(
-                    id="memory-1",
-                    source_type="article",
-                    memory_type="reference",
-                    epistemic_label="source_summary",
-                    content="Read the example article.",
-                    summary=None,
-                    confidence="high",
-                    confidence_reason="The user confirmed the link should be saved.",
-                    source_strength="strong",
-                    embedding_dimensions=2,
-                    relationships=[],
-                )
-            ],
-        )
-
-    monkeypatch.setattr("app.services.chat_service.create_url_capture", fake_create_url_capture)
+    stub_url_enrichment_job(monkeypatch, captured_urls=captured_urls)
 
     db = testing_session()
     conversation = Conversation(user_id="test-user", title="Pending URL")
@@ -718,10 +672,12 @@ def test_confirmed_pending_url_is_captured(monkeypatch) -> None:
         assert payload["action"] == "capture"
         assert payload["saved"] is True
         assert captured_urls == ["https://example.com/research"]
+        assert payload["capture"]["source_type"] == "reference"
+        assert payload["capture"]["metadata_json"]["enrichment_status"] == "queued"
 
         db = testing_session()
-        assert db.scalar(select(func.count(Memory.id))) == 0
-        assert db.scalar(select(func.count(Capture.id))) == 0
+        assert db.scalar(select(func.count(Memory.id))) == 1
+        assert db.scalar(select(func.count(Capture.id))) == 1
         db.close()
     finally:
         app.dependency_overrides.clear()
@@ -730,6 +686,7 @@ def test_confirmed_pending_url_is_captured(monkeypatch) -> None:
 def test_semantic_pending_url_confirmation_is_captured(monkeypatch) -> None:
     override_db, testing_session = build_chat_db_override()
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
     routing_client = FakeRoutingClient(
         {
             "action": "capture",
@@ -741,34 +698,7 @@ def test_semantic_pending_url_confirmation_is_captured(monkeypatch) -> None:
 
     captured_urls: list[str] = []
 
-    def fake_create_url_capture(**kwargs) -> TextCaptureResponse:
-        captured_urls.append(kwargs["payload"].url)
-        return TextCaptureResponse(
-            capture_id="capture-1",
-            source_id="source-1",
-            source_type="youtube",
-            source_title="Example video",
-            original_content="Example transcript",
-            status="ready",
-            inferred_intents=["read_later"],
-            memories=[
-                MemoryCardResponse(
-                    id="memory-1",
-                    source_type="youtube",
-                    memory_type="reference",
-                    epistemic_label="source_summary",
-                    content="Read the example video transcript.",
-                    summary=None,
-                    confidence="high",
-                    confidence_reason="The user confirmed the video should be saved.",
-                    source_strength="strong",
-                    embedding_dimensions=2,
-                    relationships=[],
-                )
-            ],
-        )
-
-    monkeypatch.setattr("app.services.chat_service.create_url_capture", fake_create_url_capture)
+    stub_url_enrichment_job(monkeypatch, captured_urls=captured_urls)
 
     db = testing_session()
     conversation = Conversation(user_id="test-user", title="Pending video")
@@ -813,6 +743,8 @@ def test_semantic_pending_url_confirmation_is_captured(monkeypatch) -> None:
         assert payload["action"] == "capture"
         assert payload["saved"] is True
         assert captured_urls == ["https://youtube.com/shorts/kwQV9CqUj1M?si=test"]
+        assert payload["capture"]["source_type"] == "reference"
+        assert payload["capture"]["metadata_json"]["enrichment_status"] == "queued"
         assert len(routing_client.calls) == 1
         assert (
             "pending_url: https://youtube.com/shorts/kwQV9CqUj1M?si=test"
@@ -820,8 +752,8 @@ def test_semantic_pending_url_confirmation_is_captured(monkeypatch) -> None:
         )
 
         db = testing_session()
-        assert db.scalar(select(func.count(Memory.id))) == 0
-        assert db.scalar(select(func.count(Capture.id))) == 0
+        assert db.scalar(select(func.count(Memory.id))) == 1
+        assert db.scalar(select(func.count(Capture.id))) == 1
         db.close()
     finally:
         app.dependency_overrides.clear()
@@ -834,14 +766,7 @@ def test_unreadable_youtube_link_can_be_saved_as_reference_after_failure(monkeyp
     app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
 
     attempted_urls: list[str] = []
-
-    def fail_create_url_capture(**kwargs) -> TextCaptureResponse:
-        attempted_urls.append(kwargs["payload"].url)
-        raise IngestionError(
-            "Crowscap could not read this YouTube video. It may be private, unavailable, age-restricted, or missing readable captions."
-        )
-
-    monkeypatch.setattr("app.services.chat_service.create_url_capture", fail_create_url_capture)
+    stub_url_enrichment_job(monkeypatch, captured_urls=attempted_urls)
 
     try:
         client = TestClient(app)
@@ -862,7 +787,8 @@ def test_unreadable_youtube_link_can_be_saved_as_reference_after_failure(monkeyp
         assert payload["capture"]["source_type"] == "reference"
         assert "youtube.com/shorts/kwQV9CqUj1M" in payload["capture"]["original_content"]
         assert "yc application" in payload["capture"]["original_content"].lower()
-        assert "will not pretend" in payload["message"]
+        assert "getting details" in payload["message"].lower()
+        assert payload["capture"]["metadata_json"]["enrichment_status"] == "queued"
         assert attempted_urls == ["https://youtube.com/shorts/kwQV9CqUj1M?si=test"]
 
         db = testing_session()
@@ -880,13 +806,7 @@ def test_youtube_reference_keeps_metadata_title_when_transcript_is_unusable(monk
     app.dependency_overrides[get_chat_router] = lambda: FixedRouter("capture")
     app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
 
-    def fail_create_url_capture(**kwargs) -> TextCaptureResponse:
-        raise IngestionError(
-            "This video's transcript is too short to extract useful memories.",
-            metadata={"title": "3 common YC interview mistakes", "video_id": "ythRYUxLEks"},
-        )
-
-    monkeypatch.setattr("app.services.chat_service.create_url_capture", fail_create_url_capture)
+    stub_url_enrichment_job(monkeypatch)
 
     try:
         client = TestClient(app)
@@ -903,8 +823,8 @@ def test_youtube_reference_keeps_metadata_title_when_transcript_is_unusable(monk
         assert save_response.status_code == 200
         payload = save_response.json()
         assert payload["capture"]["source_type"] == "reference"
-        assert "3 common YC interview mistakes" in payload["message"]
-        assert "Known title: 3 common YC interview mistakes" in payload["capture"]["original_content"]
+        assert "getting details" in payload["message"].lower()
+        assert payload["capture"]["metadata_json"]["enrichment_status"] == "queued"
         conversation_id = payload["conversation_id"]
 
         question_response = client.post(
@@ -917,9 +837,8 @@ def test_youtube_reference_keeps_metadata_title_when_transcript_is_unusable(monk
         )
         assert question_response.status_code == 200
         question_payload = question_response.json()
-        assert "3 common YC interview mistakes" in question_payload["message"]
+        assert "still getting details" in question_payload["message"]
         assert "yc application" in question_payload["message"].lower()
-        # With a known title the reply should lead with what it knows, not hedge.
         assert "Link:" in question_payload["message"]
     finally:
         app.dependency_overrides.clear()
@@ -1309,7 +1228,7 @@ def test_pending_url_does_not_swallow_new_short_note(monkeypatch) -> None:
             ],
         )
 
-    monkeypatch.setattr("app.services.chat_service.create_url_capture", fail_url_capture)
+    monkeypatch.setattr("app.services.chat_service.create_url_capture_job", fail_url_capture)
     monkeypatch.setattr("app.services.chat_service.create_text_capture", fake_create_text_capture)
 
     db = testing_session()
@@ -1404,10 +1323,10 @@ def test_declining_pending_url_does_not_capture_later_yes(monkeypatch) -> None:
         )
     )
 
-    def fail_url_capture(**kwargs) -> TextCaptureResponse:
+    def fail_url_capture(**kwargs):
         raise AssertionError("Declined links must not remain pending.")
 
-    monkeypatch.setattr("app.services.chat_service.create_url_capture", fail_url_capture)
+    monkeypatch.setattr("app.services.chat_service.create_url_capture_job", fail_url_capture)
 
     db = testing_session()
     conversation = Conversation(user_id="test-user", title="Pending declined URL")
@@ -1634,10 +1553,10 @@ def test_confirmed_facebook_link_is_saved_as_reference_not_extracted(monkeypatch
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
 
-    def fail_url_capture(**kwargs) -> TextCaptureResponse:
+    def fail_url_capture(**kwargs):
         raise AssertionError("Facebook share links should be saved as references, not extracted.")
 
-    monkeypatch.setattr("app.services.chat_service.create_url_capture", fail_url_capture)
+    monkeypatch.setattr("app.services.chat_service.create_url_capture_job", fail_url_capture)
 
     try:
         client = TestClient(app)
@@ -1876,10 +1795,7 @@ def test_recent_reference_link_content_question_stays_honest(monkeypatch) -> Non
     app.dependency_overrides[get_chat_router] = lambda: FixedRouter("capture")
     app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
 
-    def fail_create_url_capture(**kwargs) -> TextCaptureResponse:
-        raise IngestionError("This video has no readable captions.")
-
-    monkeypatch.setattr("app.services.chat_service.create_url_capture", fail_create_url_capture)
+    stub_url_enrichment_job(monkeypatch)
 
     try:
         client = TestClient(app)
@@ -1910,7 +1826,7 @@ def test_recent_reference_link_content_question_stays_honest(monkeypatch) -> Non
         payload = question_response.json()
         assert payload["action"] == "conversation"
         assert payload["saved"] is False
-        assert "could not read its content" in payload["message"]
+        assert "still getting details" in payload["message"]
         assert "yc application" in payload["message"].lower()
     finally:
         app.dependency_overrides.clear()
@@ -1922,10 +1838,7 @@ def test_link_above_question_uses_latest_reference_not_older_link_reason(monkeyp
     app.dependency_overrides[get_chat_router] = lambda: FixedRouter("capture")
     app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
 
-    def fail_create_url_capture(**kwargs) -> TextCaptureResponse:
-        raise IngestionError("This video has no readable captions.")
-
-    monkeypatch.setattr("app.services.chat_service.create_url_capture", fail_create_url_capture)
+    stub_url_enrichment_job(monkeypatch)
 
     try:
         client = TestClient(app)
@@ -1967,7 +1880,7 @@ def test_link_above_question_uses_latest_reference_not_older_link_reason(monkeyp
         assert payload["action"] == "conversation"
         assert "https://youtu.be/iEFSQctQPjI?si=test" in payload["message"]
         assert "yc application" not in payload["message"].lower()
-        assert "could not read its content" in payload["message"]
+        assert "still getting details" in payload["message"]
     finally:
         app.dependency_overrides.clear()
 
@@ -1981,10 +1894,7 @@ def test_whats_the_above_about_resolves_to_latest_capture(monkeypatch) -> None:
     app.dependency_overrides[get_chat_router] = lambda: FixedRouter("capture")
     app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
 
-    def fail_create_url_capture(**kwargs) -> TextCaptureResponse:
-        raise IngestionError("This video has no readable captions.")
-
-    monkeypatch.setattr("app.services.chat_service.create_url_capture", fail_create_url_capture)
+    stub_url_enrichment_job(monkeypatch)
 
     try:
         client = TestClient(app)

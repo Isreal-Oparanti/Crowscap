@@ -76,3 +76,4 @@ class TextCaptureResponse(BaseModel):
     status: str
     inferred_intents: list[CaptureIntent]
     memories: list[MemoryCardResponse]
+    metadata_json: dict | None = None

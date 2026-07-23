@@ -70,9 +70,10 @@ copy.
 
 Users often drop links quickly because they do not want to lose them. Crowscap
 therefore keeps URL messages instead of treating them as accidental noise.
-Readable links are extracted when possible. Links that cannot be reliably read
-are saved as references, with the user's surrounding words kept as the reason
-when available.
+Readable links are saved immediately as references, with the user's surrounding
+words kept as the reason when available, then queued for background enrichment.
+This keeps the chat fast and makes source-reading failures recoverable instead
+of turning them into a broken chat turn.
 
 If a message contains substantial user-written content plus a URL, the content
 is treated as the primary thing to save. The backend should not collapse a real
@@ -83,10 +84,11 @@ Facebook share/reel links, Instagram links, X/Twitter links, and similar
 social/app-gated URLs should be kept as references immediately. Crowscap should
 not claim it can read private or app-gated content.
 
-Readable links should be attempted first. If extraction fails because a source
-is private, unavailable, age-restricted, or missing captions, Crowscap should
-say that clearly and save the URL as a reference rather than retrying the same
-failed extraction path or pretending it knows what is inside.
+Readable links should be enriched after the reference is safely stored. If
+extraction fails because a source is private, unavailable, age-restricted,
+missing captions, blocked by the network, or otherwise unreadable, Crowscap
+should mark the enrichment as failed, keep the URL and reason, and never
+pretend it knows what is inside.
 
 Short confirmations are scoped to current state:
 
@@ -108,9 +110,11 @@ that important?"
 Link-specific follow-ups such as "what is the link above about?" should resolve
 to the most recent captured source in the active conversation. If that source was
 readable, Crowscap should answer from the memory cards and source snapshot. If it
-was only saved as a reference, Crowscap should say exactly what it knows: the URL,
-the user's reason for saving it, and any safe metadata such as a video title or
-description. It must not borrow context from older links or nearby memories.
+is still being enriched, Crowscap should say the link is saved and details are
+still being gathered. If it was only saved as a reference, Crowscap should say
+exactly what it knows: the URL, the user's reason for saving it, and any safe
+metadata such as a video title or description. It must not borrow context from
+older links or nearby memories.
 
 Deictic follow-ups without a named subject — "whats the above about", "what was
 that about", "what did I just save", "summarize it" — mean the immediately

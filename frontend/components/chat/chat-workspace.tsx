@@ -27,6 +27,7 @@ import { MarkdownText } from "@/components/ui/markdown-text";
 import {
   getCurrentConversation,
   getDueRecalls,
+  getProcessingJob,
   sendChatMessage,
   uploadPdfToChat,
 } from "@/lib/api";
@@ -40,6 +41,7 @@ import type {
   DueReminder,
   DueRecallsResponse,
   PersistedChatMessage,
+  ProcessingJobResponse,
   SearchResponse,
 } from "@/lib/types";
 
@@ -88,6 +90,7 @@ type ChatMessage =
     };
 
 type WorkMode = "chat" | "link" | "save" | "pdf";
+type LinkEnrichment = { jobId: string; status: string | null };
 
 function openingMessagesFor(user: AppShellUser): ChatMessage[] {
   const name = user.name?.split(/\s+/)[0] ?? "there";
@@ -658,6 +661,52 @@ function ReminderReceipt({ data }: { data: ChatResponse }) {
 function MemoryReceipt({ data }: { data: CaptureResponse }) {
   const [expanded, setExpanded] = useState(false);
   const [view, setView] = useState<"memories" | "original">("memories");
+  const enrichment = linkEnrichmentFromCapture(data);
+  const [job, setJob] = useState<ProcessingJobResponse | null>(null);
+  const [jobError, setJobError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!enrichment?.jobId) return;
+
+    let active = true;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async () => {
+      try {
+        const response = await getProcessingJob(enrichment.jobId);
+        if (!active) return;
+        setJob(response);
+        setJobError(null);
+        if (["queued", "running", "retrying"].includes(response.status)) {
+          timeout = setTimeout(poll, 2500);
+        }
+      } catch (error) {
+        if (!active) return;
+        setJobError(
+          error instanceof Error
+            ? error.message
+            : "Crowscap could not check this link yet.",
+        );
+      }
+    };
+
+    poll();
+    return () => {
+      active = false;
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [enrichment?.jobId]);
+
+  const enrichmentStatus = job?.status ?? enrichment?.status ?? null;
+  const enrichedCapture =
+    job?.status === "succeeded" && job.result?.memories?.length
+      ? job.result
+      : null;
+  const summary = memoryReceiptSummary({
+    data,
+    enrichmentStatus,
+    enrichedCount: enrichedCapture?.memories.length ?? 0,
+  });
 
   return (
     <div className="overflow-hidden rounded-lg border border-[#dfe2e3] bg-[#f8f9f9]">
@@ -672,8 +721,7 @@ function MemoryReceipt({ data }: { data: CaptureResponse }) {
         <div>
           <p className="text-[11px] font-extrabold">Memory receipt</p>
           <p className="text-[10px] font-medium text-[#7d8083]">
-            {data.memories.length} memories -{" "}
-            {data.inferred_intents.join(", ") || "saved"}
+            {summary}
           </p>
         </div>
         <ChevronRight
@@ -712,9 +760,31 @@ function MemoryReceipt({ data }: { data: CaptureResponse }) {
           </div>
           {view === "memories" ? (
             <div className="grid gap-2">
+              <LinkEnrichmentStatus
+                status={enrichmentStatus}
+                step={job?.step ?? null}
+                error={job?.error_message_safe ?? jobError}
+                enrichedCount={enrichedCapture?.memories.length ?? 0}
+              />
               {data.memories.map((memory) => (
                 <MemoryCardView key={memory.id} memory={memory} compact />
               ))}
+              {enrichedCapture ? (
+                <div className="mt-2 rounded-lg border border-[#d7e5dc] bg-[#f1f7f4] p-3">
+                  <p className="text-[9px] font-extrabold uppercase text-[#2d7058]">
+                    Details found
+                  </p>
+                  <p className="mt-1 text-[11px] font-semibold leading-relaxed text-[#49685b]">
+                    Crowscap finished reading the link and added these memory
+                    cards.
+                  </p>
+                  <div className="mt-3 grid gap-2">
+                    {enrichedCapture.memories.map((memory) => (
+                      <MemoryCardView key={memory.id} memory={memory} compact />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="rounded-lg border border-[#e1e3e4] bg-[#fafafa] p-4">
@@ -737,6 +807,125 @@ function MemoryReceipt({ data }: { data: CaptureResponse }) {
       ) : null}
     </div>
   );
+}
+
+function linkEnrichmentFromCapture(data: CaptureResponse): LinkEnrichment | null {
+  const metadata = data.metadata_json;
+  if (!metadata || metadata.enrichment_kind !== "url_capture") return null;
+  const jobId =
+    typeof metadata.enrichment_job_id === "string"
+      ? metadata.enrichment_job_id
+      : "";
+  const status =
+    typeof metadata.enrichment_status === "string"
+      ? metadata.enrichment_status
+      : null;
+  if (!jobId && !status) return null;
+  return { jobId, status };
+}
+
+function memoryReceiptSummary({
+  data,
+  enrichmentStatus,
+  enrichedCount,
+}: {
+  data: CaptureResponse;
+  enrichmentStatus: string | null;
+  enrichedCount: number;
+}) {
+  const base = `${data.memories.length} memories - ${
+    data.inferred_intents.join(", ") || "saved"
+  }`;
+  if (["queued", "running", "retrying"].includes(enrichmentStatus ?? "")) {
+    return `${base} - getting details`;
+  }
+  if (enrichmentStatus === "succeeded" && enrichedCount > 0) {
+    return `${base} - ${enrichedCount} details found`;
+  }
+  if (enrichmentStatus === "failed") {
+    return `${base} - reference kept`;
+  }
+  return base;
+}
+
+function LinkEnrichmentStatus({
+  status,
+  step,
+  error,
+  enrichedCount,
+}: {
+  status: string | null;
+  step: string | null;
+  error: string | null;
+  enrichedCount: number;
+}) {
+  if (!status) return null;
+
+  if (["queued", "running", "retrying"].includes(status)) {
+    return (
+      <div className="rounded-lg border border-[#d7e5dc] bg-[#f1f7f4] px-4 py-3 text-[#2d7058]">
+        <div className="flex items-center gap-3">
+          <div className="work-stage-dots shrink-0" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+          <div>
+            <p className="text-[9px] font-extrabold uppercase">
+              Getting details
+            </p>
+            <p className="mt-1 text-[11px] font-semibold leading-relaxed text-[#49685b]">
+              The link is saved. Crowscap is reading what it can in the
+              background.
+            </p>
+            {step ? (
+              <p className="mt-1 text-[10px] font-bold text-[#6a8578]">
+                {humanizeJobStep(step)}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "succeeded") {
+    return (
+      <div className="rounded-lg border border-[#d7e5dc] bg-[#f1f7f4] px-4 py-3 text-[#2d7058]">
+        <p className="text-[9px] font-extrabold uppercase">Reading complete</p>
+        <p className="mt-1 text-[11px] font-semibold leading-relaxed text-[#49685b]">
+          {enrichedCount > 0
+            ? `Crowscap found ${enrichedCount} memory cards from this link.`
+            : "Crowscap finished checking the link."}
+        </p>
+      </div>
+    );
+  }
+
+  if (status === "failed") {
+    return (
+      <div className="rounded-lg border border-[#eadbbd] bg-[#fff9ec] px-4 py-3 text-[#7b5b24]">
+        <p className="text-[9px] font-extrabold uppercase">Reference kept</p>
+        <p className="mt-1 text-[11px] font-semibold leading-relaxed">
+          {error ||
+            "Crowscap could not read reliable content from this link, so it kept the URL and your reason."}
+        </p>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function humanizeJobStep(step: string) {
+  const labels: Record<string, string> = {
+    queued: "Waiting to read the source",
+    validating_url: "Checking the link",
+    extracting_source: "Reading the source",
+    ready: "Ready",
+    failed: "Could not read the source",
+  };
+  return labels[step] ?? step.replace(/_/g, " ");
 }
 
 function GroundedAnswer({ data }: { data: ChatResponse }) {

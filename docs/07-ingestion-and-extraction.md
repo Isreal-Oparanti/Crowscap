@@ -29,6 +29,16 @@ Input -> Safety check -> Type detection -> Extractor -> Cleaner -> Chunker -> Qw
 
 ## URL Extraction Strategy
 
+Chat UX rule:
+- Save the link immediately as a reference, with the user's surrounding words
+  kept as the reason when available.
+- Queue readable URL extraction as a background job. The first response should
+  never block on article parsing, YouTube transcript lookup, embeddings, or
+  relationship scans.
+- The receipt exposes enrichment state: queued/running, succeeded with memory
+  cards, or failed with a safe explanation. This lets Crowscap preserve user
+  intent first and attach extracted knowledge once it is actually available.
+
 Static HTML:
 - Use Trafilatura or Readability-style extraction.
 - Fast and cheap.
@@ -49,9 +59,9 @@ YouTube:
 - For short-form videos, extraction is instructed to produce only the 1-3
   genuinely distinct ideas the content contains, never padded counts.
 - If no transcript exists, allow user to paste transcript manually for MVP.
-- If transcript extraction fails but video metadata is available, save the link
-  as a reference with the known title, the video's own description (truncated),
-  and the user's reason. Do not imply the transcript or video content was read.
+- If transcript extraction fails but video metadata is available, keep the
+  original reference and attach any safe metadata to the enrichment result. Do
+  not imply the transcript or video content was read.
 - Speech-to-text can be a later feature if needed.
 
 PDF:

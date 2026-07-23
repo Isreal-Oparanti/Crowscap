@@ -8,6 +8,7 @@ from difflib import SequenceMatcher
 from typing import Protocol
 from urllib.parse import urlparse
 
+from fastapi import BackgroundTasks
 from pydantic import ValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -23,6 +24,7 @@ from app.db.models import (
     Memory,
     MemoryArchiveEvent,
     MemoryRelation,
+    ProcessingJob,
     Source,
     UserPreference,
     utc_now,
@@ -49,11 +51,10 @@ from app.services.capture_service import create_text_capture, initial_next_revie
 from app.services.embedding_service import MemoryEmbedder
 from app.services.extraction_service import MemoryExtractor
 from app.services.ingestion_service import (
-    IngestionError,
     create_pdf_capture_from_bytes,
-    create_url_capture,
     unsupported_url_reason,
 )
+from app.services.job_service import create_url_capture_job, run_url_capture_job
 from app.services.memory_lifecycle_service import archive_memory
 from app.services.preference_service import (
     PreferenceLearningResult,
@@ -264,6 +265,7 @@ def process_chat_message(
     extractor: MemoryExtractor,
     embedder: MemoryEmbedder,
     relation_detector: MemoryRelationDetector,
+    background_tasks: BackgroundTasks | None = None,
     user_id: str | None = None,
 ) -> ChatResponse:
     conversation = _get_or_create_conversation(
@@ -562,37 +564,14 @@ def process_chat_message(
                 )
             else:
                 intent_text = _url_message_intent_text(payload.message, url)
-                try:
-                    capture = create_url_capture(
-                        db=db,
-                        payload=UrlCaptureRequest(
-                            url=url,
-                            intent_text=intent_text or None,
-                        ),
-                        extractor=extractor,
-                        embedder=embedder,
-                        relation_detector=relation_detector,
-                        user_id=user_id,
-                    )
-                except IngestionError as exc:
-                    response = _reference_link_chat_response(
-                        db=db,
-                        url=url,
-                        intent_text=intent_text,
-                        embedder=embedder,
-                        user_id=user_id,
-                        unreadable_reason=str(exc),
-                        source_metadata=getattr(exc, "metadata", None),
-                    )
-                    response = _with_preference_learning(response, preference_learning)
-                    logger.info("\u2705 chat.message.complete action=url_ingestion_failed_reference saved=True")
-                    return _persist_assistant_response(
-                        db=db,
-                        conversation=conversation,
-                        user_message=user_message,
-                        response=response,
-                        user_id=user_id,
-                    )
+                capture = _create_enriching_reference_link_capture(
+                    db=db,
+                    url=url,
+                    intent_text=intent_text,
+                    embedder=embedder,
+                    background_tasks=background_tasks,
+                    user_id=user_id,
+                )
         elif _should_capture_pending_url(
             payload.message,
             pending_url=pending_url,
@@ -692,37 +671,14 @@ def process_chat_message(
                     history=effective_history,
                     pending_url=pending_url,
                 )
-                try:
-                    capture = create_url_capture(
-                        db=db,
-                        payload=UrlCaptureRequest(
-                            url=pending_url,
-                            intent_text=pending_intent,
-                        ),
-                        extractor=extractor,
-                        embedder=embedder,
-                        relation_detector=relation_detector,
-                        user_id=user_id,
-                    )
-                except IngestionError as exc:
-                    response = _reference_link_chat_response(
-                        db=db,
-                        url=pending_url,
-                        intent_text=pending_intent,
-                        embedder=embedder,
-                        user_id=user_id,
-                        unreadable_reason=str(exc),
-                        source_metadata=getattr(exc, "metadata", None),
-                    )
-                    response = _with_preference_learning(response, preference_learning)
-                    logger.info("\u2705 chat.message.complete action=url_ingestion_failed_reference saved=True")
-                    return _persist_assistant_response(
-                        db=db,
-                        conversation=conversation,
-                        user_message=user_message,
-                        response=response,
-                        user_id=user_id,
-                    )
+                capture = _create_enriching_reference_link_capture(
+                    db=db,
+                    url=pending_url,
+                    intent_text=pending_intent,
+                    embedder=embedder,
+                    background_tasks=background_tasks,
+                    user_id=user_id,
+                )
         elif _is_save_previous_response_command(payload.message):
             response = _process_save_previous_response_request(
                 db=db,
@@ -1633,7 +1589,7 @@ def _recent_link_content_reply(
         return None
 
     if recent.source.source_type == "reference":
-        return _recent_reference_link_reply(recent.source, url=url)
+        return _recent_reference_link_reply(db=db, source=recent.source, url=url, user_id=user_id)
 
     active_memories = [
         memory
@@ -1671,12 +1627,61 @@ def _recent_link_content_reply(
     )
 
 
-def _recent_reference_link_reply(source: Source, *, url: str) -> str:
+def _recent_reference_link_reply(
+    *,
+    db: Session,
+    source: Source,
+    url: str,
+    user_id: str | None,
+) -> str:
     reason = _reference_reason_from_source(source)
     known_title = _reference_known_title_from_source(source)
     known_description = _reference_known_description_from_source(source)
+    enrichment = _link_enrichment_job_from_source(db=db, source=source, user_id=user_id)
+    source_enrichment_status = (source.metadata_json or {}).get("enrichment_status")
 
     lines: list[str] = []
+    if enrichment is not None and enrichment.status == "succeeded" and enrichment.result_json:
+        result = enrichment.result_json
+        if isinstance(result, dict):
+            title = (result.get("source_title") or "").strip()
+            memories = result.get("memories")
+            if title:
+                lines.append(f"That link is saved as: {title}.")
+            if isinstance(memories, list) and memories:
+                found = []
+                for memory in memories[:5]:
+                    if isinstance(memory, dict):
+                        content = memory.get("content")
+                        if isinstance(content, str) and content.strip():
+                            found.append(f"- {_snippet(content, max_chars=220)}")
+                if found:
+                    lines.append("What I found from it:\n" + "\n".join(found))
+            if reason:
+                lines.append(f"You saved it because: {reason}")
+            lines.append(f"Link: {url}")
+            return "\n\n".join(lines)
+
+    if (
+        enrichment is not None and enrichment.status in {"queued", "running", "retrying"}
+    ) or source_enrichment_status in {"queued", "running", "retrying"}:
+        lines.append("I saved that link and I am still getting details from it.")
+        if reason:
+            lines.append(f"You saved it because: {reason}")
+        lines.append(f"Link: {url}")
+        return "\n\n".join(lines)
+
+    if enrichment is not None and enrichment.status == "failed":
+        lines.append(
+            "I saved that link as a reference, but I could not read reliable content from it."
+        )
+        if enrichment.error_message_safe:
+            lines.append(enrichment.error_message_safe)
+        if reason:
+            lines.append(f"You saved it because: {reason}")
+        lines.append(f"Link: {url}")
+        return "\n\n".join(lines)
+
     if known_title:
         lines.append(f'That is "{known_title}".')
     if known_description:
@@ -1692,6 +1697,24 @@ def _recent_reference_link_reply(source: Source, *, url: str) -> str:
             lines.append("Paste the key point from it and I will keep that context too.")
     lines.append(f"Link: {url}")
     return "\n\n".join(lines)
+
+
+def _link_enrichment_job_from_source(
+    *,
+    db: Session,
+    source: Source,
+    user_id: str | None,
+) -> ProcessingJob | None:
+    metadata = source.metadata_json or {}
+    job_id = metadata.get("enrichment_job_id")
+    if not isinstance(job_id, str) or not job_id.strip():
+        return None
+    job = db.get(ProcessingJob, job_id)
+    if job is None:
+        return None
+    if user_id is not None and job.user_id != user_id:
+        return None
+    return job
 
 
 def _source_kind_label(source: Source) -> str:
@@ -3247,6 +3270,82 @@ def _is_reference_only_url(url: str) -> bool:
     return host in reference_hosts or host.endswith(".facebook.com") or host.endswith(".instagram.com")
 
 
+def _create_enriching_reference_link_capture(
+    *,
+    db: Session,
+    url: str,
+    intent_text: str | None,
+    embedder: MemoryEmbedder,
+    background_tasks: BackgroundTasks | None,
+    user_id: str | None,
+) -> TextCaptureResponse:
+    capture = _create_reference_link_capture(
+        db=db,
+        url=url,
+        intent_text=intent_text,
+        embedder=embedder,
+        user_id=user_id,
+        source_metadata={
+            "enrichment_status": "queued",
+            "enrichment_kind": "url_capture",
+        },
+    )
+
+    try:
+        job = create_url_capture_job(
+            db=db,
+            payload=UrlCaptureRequest(url=url, intent_text=intent_text or None),
+            user_id=user_id,
+        )
+    except Exception:
+        logger.exception("⚠️ link.enrichment_queue_failed url=%s", url)
+        return _capture_with_metadata(
+            db=db,
+            capture=capture,
+            metadata={
+                "enrichment_status": "failed",
+                "enrichment_kind": "url_capture",
+                "enrichment_error_safe": (
+                    "The link is saved, but Crowscap could not start background reading yet."
+                ),
+            },
+        )
+
+    if background_tasks is not None:
+        background_tasks.add_task(run_url_capture_job, job.job_id)
+
+    return _capture_with_metadata(
+        db=db,
+        capture=capture,
+        metadata={
+            "enrichment_status": job.status,
+            "enrichment_kind": "url_capture",
+            "enrichment_job_id": job.job_id,
+            "enrichment_status_url": job.status_url,
+        },
+    )
+
+
+def _capture_with_metadata(
+    *,
+    db: Session,
+    capture: TextCaptureResponse,
+    metadata: dict,
+) -> TextCaptureResponse:
+    merged = dict(capture.metadata_json or {})
+    merged.update({key: value for key, value in metadata.items() if value is not None})
+
+    source = db.get(Source, capture.source_id)
+    if source is not None:
+        source_metadata = dict(source.metadata_json or {})
+        source_metadata.update(merged)
+        source.metadata_json = source_metadata
+        db.add(source)
+        db.commit()
+
+    return capture.model_copy(update={"metadata_json": merged})
+
+
 def _create_reference_link_capture(
     *,
     db: Session,
@@ -3347,6 +3446,7 @@ def _create_reference_link_capture(
         original_content=source.raw_text,
         status=capture.status,
         inferred_intents=["reference"],
+        metadata_json=source.metadata_json,
         memories=[
             MemoryCardResponse(
                 id=memory.id,
@@ -3896,6 +3996,32 @@ def _retrieval_query(*, message: str, history: list[ConversationTurn]) -> str:
 
 def _capture_confirmation(capture) -> str:
     if getattr(capture, "source_type", None) == "reference":
+        metadata = getattr(capture, "metadata_json", None) or {}
+        reason_attached = _reference_capture_has_reason(capture)
+        if metadata.get("enrichment_status") in {"queued", "running", "retrying"}:
+            if reason_attached:
+                return (
+                    "I saved this link with your reason attached.\n\n"
+                    "I am getting details in the background. If the source has readable content, "
+                    "I will attach what I find."
+                )
+            return (
+                "I saved this link as a reference.\n\n"
+                "I am getting details in the background. Add a short reason later if you want "
+                "me to know why it matters."
+            )
+        if metadata.get("enrichment_status") == "failed":
+            if reason_attached:
+                return (
+                    "I saved this link with your reason attached.\n\n"
+                    "I could not start background reading yet, so I kept the URL safely for now."
+                )
+            return (
+                "I saved this link as a reference.\n\n"
+                "I could not start background reading yet, so I kept the URL safely for now."
+            )
+        if reason_attached:
+            return "I kept this link as a reference with your reason attached."
         return "I kept this link as a reference."
 
     comparison_count = sum(

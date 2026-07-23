@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
@@ -56,6 +56,7 @@ def conversation(
 @router.post("", response_model=ChatResponse)
 def chat(
     payload: ChatRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     router_service: ChatIntentRouter = Depends(get_chat_router),
     synthesizer: ChatSynthesizer = Depends(get_chat_synthesizer),
@@ -78,6 +79,7 @@ def chat(
             extractor=extractor,
             embedder=embedder,
             relation_detector=relation_detector,
+            background_tasks=background_tasks,
             user_id=current_user.id,
         )
     except (QwenClientError, EmbeddingError) as exc:

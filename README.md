@@ -44,6 +44,8 @@ The system does not try to be a truth oracle. It keeps source context, confidenc
 Crowscap supports:
 
 - Chat-first capture of notes, ideas, links, YouTube videos, and PDFs.
+- Immediate link saving with background enrichment, so a slow source read never
+  blocks the chat turn.
 - Reference-only saving for social or private links that cannot be reliably extracted.
 - Atomic memory extraction with Qwen Cloud structured output.
 - Semantic search with Qwen embeddings and PostgreSQL vector support.
@@ -54,6 +56,8 @@ Crowscap supports:
 - Belief audits that synthesize what saved memories appear to say about a topic.
 - Preference learning from explicit instructions and lower-confidence behavior signals.
 - User-controlled archiving so unwanted memories stop surfacing.
+- Frontend network handling that catches offline/service outages before they
+  become confusing JSON or gateway errors.
 - MCP tools for agent access over SSE, including read tools (search, audit, recall, preferences) and write tools (capture text, submit quick recall, archive memory).
 
 ## Architecture
@@ -72,7 +76,9 @@ The chat layer also separates three kinds of context:
 
 - Conversation facts, such as "what was my first message?", are answered from stored chat messages.
 - Knowledge questions, such as "what do I know about distribution?", use semantic retrieval.
-- Capture actions preserve user intent: useful notes become memory, readable links are extracted when possible, and unreadable links are kept as honest references instead of becoming invented summaries.
+- Capture actions preserve user intent: useful notes become memory, links are
+  saved immediately and enriched in the background, and unreadable links are
+  kept as honest references instead of becoming invented summaries.
 
 ## Alibaba Cloud and Qwen Cloud Usage
 

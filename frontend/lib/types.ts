@@ -34,6 +34,24 @@ export type CaptureResponse = {
   status: string;
   inferred_intents: string[];
   memories: MemoryCard[];
+  metadata_json?: Record<string, unknown> | null;
+};
+
+export type ProcessingJobResponse = {
+  id: string;
+  job_type: string;
+  status: "queued" | "running" | "succeeded" | "failed" | "retrying" | string;
+  step: string;
+  attempts: number;
+  capture_id: string | null;
+  source_id: string | null;
+  error_code: string | null;
+  error_message_safe: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  result: CaptureResponse | null;
 };
 
 export type SourceContentResponse = {

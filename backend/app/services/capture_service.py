@@ -520,6 +520,7 @@ def _build_text_capture_response(
         original_content=source.raw_text,
         status=capture.status,
         inferred_intents=list(capture.inferred_intents or []),
+        metadata_json=source.metadata_json,
         memories=[
             MemoryCardResponse(
                 id=memory.id,

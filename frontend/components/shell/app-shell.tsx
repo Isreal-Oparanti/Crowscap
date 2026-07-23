@@ -7,6 +7,7 @@ import {
   MessageCircle,
   Plus,
   Search,
+  WifiOff,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -171,6 +172,7 @@ export function AppShell({
       <aside className="context-rail desktop-rail bg-[#f8f8f8]">
         {context ?? <DefaultContext />}
       </aside>
+      <NetworkToastHost />
     </div>
   );
 }
@@ -313,6 +315,48 @@ function PreferenceRow({ label, value }: { label: string; value: string }) {
       <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold uppercase text-[#676a6d] shadow-[0_0_0_1px_#e4e5e6]">
         {value}
       </span>
+    </div>
+  );
+}
+
+function NetworkToastHost() {
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const onIssue = (event: Event) => {
+      const detail = (event as CustomEvent<{ message?: string }>).detail;
+      const nextMessage =
+        typeof detail?.message === "string" && detail.message.trim()
+          ? detail.message
+          : "Crowscap could not reach the memory service. Try again in a moment.";
+      setMessage(nextMessage);
+      if (timeout) clearTimeout(timeout);
+      timeout = setTimeout(() => setMessage(null), 5200);
+    };
+
+    window.addEventListener("crowscap:api-issue", onIssue);
+    return () => {
+      window.removeEventListener("crowscap:api-issue", onIssue);
+      if (timeout) clearTimeout(timeout);
+    };
+  }, []);
+
+  if (!message) return null;
+
+  return (
+    <div className="fixed bottom-5 left-1/2 z-50 w-[min(92vw,420px)] -translate-x-1/2 md:bottom-6 md:left-auto md:right-6 md:translate-x-0">
+      <div className="flex items-start gap-3 rounded-lg border border-[#ded4bf] bg-[#fffaf0] px-4 py-3 text-[#6f5421] shadow-[0_18px_60px_rgba(0,0,0,0.14)]">
+        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-[#f5ead3]">
+          <WifiOff size={15} strokeWidth={2.1} />
+        </div>
+        <div>
+          <p className="text-[11px] font-extrabold uppercase">Connection issue</p>
+          <p className="mt-1 text-[12px] font-semibold leading-relaxed">
+            {message}
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

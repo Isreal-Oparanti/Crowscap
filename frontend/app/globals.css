@@ -140,6 +140,29 @@ button {
   animation-delay: 4.2s;
 }
 
+.work-stage-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.work-stage-dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.32;
+  animation: work-dot-pulse 1.2s ease-in-out infinite;
+}
+
+.work-stage-dots span:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.work-stage-dots span:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
 .work-progress {
   width: 45%;
   animation: work-progress 1.35s ease-in-out infinite;
@@ -193,6 +216,19 @@ button {
   100% {
     opacity: 0;
     transform: translateY(-5px);
+  }
+}
+
+@keyframes work-dot-pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.28;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
   }
 }
 

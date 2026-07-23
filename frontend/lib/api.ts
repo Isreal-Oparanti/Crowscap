@@ -6,6 +6,7 @@ import type {
   ConversationTurn,
   DueRecallsResponse,
   PerspectiveNoteListResponse,
+  ProcessingJobResponse,
   ReminderResponse,
   RecallAnswerResponse,
   RecallQuickAction,
@@ -15,6 +16,20 @@ import type {
   UserPreferenceLearningResponse,
   UserPreferenceProfile,
 } from "@/lib/types";
+
+const NETWORK_ERROR_MESSAGE =
+  "You appear to be offline. Check your internet connection and try again.";
+const SERVICE_REACHABILITY_MESSAGE =
+  "Crowscap could not reach the memory service. Check your connection and try again.";
+
+function notifyApiIssue(message: string) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("crowscap:api-issue", {
+      detail: { message },
+    }),
+  );
+}
 
 function errorMessageFromPayload(payload: unknown): string {
   if (typeof payload === "object" && payload !== null) {
@@ -45,6 +60,11 @@ function errorMessageFromPayload(payload: unknown): string {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    notifyApiIssue(NETWORK_ERROR_MESSAGE);
+    throw new Error(NETWORK_ERROR_MESSAGE);
+  }
+
   const isFormData = init?.body instanceof FormData;
   let response: Response;
   try {
@@ -57,9 +77,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       },
     });
   } catch {
-    throw new Error(
-      "Crowscap could not reach the memory service. Please check your internet connection and try again.",
-    );
+    notifyApiIssue(SERVICE_REACHABILITY_MESSAGE);
+    throw new Error(SERVICE_REACHABILITY_MESSAGE);
   }
 
   const rawPayload = await response.text();
@@ -75,6 +94,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
   }
   if (!response.ok) {
+    if (response.status === 502 || response.status === 503 || response.status === 504) {
+      const message =
+        "The memory service is temporarily unreachable. Try again in a moment.";
+      notifyApiIssue(message);
+      throw new Error(message);
+    }
     throw new Error(errorMessageFromPayload(payload));
   }
   return payload as T;
@@ -166,6 +191,10 @@ export function getDuePerspectiveNotes(
   return request<PerspectiveNoteListResponse>(
     `memories/perspective-notes/due?limit=${limit}&include_future=${includeFuture}`,
   );
+}
+
+export function getProcessingJob(jobId: string): Promise<ProcessingJobResponse> {
+  return request<ProcessingJobResponse>(`jobs/${jobId}`);
 }
 
 export function searchMemories(query: string): Promise<SearchResponse> {
