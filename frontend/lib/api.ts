@@ -7,6 +7,7 @@ import type {
   DueRecallsResponse,
   PerspectiveNoteListResponse,
   ProcessingJobResponse,
+  RecentMemoryListResponse,
   ReminderResponse,
   RecallAnswerResponse,
   RecallQuickAction,
@@ -205,6 +206,32 @@ export function searchMemories(query: string): Promise<SearchResponse> {
       limit: 10,
       min_score: 0.25,
       include_archived: false,
+    }),
+  });
+}
+
+export function getRecentMemories(
+  limit = 20,
+  offset = 0,
+): Promise<RecentMemoryListResponse> {
+  return request<RecentMemoryListResponse>(
+    `memories/recent?limit=${limit}&offset=${offset}`,
+  );
+}
+
+export function archiveMemory(memoryId: string): Promise<{
+  memory_id: string;
+  previous_status: string;
+  new_status: string;
+  reason: string;
+  note: string | null;
+  archived_at: string;
+}> {
+  return request(`memories/${memoryId}/archive`, {
+    method: "POST",
+    body: JSON.stringify({
+      reason: "user_dismissed",
+      note: "Archived from the recent memories view.",
     }),
   });
 }

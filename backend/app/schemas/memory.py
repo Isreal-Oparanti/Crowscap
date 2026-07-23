@@ -40,6 +40,29 @@ class RestoreMemoryResponse(BaseModel):
     next_review_at: datetime | None
 
 
+class RecentMemoryResponse(BaseModel):
+    memory_id: str
+    source_id: str
+    source_type: str
+    source_title: str | None
+    memory_type: MemoryType
+    epistemic_label: EpistemicLabel | None
+    content: str
+    summary: str | None
+    confidence: Confidence
+    confidence_reason: str | None
+    source_strength: SourceStrength
+    created_at: datetime
+
+
+class RecentMemoryListResponse(BaseModel):
+    count: int
+    limit: int
+    offset: int
+    has_more: bool
+    memories: list[RecentMemoryResponse]
+
+
 class ArchiveCandidateResponse(BaseModel):
     memory_id: str
     source_id: str

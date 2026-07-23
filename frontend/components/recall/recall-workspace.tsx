@@ -2,6 +2,7 @@
 
 import {
   ArrowUp,
+  Bell,
   BookOpenCheck,
   ChevronRight,
   CircleAlert,
@@ -57,12 +58,21 @@ export function RecallWorkspace({
   const [showOriginal, setShowOriginal] = useState(false);
   const [showDeepReview, setShowDeepReview] = useState(false);
   const [sourceLoading, setSourceLoading] = useState(false);
+  const [selectedMemoryId, setSelectedMemoryId] = useState<string | null>(
+    requestedMemoryId ?? null,
+  );
   const [selectedReminderId, setSelectedReminderId] = useState<string | null>(null);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(Boolean(requestedMemoryId));
   const [completingReminder, setCompletingReminder] = useState(false);
   const [snoozingReminder, setSnoozingReminder] = useState(false);
   const [quickSubmitting, setQuickSubmitting] =
     useState<RecallQuickAction | null>(null);
   const [quickResult, setQuickResult] = useState<RecallQuickResponse | null>(null);
+
+  useEffect(() => {
+    setSelectedMemoryId(requestedMemoryId ?? null);
+    setMobileDetailOpen(Boolean(requestedMemoryId));
+  }, [requestedMemoryId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,24 +113,24 @@ export function RecallWorkspace({
   }, []);
 
   const selectedReminder = useMemo(() => {
-    if (requestedMemoryId || !data?.reminders.length) return null;
+    if (selectedMemoryId || !data?.reminders.length) return null;
     return (
       data.reminders.find(
         (reminder) => reminder.reminder_id === selectedReminderId,
       ) ?? data.reminders[0]
     );
-  }, [data, requestedMemoryId, selectedReminderId]);
+  }, [data, selectedMemoryId, selectedReminderId]);
 
   const selected = useMemo(() => {
     if (!data?.memories.length) return null;
-    if (selectedReminder && !requestedMemoryId) return null;
-    if (!requestedMemoryId) return data.memories[0];
+    if (selectedReminder && !selectedMemoryId) return null;
+    if (!selectedMemoryId) return data.memories[0];
     return (
       data.memories.find(
-        (memory) => memory.memory_id === requestedMemoryId,
+        (memory) => memory.memory_id === selectedMemoryId,
       ) ?? data.memories[0]
     );
-  }, [data, requestedMemoryId, selectedReminder]);
+  }, [data, selectedMemoryId, selectedReminder]);
 
   useEffect(() => {
     setAnswer("");
@@ -154,6 +164,7 @@ export function RecallWorkspace({
         };
       });
       setSelectedReminderId(null);
+      setMobileDetailOpen(false);
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -183,6 +194,7 @@ export function RecallWorkspace({
         };
       });
       setSelectedReminderId(null);
+      setMobileDetailOpen(false);
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -289,6 +301,19 @@ export function RecallWorkspace({
         : current,
     );
     setQuickResult(null);
+    setMobileDetailOpen(false);
+  }
+
+  function openMobileReminder(reminderId: string) {
+    setSelectedMemoryId(null);
+    setSelectedReminderId(reminderId);
+    setMobileDetailOpen(true);
+  }
+
+  function openMobileMemory(memoryId: string) {
+    setSelectedReminderId(null);
+    setSelectedMemoryId(memoryId);
+    setMobileDetailOpen(true);
   }
 
   return (
@@ -309,7 +334,10 @@ export function RecallWorkspace({
           reminders={data?.reminders ?? []}
           selectedId={selected?.memory_id ?? null}
           selectedReminderId={selectedReminder?.reminder_id ?? null}
-          onSelectReminder={setSelectedReminderId}
+          onSelectReminder={(reminderId) => {
+            setSelectedMemoryId(null);
+            setSelectedReminderId(reminderId);
+          }}
         />
       }
     >
@@ -327,18 +355,41 @@ export function RecallWorkspace({
             <EmptyRecall />
           ) : null}
 
-          {!loading && !error && selectedReminder ? (
-            <ReminderDue
-              reminder={selectedReminder}
-              completing={completingReminder}
-              snoozing={snoozingReminder}
-              onComplete={completeSelectedReminder}
-              onSnooze={snoozeSelectedReminder}
+          {!loading && !error && data ? (
+            <MobileRecallQueue
+              memories={data.memories}
+              reminders={data.reminders}
+              detailOpen={mobileDetailOpen}
+              selectedMemoryId={selected?.memory_id ?? null}
+              selectedReminderId={selectedReminder?.reminder_id ?? null}
+              onSelectMemory={openMobileMemory}
+              onSelectReminder={openMobileReminder}
             />
           ) : null}
 
-          {selected ? (
-            <div className="rise-in">
+          <div className={mobileDetailOpen ? "block" : "hidden md:block"}>
+            {mobileDetailOpen ? (
+              <button
+                type="button"
+                onClick={() => setMobileDetailOpen(false)}
+                className="mb-5 inline-flex items-center text-[11px] font-extrabold text-[#606568] md:hidden"
+              >
+                Back to ready items
+              </button>
+            ) : null}
+
+            {!loading && !error && selectedReminder ? (
+              <ReminderDue
+                reminder={selectedReminder}
+                completing={completingReminder}
+                snoozing={snoozingReminder}
+                onComplete={completeSelectedReminder}
+                onSnooze={snoozeSelectedReminder}
+              />
+            ) : null}
+
+            {selected ? (
+              <div className="rise-in">
               <div className="flex items-center gap-2 text-[#2d7058]">
                 <BookOpenCheck size={15} />
                 <span className="text-[10px] font-extrabold uppercase">
@@ -612,11 +663,132 @@ export function RecallWorkspace({
                   </div>
                 </div>
               ) : null}
-            </div>
-          ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
     </AppShell>
+  );
+}
+
+function MobileRecallQueue({
+  memories,
+  reminders,
+  detailOpen,
+  selectedMemoryId,
+  selectedReminderId,
+  onSelectMemory,
+  onSelectReminder,
+}: {
+  memories: DueRecall[];
+  reminders: DueReminder[];
+  detailOpen: boolean;
+  selectedMemoryId: string | null;
+  selectedReminderId: string | null;
+  onSelectMemory: (memoryId: string) => void;
+  onSelectReminder: (reminderId: string) => void;
+}) {
+  const hasItems = memories.length > 0 || reminders.length > 0;
+  if (detailOpen) return null;
+
+  return (
+    <section className="mb-8 md:hidden">
+      <div className="rounded-xl border border-[#e1e4e5] bg-white shadow-[0_14px_44px_rgba(17,17,17,0.06)]">
+        <div className="border-b border-[#edf0f1] px-4 py-4">
+          <p className="text-[10px] font-extrabold uppercase text-[#7e8285]">
+            Ready now
+          </p>
+          <h2 className="mt-1 text-[21px] font-[760] leading-tight">
+            Choose what to revisit.
+          </h2>
+          <p className="mt-2 text-[11px] font-semibold leading-relaxed text-[#777b7e]">
+            Reminders and recalls stay separate. Tap one to open the full view.
+          </p>
+        </div>
+
+        {!hasItems ? (
+          <div className="px-4 py-6 text-[12px] font-semibold text-[#777b7e]">
+            Nothing needs attention right now.
+          </div>
+        ) : null}
+
+        <div className="divide-y divide-[#edf0f1]">
+          {reminders.map((reminder) => (
+            <MobileRecallItem
+              key={reminder.reminder_id}
+              icon="reminder"
+              label="Reminder"
+              title={reminder.content}
+              meta={`Due ${formatFriendlyDateTime(reminder.due_at)}`}
+              active={reminder.reminder_id === selectedReminderId}
+              onClick={() => onSelectReminder(reminder.reminder_id)}
+            />
+          ))}
+          {memories.map((memory) => (
+            <MobileRecallItem
+              key={memory.memory_id}
+              icon="recall"
+              label={memory.memory_type}
+              title={memory.summary ?? memory.content}
+              meta={memory.source_title ?? "Saved memory"}
+              active={memory.memory_id === selectedMemoryId}
+              onClick={() => onSelectMemory(memory.memory_id)}
+            />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MobileRecallItem({
+  icon,
+  label,
+  title,
+  meta,
+  active,
+  onClick,
+}: {
+  icon: "recall" | "reminder";
+  label: string;
+  title: string;
+  meta: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const Icon = icon === "reminder" ? Bell : BookOpenCheck;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex w-full items-start gap-3 px-4 py-4 text-left transition ${
+        active ? "bg-[#f1f7f4]" : "bg-white hover:bg-[#fbfcfc]"
+      }`}
+    >
+      <div
+        className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${
+          icon === "reminder"
+            ? "bg-[#f2f4f7] text-[#4d5660]"
+            : "bg-[#eaf4ef] text-[#2d7058]"
+        }`}
+      >
+        <Icon size={17} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-[9px] font-extrabold uppercase text-[#7e8285]">
+          {label}
+        </p>
+        <p className="mt-1 line-clamp-2 text-[13px] font-[720] leading-relaxed text-[#17191a]">
+          {title}
+        </p>
+        <p className="mt-1 truncate text-[10px] font-semibold text-[#85888b]">
+          {meta}
+        </p>
+      </div>
+      <ChevronRight className="mt-2 shrink-0 text-[#9a9ea1]" size={16} />
+    </button>
   );
 }
 

@@ -1,13 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.auth import CurrentUser, require_current_user
+from app.db.models import Memory, Source
 from app.db.session import get_db
 from app.schemas.memory import (
     ArchiveCandidateListResponse,
     ArchiveMemoryRequest,
     CompressionCandidateListResponse,
     MemoryArchiveResponse,
+    RecentMemoryListResponse,
+    RecentMemoryResponse,
     RestoreMemoryResponse,
 )
 from app.schemas.perspective import PerspectiveNoteDecisionResponse, PerspectiveNoteListResponse
@@ -24,6 +28,49 @@ from app.services.perspective_service import (
 )
 
 router = APIRouter(tags=["memories"])
+
+
+@router.get("/recent", response_model=RecentMemoryListResponse)
+def recent_memories(
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0, le=5000),
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_current_user),
+) -> RecentMemoryListResponse:
+    filters = [Memory.status == "active", Memory.user_id == current_user.id]
+    count = db.scalar(select(func.count(Memory.id)).where(*filters)) or 0
+    rows = db.execute(
+        select(Memory, Source)
+        .join(Source, Memory.source_id == Source.id)
+        .where(*filters)
+        .order_by(Memory.created_at.desc(), Memory.id.desc())
+        .offset(offset)
+        .limit(limit)
+    ).all()
+    memories = [
+        RecentMemoryResponse(
+            memory_id=memory.id,
+            source_id=source.id,
+            source_type=source.source_type,
+            source_title=source.title,
+            memory_type=memory.memory_type,
+            epistemic_label=memory.epistemic_label,
+            content=memory.content,
+            summary=memory.summary,
+            confidence=memory.confidence,
+            confidence_reason=memory.confidence_reason,
+            source_strength=memory.source_strength,
+            created_at=memory.created_at,
+        )
+        for memory, source in rows
+    ]
+    return RecentMemoryListResponse(
+        count=count,
+        limit=limit,
+        offset=offset,
+        has_more=offset + len(memories) < count,
+        memories=memories,
+    )
 
 
 @router.get("/perspective-notes/due", response_model=PerspectiveNoteListResponse)

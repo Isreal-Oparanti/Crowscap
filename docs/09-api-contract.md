@@ -306,6 +306,43 @@ Query params:
 - limit
 - cursor
 
+### GET /memories/recent
+
+Returns the signed-in user's active memories in newest-first order. This powers
+the recent memory stream on the Search page and is intentionally separate from
+semantic search.
+
+Query params:
+- limit: optional, default 20, max 50
+- offset: optional, default 0
+
+Response:
+
+```json
+{
+  "count": 42,
+  "limit": 20,
+  "offset": 0,
+  "has_more": true,
+  "memories": [
+    {
+      "memory_id": "uuid",
+      "source_id": "uuid",
+      "source_type": "youtube",
+      "source_title": "YC Interview Mistakes Video",
+      "memory_type": "principle",
+      "epistemic_label": "advice",
+      "content": "YC interviews reward clear, conversational founder communication.",
+      "summary": "YC interviews favor clear founder communication.",
+      "confidence": "high",
+      "confidence_reason": "The source states this directly.",
+      "source_strength": "moderate",
+      "created_at": "2026-07-23T12:00:00Z"
+    }
+  ]
+}
+```
+
 ### GET /memories/{memory_id}
 
 Returns full memory, source metadata, relations, and recall history.

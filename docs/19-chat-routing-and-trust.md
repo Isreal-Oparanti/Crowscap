@@ -128,6 +128,13 @@ router has a dedicated `recent` action for the same intent phrased less exactly.
 Falling through to broad memory retrieval for these questions is a bug: it
 surfaces older, unrelated memories and produces a hedging synthesis answer.
 
+Reminder follow-ups can also point at the most recent saved source. For example,
+after a video is saved, "remind me to watch the above video tomorrow at 9am"
+should create a reminder attached to that source. The reminder text should be
+human readable, such as "Watch YC Interview Mistakes Video: <url>", and should
+not create another semantic memory just because the reminder references a saved
+source.
+
 Answers about a reference-only link must never speculate about its content
 ("probably", "likely", "may emphasize") and must never display raw video IDs,
 URL slugs, or internal memory IDs in prose. Refer to the item by title, by the

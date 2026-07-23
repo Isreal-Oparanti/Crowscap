@@ -52,6 +52,7 @@ from app.services.embedding_service import MemoryEmbedder
 from app.services.extraction_service import MemoryExtractor
 from app.services.ingestion_service import (
     create_pdf_capture_from_bytes,
+    extract_youtube_video_id,
     unsupported_url_reason,
 )
 from app.services.job_service import create_url_capture_job, run_url_capture_job
@@ -277,12 +278,17 @@ def process_chat_message(
     persisted_history = _conversation_turns(conversation, limit=None)
     effective_history = persisted_history or payload.history
     pending_url = _pending_url_from_history(effective_history)
-    grounded_local_reply = _grounded_local_conversation_reply(
-        db=db,
-        message=payload.message,
-        history=effective_history,
-        conversation=conversation,
-        user_id=user_id,
+    normalized_message = re.sub(r"\s+", " ", payload.message.strip().lower())
+    grounded_local_reply = (
+        None
+        if _is_reminder_command(normalized_message)
+        else _grounded_local_conversation_reply(
+            db=db,
+            message=payload.message,
+            history=effective_history,
+            conversation=conversation,
+            user_id=user_id,
+        )
     )
 
     logger.info(
@@ -500,7 +506,7 @@ def process_chat_message(
         response = _process_reminder_request(
             db=db,
             message=payload.message,
-            conversation_id=conversation.id,
+            conversation=conversation,
             extractor=extractor,
             embedder=embedder,
             relation_detector=relation_detector,
@@ -2419,7 +2425,7 @@ def _process_reminder_request(
     *,
     db: Session,
     message: str,
-    conversation_id: str,
+    conversation: Conversation,
     extractor: MemoryExtractor,
     embedder: MemoryEmbedder,
     relation_detector: MemoryRelationDetector,
@@ -2431,9 +2437,23 @@ def _process_reminder_request(
             action="reminder",
             message=(
                 "I can do that, but I need both the reminder content and the time. "
-                'For example: "remind me in 1 hour" followed by the note.'
+                'For example: "Remind me tomorrow at 9am to watch the YC video."'
             ),
             saved=False,
+        )
+
+    contextual_metadata = _recent_source_reminder_metadata(
+        db=db,
+        conversation=conversation,
+        content=reminder_intent.content,
+        user_id=user_id,
+    )
+    if contextual_metadata is not None:
+        reminder_intent = ReminderIntent(
+            due_at=reminder_intent.due_at,
+            content=contextual_metadata["content"],
+            save_as_memory=False,
+            time_phrase=reminder_intent.time_phrase,
         )
 
     if reminder_intent.save_as_memory and len(reminder_intent.content) >= 20:
@@ -2458,7 +2478,7 @@ def _process_reminder_request(
             db=db,
             content=reminder_intent.content,
             due_at=reminder_intent.due_at,
-            conversation_id=conversation_id,
+            conversation_id=conversation.id,
             memory_id=memory_ids[0] if memory_ids else None,
             save_as_memory=True,
             user_id=user_id,
@@ -2479,10 +2499,11 @@ def _process_reminder_request(
         db=db,
         content=reminder_intent.content,
         due_at=reminder_intent.due_at,
-        conversation_id=conversation_id,
+        conversation_id=conversation.id,
         save_as_memory=False,
         user_id=user_id,
-        metadata_json={"reason": "user_requested_no_memory"},
+        metadata_json=contextual_metadata
+        or {"reason": "user_requested_no_memory"},
     )
     return ChatResponse(
         action="reminder",
@@ -2493,6 +2514,115 @@ def _process_reminder_request(
         saved=False,
         reminder=reminder,
     )
+
+
+def _recent_source_reminder_metadata(
+    *,
+    db: Session,
+    conversation: Conversation,
+    content: str,
+    user_id: str | None,
+) -> dict | None:
+    if not _reminder_content_references_recent_source(content):
+        return None
+
+    recent = _latest_captured_source_from_conversation(
+        db=db,
+        conversation=conversation,
+        user_id=user_id,
+        source_type_hint=None,
+    )
+    if recent is None:
+        return None
+
+    if not _recent_source_matches_reminder_reference(content=content, source=recent.source):
+        return None
+
+    source_url = recent.source.original_url or recent.source.resolved_url
+    source_label = (
+        recent.source.title
+        or recent.source.original_url
+        or recent.source.resolved_url
+        or _source_display_name(recent.source)
+    )
+    source_kind = _source_kind_label(recent.source)
+    normalized_content = _normalize_recent_source_reminder_content(
+        content=content,
+        source_label=source_label,
+        source_url=source_url,
+        source_kind=source_kind,
+    )
+    return {
+        "reason": "contextual_recent_source_reminder",
+        "content": normalized_content,
+        "capture_id": recent.capture.id,
+        "source_id": recent.source.id,
+        "source_type": recent.source.source_type,
+        "source_title": recent.source.title,
+        "source_url": source_url,
+    }
+
+
+def _reminder_content_references_recent_source(content: str) -> bool:
+    normalized = re.sub(r"\s+", " ", content.strip().lower())
+    if not normalized:
+        return False
+    markers = (
+        "above",
+        "previous",
+        "last",
+        "that video",
+        "this video",
+        "the video",
+        "that link",
+        "this link",
+        "the link",
+        "that source",
+        "this source",
+        "that one",
+        "this one",
+        "it again",
+    )
+    if any(marker in normalized for marker in markers):
+        return True
+    return normalized in {"it", "that", "this", "the video", "the link"}
+
+
+def _recent_source_matches_reminder_reference(*, content: str, source: Source) -> bool:
+    normalized = content.lower()
+    url = source.original_url or source.resolved_url or ""
+    source_type = source.source_type.lower()
+    wants_video = any(marker in normalized for marker in ("video", "youtube", "short"))
+    wants_link = any(marker in normalized for marker in ("link", "url", "source", "above", "previous", "last"))
+    if wants_video:
+        return source_type == "youtube" or bool(extract_youtube_video_id(url))
+    if wants_link:
+        return bool(url) or source_type in {"article", "reference", "youtube"}
+    return True
+
+
+def _normalize_recent_source_reminder_content(
+    *,
+    content: str,
+    source_label: str,
+    source_url: str | None,
+    source_kind: str,
+) -> str:
+    normalized = re.sub(r"\s+", " ", content.strip())
+    lower = normalized.lower()
+    action = "Review"
+    if any(word in lower for word in ("watch", "what", "video", "youtube", "short")):
+        action = "Watch"
+    elif any(word in lower for word in ("read", "article", "page")):
+        action = "Read"
+    elif any(word in lower for word in ("apply", "application", "submit")):
+        action = "Apply using"
+
+    label = source_label.strip() if source_label else source_kind
+    label = re.sub(r"\s+", " ", label).strip(" .")
+    if source_url and source_url not in label:
+        return f"{action} {label}: {source_url}"
+    return f"{action} {label}"
 
 
 def _explicit_memory_id(normalized_message: str) -> str | None:
@@ -2632,6 +2762,38 @@ def _should_save_reminder_as_memory(*, message: str, content: str) -> bool:
 
 def _parse_due_time(message: str) -> tuple[datetime | None, str | None]:
     normalized = message.lower()
+    tomorrow_match = re.search(
+        r"\btomorrow(?:\s+morning|\s+afternoon|\s+evening|\s+night)?"
+        r"(?:\s+(?:at|by|around|say\s+by|say\s+around))?\s*"
+        r"(?:(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?",
+        normalized,
+    )
+    if tomorrow_match:
+        now = utc_now()
+        hour = 9
+        minute = 0
+        if tomorrow_match.group(1):
+            hour = int(tomorrow_match.group(1))
+            minute = int(tomorrow_match.group(2) or 0)
+            meridiem = tomorrow_match.group(3)
+            if meridiem == "pm" and hour < 12:
+                hour += 12
+            elif meridiem == "am" and hour == 12:
+                hour = 0
+        elif "afternoon" in tomorrow_match.group(0):
+            hour = 14
+        elif "evening" in tomorrow_match.group(0):
+            hour = 18
+        elif "night" in tomorrow_match.group(0):
+            hour = 20
+        due_at = (now + timedelta(days=1)).replace(
+            hour=hour,
+            minute=minute,
+            second=0,
+            microsecond=0,
+        )
+        return due_at, message[tomorrow_match.start() : tomorrow_match.end()]
+
     relative_match = re.search(
         r"\b(in\s+the\s+next|in|within|after|next)\s+"
         r"(\d+)\s*"
@@ -2649,8 +2811,6 @@ def _parse_due_time(message: str) -> tuple[datetime | None, str | None]:
             delta = timedelta(days=amount)
         return utc_now() + delta, message[relative_match.start() : relative_match.end()]
 
-    if "tomorrow" in normalized:
-        return utc_now() + timedelta(days=1), "tomorrow"
     return None, None
 
 

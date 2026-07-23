@@ -2708,3 +2708,167 @@ def test_short_practical_reminder_is_not_saved_as_memory_by_default() -> None:
         db.close()
     finally:
         app.dependency_overrides.clear()
+
+
+def test_reminder_about_above_video_resolves_recent_saved_source() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+
+    db = testing_session()
+    conversation = Conversation(user_id="test-user", title="YC video")
+    db.add(conversation)
+    db.flush()
+    source = Source(
+        user_id="test-user",
+        source_type="youtube",
+        original_url="https://www.youtube.com/watch?v=ythRYUxLEks",
+        resolved_url="https://www.youtube.com/watch?v=ythRYUxLEks",
+        title="YC Interview Mistakes Video",
+        raw_text="YC interview advice.",
+    )
+    db.add(source)
+    db.flush()
+    capture = Capture(
+        user_id="test-user",
+        source_id=source.id,
+        status="ready",
+        user_intent_text="will be useful for my YC application",
+    )
+    db.add(capture)
+    db.flush()
+    memory = Memory(
+        user_id="test-user",
+        source_id=source.id,
+        capture_id=capture.id,
+        memory_type="principle",
+        epistemic_label="advice",
+        content="YC interviews reward clear, conversational founder communication.",
+        confidence="high",
+        source_strength="moderate",
+        status="active",
+        embedding_json=[1.0, 0.0],
+    )
+    db.add(memory)
+    db.flush()
+    db.add_all(
+        [
+            ChatMessage(
+                conversation_id=conversation.id,
+                user_id="test-user",
+                role="user",
+                content=source.original_url,
+            ),
+            ChatMessage(
+                conversation_id=conversation.id,
+                user_id="test-user",
+                role="assistant",
+                content="I saved this link with your reason attached.",
+                action="capture",
+                metadata_json={"capture": {"capture_id": capture.id}},
+            ),
+        ]
+    )
+    conversation_id = conversation.id
+    source_id = source.id
+    capture_id = capture.id
+    db.commit()
+    db.close()
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "conversation_id": conversation_id,
+                "history": [],
+                "message": "Remind me to what the above video again tomorrow morning say by 9am",
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "reminder"
+        assert payload["saved"] is False
+        assert payload["reminder"]["save_as_memory"] is False
+        assert "Watch YC Interview Mistakes Video" in payload["reminder"]["content"]
+        assert "ythRYUxLEks" in payload["reminder"]["content"]
+
+        db = testing_session()
+        reminder = db.scalar(select(Reminder))
+        assert reminder is not None
+        assert reminder.metadata_json["source_id"] == source_id
+        assert reminder.metadata_json["capture_id"] == capture_id
+        assert reminder.due_at.hour == 9
+        assert reminder.due_at.minute == 0
+        assert db.scalar(select(func.count(Memory.id))) == 1
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_recent_memories_endpoint_returns_active_user_memories() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+
+    db = testing_session()
+    source = Source(user_id="test-user", source_type="text", title="Founder notes")
+    other_source = Source(user_id="other-user", source_type="text", title="Other notes")
+    db.add_all([source, other_source])
+    db.flush()
+    capture = Capture(user_id="test-user", source_id=source.id, status="ready")
+    other_capture = Capture(user_id="other-user", source_id=other_source.id, status="ready")
+    db.add_all([capture, other_capture])
+    db.flush()
+    db.add_all(
+        [
+            Memory(
+                user_id="test-user",
+                source_id=source.id,
+                capture_id=capture.id,
+                memory_type="principle",
+                epistemic_label="advice",
+                content="Talk to real users before polishing the launch story.",
+                confidence="high",
+                source_strength="moderate",
+                status="active",
+            ),
+            Memory(
+                user_id="test-user",
+                source_id=source.id,
+                capture_id=capture.id,
+                memory_type="warning",
+                epistemic_label="claim",
+                content="This archived thought should stay out of recent memory.",
+                confidence="medium",
+                source_strength="weak",
+                status="archived",
+            ),
+            Memory(
+                user_id="other-user",
+                source_id=other_source.id,
+                capture_id=other_capture.id,
+                memory_type="claim",
+                epistemic_label="claim",
+                content="Other users must never appear in this user's recent memories.",
+                confidence="medium",
+                source_strength="moderate",
+                status="active",
+            ),
+        ]
+    )
+    db.commit()
+    db.close()
+
+    try:
+        client = TestClient(app)
+        response = client.get("/api/v1/memories/recent?limit=10")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["count"] == 1
+        assert payload["has_more"] is False
+        assert len(payload["memories"]) == 1
+        assert payload["memories"][0]["source_title"] == "Founder notes"
+        assert "real users" in payload["memories"][0]["content"]
+    finally:
+        app.dependency_overrides.clear()

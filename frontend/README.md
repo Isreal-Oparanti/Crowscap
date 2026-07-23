@@ -7,8 +7,8 @@ The frontend is intentionally chat-first. Users should not need to understand me
 ## Product Surfaces
 
 - Chat: capture, ask, save, search, set reminders, and audit beliefs from natural language.
-- Recall: one useful memory or reminder at a time, not a large task queue.
-- Search: semantic memory search over saved ideas.
+- Recall: one useful memory or reminder at a time, with a mobile-ready list that opens into focused detail.
+- Search: semantic memory search over saved ideas, plus a recent-memory stream for quickly reviewing what was just saved.
 - Source views: show original saved content beside extracted memory atoms.
 - Preference surfaces: show what Crowscap has learned about how the user wants to learn.
 - Auth boundary: Google sign-in before private memory can be accessed.

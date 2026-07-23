@@ -51,6 +51,7 @@ Crowscap supports:
 - Reference-only saving for social or private links that cannot be reliably extracted.
 - Atomic memory extraction with Qwen Cloud structured output.
 - Semantic search with Qwen embeddings and PostgreSQL vector support.
+- Recent-memory browsing for quick review, with archive controls for cleanup.
 - Source preservation so users can view the original saved material.
 - Relationship detection between memories, such as agreement, conflict, qualification, or added context.
 - Recall scheduling and review scoring.

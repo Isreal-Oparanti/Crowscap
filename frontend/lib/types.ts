@@ -261,6 +261,29 @@ export type DueRecallsResponse = {
   reminders: DueReminder[];
 };
 
+export type RecentMemory = {
+  memory_id: string;
+  source_id: string;
+  source_type: string;
+  source_title: string | null;
+  memory_type: string;
+  epistemic_label: string | null;
+  content: string;
+  summary: string | null;
+  confidence: string;
+  confidence_reason: string | null;
+  source_strength: string;
+  created_at: string;
+};
+
+export type RecentMemoryListResponse = {
+  count: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+  memories: RecentMemory[];
+};
+
 export type ReminderResponse = {
   id: string;
   content: string;

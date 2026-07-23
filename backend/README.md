@@ -182,6 +182,7 @@ POST /api/v1/captures/url
 POST /api/v1/captures/pdf
 GET  /api/v1/captures/{capture_id}/status
 GET  /api/v1/sources/{source_id}
+GET  /api/v1/memories/recent
 GET  /api/v1/memories/{memory_id}
 POST /api/v1/memories/{memory_id}/archive
 GET  /api/v1/recalls/due
