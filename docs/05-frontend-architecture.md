@@ -113,33 +113,6 @@ Demo:
 7. Use icons for common actions like search, archive, retry, open source, mark applied.
 8. Keep text readable and responsive; avoid hero-scale type inside app surfaces.
 
-## Chat Rendering and Receipt Fidelity
-
-Assistant text passes through one safe display renderer before it reaches the
-transcript. The renderer supports restrained headings, paragraphs, mixed lists,
-quotes, links, inline emphasis, code, and dividers. It performs only display
-repairs for common model defects such as concatenated section labels and missing
-spacing after sentence punctuation. It never renders model HTML and never
-rewrites the meaning of the response.
-
-Typography is intentionally quieter than the former raw dump: assistant prose
-uses a 13px regular-weight body with stronger text reserved for headings and
-emphasis. Long user pastes remain intact but collapse visually after twelve
-lines, with an explicit show-more control. Assistant turns provide a keyboard-
-accessible copy action; failures use a distinct error surface with retry kept
-next to the error.
-
-Memory receipts are source-aware:
-
-- The summary names the source type, source title, humanized memory count, and
-  humanized intents rather than exposing enum values.
-- Saved memories and original source are separate accessible tab views.
-- Plain text and articles preserve paragraphs; YouTube transcripts receive
-  display-only cleanup of timestamps and caption artifacts; reference-only
-  sources render labeled title, description, reason, and link fields.
-- Stored source content is immutable. All cleanup happens only during rendering,
-  so readability improvements never compromise source fidelity or auditability.
-
 ## State Management
 
 Server state:

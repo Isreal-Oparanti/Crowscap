@@ -53,10 +53,10 @@ export function MemoryCardView({
           </div>
           <MarkdownText
             text={memory.content}
-            variant="compact"
-            className={`mt-2 font-normal text-foreground ${
-              compact ? "text-[12px]" : "text-[13px]"
+            className={`mt-2 font-semibold leading-relaxed text-[#1d1e1f] ${
+              compact ? "text-[13px]" : "text-[14px]"
             }`}
+            compact
           />
           {sourceTitle ? (
             <div className="mt-3 flex items-center gap-1.5 text-[10px] font-medium text-[#7d8083]">

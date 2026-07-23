@@ -30,14 +30,15 @@ export function MarkdownText({
 }: MarkdownTextProps) {
   const blocks = parseBlocks(normalizeDisplayText(text));
   if (blocks.length === 0) return null;
+  const useDefaultTypography = !className;
 
   return (
     <div
       className={cn(
         "min-w-0 break-words [overflow-wrap:anywhere]",
-        variant === "assistant" && "text-[13px] font-normal leading-6",
-        variant === "compact" && "text-[12px] font-normal leading-5",
-        variant === "source" && "text-[12px] font-normal leading-6",
+        useDefaultTypography && variant === "assistant" && "text-[14px] font-semibold leading-relaxed",
+        useDefaultTypography && variant === "compact" && "text-[12px] font-medium leading-5",
+        useDefaultTypography && variant === "source" && "text-[12px] font-medium leading-6",
         className,
       )}
     >
@@ -152,6 +153,8 @@ function readableUrl(value: string): string {
   try {
     const url = new URL(value);
     const path = decodeURIComponent(url.pathname).replace(/\/$/, "");
-    return `${url.hostname.replace(/^www\./, "")}${path.length < 42 ? path : `${path.slice(0, 39)}…`}`;
-  } catch { return value.length > 56 ? `${value.slice(0, 53)}…` : value; }
+    return `${url.hostname.replace(/^www\./, "")}${path.length < 42 ? path : `${path.slice(0, 39)}...`}`;
+  } catch {
+    return value.length > 56 ? `${value.slice(0, 53)}...` : value;
+  }
 }

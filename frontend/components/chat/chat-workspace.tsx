@@ -5,9 +5,7 @@ import {
   BadgeCheck,
   BookOpenCheck,
   Check,
-  CheckCheck,
   ChevronRight,
-  Clipboard,
   Clock3,
   CircleAlert,
   FileText,
@@ -32,15 +30,7 @@ import {
   sendChatMessage,
   uploadPdfToChat,
 } from "@/lib/api";
-import {
-  formatFriendlyDateTime,
-  formatTranscriptForDisplay,
-  humanizeIntent,
-  humanizeRelationshipText,
-  parseReferenceContent,
-  sourceContentLabel,
-  sourceTypeLabel,
-} from "@/lib/chat";
+import { formatFriendlyDateTime, humanizeRelationshipText } from "@/lib/chat";
 import type { AppShellUser } from "@/components/shell/app-shell";
 import type {
   BeliefAuditResponse,
@@ -576,52 +566,27 @@ function ChatTurn({
   onRetry?: (text: string) => void;
   retryDisabled?: boolean;
 }) {
-  const [expandedUserText, setExpandedUserText] = useState(false);
-  const [copied, setCopied] = useState(false);
-
   if (message.role === "user") {
-    const isLong = message.text.length > 900 || message.text.split("\n").length > 12;
     return (
       <div className="rise-in flex justify-end">
-        <div className="max-w-[92%] rounded-[18px_18px_4px_18px] bg-foreground px-4 py-3 text-[12px] font-normal leading-5 text-background md:max-w-[72%]">
-          <p className={isLong && !expandedUserText ? "line-clamp-[12] whitespace-pre-wrap" : "whitespace-pre-wrap"}>
-            {message.text}
-          </p>
-          {isLong ? (
-            <button
-              type="button"
-              onClick={() => setExpandedUserText((current) => !current)}
-              aria-expanded={expandedUserText}
-              className="mt-2 text-[10px] font-semibold underline underline-offset-4 opacity-80 hover:opacity-100"
-            >
-              {expandedUserText ? "Show less" : "Show full text"}
-            </button>
-          ) : null}
+        <div className="max-w-[88%] rounded-[18px_18px_4px_18px] bg-[#111111] px-4 py-3 text-[13px] font-medium leading-relaxed text-white md:max-w-[72%]">
+          {message.text}
         </div>
       </div>
     );
   }
 
-  async function copyResponse() {
-    await navigator.clipboard.writeText(message.text);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
-  }
-
   return (
-    <div className="group rise-in min-w-0">
+    <div className="rise-in min-w-0">
       <div className="flex min-w-0 items-start gap-3">
-        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background shadow-sm">
+        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-[#09090b] text-white shadow-sm">
           <BrandIcon className="size-[18px]" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className={message.kind === "error" ? "max-w-[620px] rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-destructive" : "max-w-[620px]"}>
-            <MarkdownText
-              text={message.text}
-              variant="assistant"
-              className="text-foreground"
-            />
-          </div>
+          <MarkdownText
+            text={message.text}
+            className="max-w-[620px] break-words text-[14px] font-semibold leading-relaxed text-[#252627]"
+          />
 
           {message.kind === "capture" ? (
             <div className="mt-4">
@@ -646,21 +611,11 @@ function ChatTurn({
                 if (message.retryText) onRetry?.(message.retryText);
               }}
               disabled={!message.retryText || retryDisabled}
-              className="mt-2 text-[11px] font-semibold text-destructive underline decoration-destructive/30 underline-offset-4 disabled:opacity-50"
+              className="mt-3 text-[11px] font-bold text-[#9b4c51] underline decoration-[#d8b8ba] underline-offset-4"
             >
               Try again
             </button>
-          ) : (
-            <button
-              type="button"
-              onClick={copyResponse}
-              aria-label={copied ? "Response copied" : "Copy response"}
-              className="mt-2 flex items-center gap-1 text-[10px] font-medium text-muted-foreground opacity-100 transition hover:text-foreground md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
-            >
-              {copied ? <CheckCheck size={12} /> : <Clipboard size={12} />}
-              {copied ? "Copied" : "Copy"}
-            </button>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
@@ -697,38 +652,23 @@ function ReminderReceipt({ data }: { data: ChatResponse }) {
 function MemoryReceipt({ data }: { data: CaptureResponse }) {
   const [expanded, setExpanded] = useState(false);
   const [view, setView] = useState<"memories" | "original">("memories");
-  const reference = parseReferenceContent(data.original_content);
-  const contentLabel = sourceContentLabel(data.source_type, data.original_content);
-  const displayContent = data.source_type.toLowerCase().includes("youtube") && data.original_content
-    ? formatTranscriptForDisplay(data.original_content)
-    : data.original_content;
-  const countLabel = `${data.memories.length} ${data.memories.length === 1 ? "memory" : "memories"}`;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-muted/40">
+    <div className="overflow-hidden rounded-lg border border-[#dfe2e3] bg-[#f8f9f9]">
       <button
         type="button"
         onClick={() => setExpanded((current) => !current)}
-        aria-expanded={expanded}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-muted/60"
+        className="flex w-full items-center gap-3 px-4 py-3 text-left"
       >
-        <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+        <div className="flex size-7 items-center justify-center rounded-full bg-[#e7f2ec] text-[#2d7058]">
           <Check size={14} strokeWidth={2.4} />
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <p className="text-[11px] font-bold text-foreground">Saved to memory</p>
-            <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[9px] font-semibold text-muted-foreground">
-              {sourceTypeLabel(data.source_type)}
-            </span>
-          </div>
-          {data.source_title ? <p className="mt-1 truncate text-[11px] font-medium text-foreground">{data.source_title}</p> : null}
-          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
-            <span>{countLabel}</span>
-            {data.inferred_intents.map((intent) => (
-              <span key={intent} className="rounded-full bg-background px-2 py-0.5 font-medium">{humanizeIntent(intent)}</span>
-            ))}
-          </div>
+        <div>
+          <p className="text-[11px] font-extrabold">Memory receipt</p>
+          <p className="text-[10px] font-medium text-[#7d8083]">
+            {data.memories.length} memories -{" "}
+            {data.inferred_intents.join(", ") || "saved"}
+          </p>
         </div>
         <ChevronRight
           size={15}
@@ -738,30 +678,30 @@ function MemoryReceipt({ data }: { data: CaptureResponse }) {
         />
       </button>
       {expanded ? (
-        <div className="border-t border-border bg-background p-3">
-          <div role="tablist" aria-label="Memory receipt views" className="mb-3 inline-flex rounded-md bg-muted p-0.5">
+        <div className="border-t border-[#e5e7e8] bg-white p-3">
+          <div className="mb-3 inline-flex rounded-md bg-[#f0f1f2] p-0.5">
             <button
               type="button"
-              role="tab"
-              aria-selected={view === "memories"}
               onClick={() => setView("memories")}
-              className={`rounded px-3 py-1.5 text-[10px] font-semibold transition ${
-                view === "memories" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
+              className={`rounded px-3 py-1.5 text-[10px] font-extrabold transition ${
+                view === "memories"
+                  ? "bg-white text-[#111111] shadow-sm"
+                  : "text-[#777b7e]"
               }`}
             >
               Memories
             </button>
             <button
               type="button"
-              role="tab"
-              aria-selected={view === "original"}
               onClick={() => setView("original")}
-              className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-[10px] font-semibold transition ${
-                view === "original" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
+              className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-[10px] font-extrabold transition ${
+                view === "original"
+                  ? "bg-white text-[#111111] shadow-sm"
+                  : "text-[#777b7e]"
               }`}
             >
               <FileText size={12} />
-              {contentLabel}
+              Original
             </button>
           </div>
           {view === "memories" ? (
@@ -771,42 +711,24 @@ function MemoryReceipt({ data }: { data: CaptureResponse }) {
               ))}
             </div>
           ) : (
-            <div className="rounded-lg border border-border bg-muted/30 p-4">
-              <p className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">{contentLabel}</p>
-              {reference ? (
-                <dl className="mt-3 flex flex-col gap-3 text-[12px]">
-                  {reference.title ? <ReferenceRow label="Title" value={reference.title} /> : null}
-                  {reference.description ? <ReferenceRow label="About" value={reference.description} /> : null}
-                  {reference.reason ? <ReferenceRow label="Why you saved it" value={reference.reason} /> : null}
-                  {reference.link ? (
-                    <div>
-                      <dt className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Link</dt>
-                      <dd className="mt-1 break-all"><a href={reference.link} target="_blank" rel="noopener noreferrer" className="font-medium underline decoration-border underline-offset-4 hover:decoration-foreground">Open source</a></dd>
-                    </div>
-                  ) : null}
-                </dl>
-              ) : displayContent ? (
-                <div className="mt-3 max-h-[420px] overflow-y-auto overscroll-contain pr-2">
-                  <MarkdownText text={displayContent} variant="source" className="text-foreground" />
-                </div>
+            <div className="rounded-lg border border-[#e1e3e4] bg-[#fafafa] p-4">
+              <p className="text-[9px] font-extrabold uppercase text-[#85888b]">
+                Exactly as saved
+              </p>
+              {data.original_content ? (
+                <p className="mt-3 max-h-[420px] overflow-y-auto whitespace-pre-wrap break-words text-[12px] font-medium leading-6 text-[#303234]">
+                  {data.original_content}
+                </p>
               ) : (
-                <p className="mt-3 text-[11px] font-normal leading-relaxed text-muted-foreground">
-                  This older capture does not have its original text stored yet. Save the source again to restore it.
+                <p className="mt-3 text-[11px] font-medium leading-relaxed text-[#74777a]">
+                  This older capture does not have its original text stored yet.
+                  Save the same source once more to restore it.
                 </p>
               )}
             </div>
           )}
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function ReferenceRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">{label}</dt>
-      <dd className="mt-1 whitespace-pre-wrap font-normal leading-5 text-foreground">{value}</dd>
     </div>
   );
 }
