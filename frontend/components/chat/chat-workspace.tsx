@@ -87,6 +87,8 @@ type ChatMessage =
       retryText?: string;
     };
 
+type WorkMode = "chat" | "link" | "save" | "pdf";
+
 function openingMessagesFor(user: AppShellUser): ChatMessage[] {
   const name = user.name?.split(/\s+/)[0] ?? "there";
   return [
@@ -172,6 +174,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
   const [draft, setDraft] = useState("");
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [working, setWorking] = useState(false);
+  const [workMode, setWorkMode] = useState<WorkMode>("chat");
   const [due, setDue] = useState<DueRecallsResponse | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -183,6 +186,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
     setDraft("");
     setAttachedFile(null);
     setWorking(false);
+    setWorkMode("chat");
     setDue(null);
 
     const refreshDue = () => {
@@ -270,6 +274,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
     };
     setMessages((current) => [...current, userMessage]);
     setDraft("");
+    setWorkMode(inferWorkMode(text));
     setWorking(true);
 
     try {
@@ -389,6 +394,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
       text: displayMessage,
     };
     setMessages((current) => [...current, userMessage]);
+    setWorkMode("pdf");
     setWorking(true);
     setDraft("");
     setAttachedFile(null);
@@ -464,7 +470,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
                 retryDisabled={working}
               />
             ))}
-            {working ? <ThinkingTurn /> : null}
+            {working ? <ThinkingTurn mode={workMode} /> : null}
             <div ref={endRef} />
           </div>
         </div>
@@ -585,7 +591,7 @@ function ChatTurn({
         <div className="min-w-0 flex-1">
           <MarkdownText
             text={message.text}
-            className="max-w-[620px] break-words text-[14px] font-semibold leading-relaxed text-[#252627]"
+            className="max-w-[620px] break-words text-[13px] font-semibold leading-6 text-[#252627]"
           />
 
           {message.kind === "capture" ? (
@@ -683,7 +689,7 @@ function MemoryReceipt({ data }: { data: CaptureResponse }) {
             <button
               type="button"
               onClick={() => setView("memories")}
-              className={`rounded px-3 py-1.5 text-[10px] font-extrabold transition ${
+              className={`rounded px-3 py-1.5 text-[9px] font-extrabold transition ${
                 view === "memories"
                   ? "bg-white text-[#111111] shadow-sm"
                   : "text-[#777b7e]"
@@ -694,7 +700,7 @@ function MemoryReceipt({ data }: { data: CaptureResponse }) {
             <button
               type="button"
               onClick={() => setView("original")}
-              className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-[10px] font-extrabold transition ${
+              className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-[9px] font-extrabold transition ${
                 view === "original"
                   ? "bg-white text-[#111111] shadow-sm"
                   : "text-[#777b7e]"
@@ -1026,19 +1032,38 @@ function RecallNotice({
   );
 }
 
-function ThinkingTurn() {
+function inferWorkMode(text: string): WorkMode {
+  if (/https?:\/\/|www\./i.test(text)) return "link";
+  if (/\b(save|saved|saving|remember|keep|archive|delete|forget)\b/i.test(text)) {
+    return "save";
+  }
+  return "chat";
+}
+
+function ThinkingTurn({ mode }: { mode: WorkMode }) {
+  const stages: Record<WorkMode, string[]> = {
+    chat: ["Checking context", "Thinking", "Composing", "Polishing reply"],
+    link: ["Checking link", "Reading source", "Organizing context", "Saving"],
+    save: ["Capturing", "Finding the signal", "Organizing memory", "Saving"],
+    pdf: ["Reading PDF", "Extracting ideas", "Organizing memories", "Saving"],
+  };
+
   return (
     <div className="flex items-center gap-3 text-[#6f7376]">
       <div className="flex size-7 items-center justify-center rounded-md bg-[#09090b] text-white shadow-sm">
         <BrandIcon className="size-[18px]" />
       </div>
-      <div className="flex gap-1">
-        {[0, 1, 2].map((dot) => (
-          <span
-            key={dot}
-            className="thinking-dot size-1.5 rounded-full bg-[#777b7e]"
-          />
-        ))}
+      <div className="min-w-[180px]">
+        <div className="work-stage-track">
+          {stages[mode].map((stage) => (
+            <span key={stage} className="work-stage">
+              {stage}
+            </span>
+          ))}
+        </div>
+        <div className="mt-1 h-px w-40 overflow-hidden bg-[#e1e3e4]">
+          <div className="work-progress h-full bg-[#111111]" />
+        </div>
       </div>
     </div>
   );

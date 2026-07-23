@@ -110,6 +110,41 @@ button {
   animation-delay: 280ms;
 }
 
+.work-stage-track {
+  display: grid;
+  grid-template-areas: "stage";
+  min-height: 18px;
+  overflow: hidden;
+}
+
+.work-stage {
+  grid-area: stage;
+  color: #4f5552;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+  opacity: 0;
+  transform: translateY(5px);
+  animation: work-stage-cycle 5.6s ease-in-out infinite;
+}
+
+.work-stage:nth-child(2) {
+  animation-delay: 1.4s;
+}
+
+.work-stage:nth-child(3) {
+  animation-delay: 2.8s;
+}
+
+.work-stage:nth-child(4) {
+  animation-delay: 4.2s;
+}
+
+.work-progress {
+  width: 45%;
+  animation: work-progress 1.35s ease-in-out infinite;
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -140,6 +175,34 @@ button {
   35% {
     opacity: 1;
     transform: translateY(-2px);
+  }
+}
+
+@keyframes work-stage-cycle {
+  0%,
+  12% {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  18%,
+  44% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  52%,
+  100% {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes work-progress {
+  0% {
+    transform: translateX(-110%);
+  }
+  55%,
+  100% {
+    transform: translateX(230%);
   }
 }
 
