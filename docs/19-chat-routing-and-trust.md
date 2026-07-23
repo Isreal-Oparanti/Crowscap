@@ -87,8 +87,10 @@ not claim it can read private or app-gated content.
 Readable links should be enriched after the reference is safely stored. If
 extraction fails because a source is private, unavailable, age-restricted,
 missing captions, blocked by the network, or otherwise unreadable, Crowscap
-should mark the enrichment as failed, keep the URL and reason, and never
-pretend it knows what is inside.
+should keep the URL and reason and never pretend it knows what is inside. For
+YouTube, a transcript failure is not automatically a full failure: if title,
+channel, description, or thumbnail metadata is available, store metadata-only
+memories and label the result honestly.
 
 Short confirmations are scoped to current state:
 
@@ -111,10 +113,12 @@ Link-specific follow-ups such as "what is the link above about?" should resolve
 to the most recent captured source in the active conversation. If that source was
 readable, Crowscap should answer from the memory cards and source snapshot. If it
 is still being enriched, Crowscap should say the link is saved and details are
-still being gathered. If it was only saved as a reference, Crowscap should say
-exactly what it knows: the URL, the user's reason for saving it, and any safe
-metadata such as a video title or description. It must not borrow context from
-older links or nearby memories.
+still being gathered. If enrichment completed with metadata only, Crowscap
+should answer from that metadata and the user's reason while saying it did not
+read a full transcript. If it was only saved as a reference, Crowscap should
+say exactly what it knows: the URL, the user's reason for saving it, and any
+safe metadata such as a video title or description. It must not borrow context
+from older links or nearby memories.
 
 Deictic follow-ups without a named subject — "whats the above about", "what was
 that about", "what did I just save", "summarize it" — mean the immediately

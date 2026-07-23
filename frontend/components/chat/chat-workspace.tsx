@@ -702,10 +702,15 @@ function MemoryReceipt({ data }: { data: CaptureResponse }) {
     job?.status === "succeeded" && job.result?.memories?.length
       ? job.result
       : null;
+  const enrichmentMode =
+    typeof enrichedCapture?.metadata_json?.ingestion_mode === "string"
+      ? enrichedCapture.metadata_json.ingestion_mode
+      : null;
   const summary = memoryReceiptSummary({
     data,
     enrichmentStatus,
     enrichedCount: enrichedCapture?.memories.length ?? 0,
+    enrichmentMode,
   });
 
   return (
@@ -765,6 +770,7 @@ function MemoryReceipt({ data }: { data: CaptureResponse }) {
                 step={job?.step ?? null}
                 error={job?.error_message_safe ?? jobError}
                 enrichedCount={enrichedCapture?.memories.length ?? 0}
+                enrichmentMode={enrichmentMode}
               />
               {data.memories.map((memory) => (
                 <MemoryCardView key={memory.id} memory={memory} compact />
@@ -772,11 +778,14 @@ function MemoryReceipt({ data }: { data: CaptureResponse }) {
               {enrichedCapture ? (
                 <div className="mt-2 rounded-lg border border-[#d7e5dc] bg-[#f1f7f4] p-3">
                   <p className="text-[9px] font-extrabold uppercase text-[#2d7058]">
-                    Details found
+                    {enrichmentMode === "metadata_only"
+                      ? "Video details saved"
+                      : "Details found"}
                   </p>
                   <p className="mt-1 text-[11px] font-semibold leading-relaxed text-[#49685b]">
-                    Crowscap finished reading the link and added these memory
-                    cards.
+                    {enrichmentMode === "metadata_only"
+                      ? "Crowscap saved the reliable video details and your reason. A full transcript was not available."
+                      : "Crowscap finished reading the link and added these memory cards."}
                   </p>
                   <div className="mt-3 grid gap-2">
                     {enrichedCapture.memories.map((memory) => (
@@ -828,10 +837,12 @@ function memoryReceiptSummary({
   data,
   enrichmentStatus,
   enrichedCount,
+  enrichmentMode,
 }: {
   data: CaptureResponse;
   enrichmentStatus: string | null;
   enrichedCount: number;
+  enrichmentMode: string | null;
 }) {
   const base = `${data.memories.length} memories - ${
     data.inferred_intents.join(", ") || "saved"
@@ -840,6 +851,9 @@ function memoryReceiptSummary({
     return `${base} - getting details`;
   }
   if (enrichmentStatus === "succeeded" && enrichedCount > 0) {
+    if (enrichmentMode === "metadata_only") {
+      return `${base} - video details saved`;
+    }
     return `${base} - ${enrichedCount} details found`;
   }
   if (enrichmentStatus === "failed") {
@@ -853,11 +867,13 @@ function LinkEnrichmentStatus({
   step,
   error,
   enrichedCount,
+  enrichmentMode,
 }: {
   status: string | null;
   step: string | null;
   error: string | null;
   enrichedCount: number;
+  enrichmentMode: string | null;
 }) {
   if (!status) return null;
 
@@ -890,13 +906,18 @@ function LinkEnrichmentStatus({
   }
 
   if (status === "succeeded") {
+    const metadataOnly = enrichmentMode === "metadata_only";
     return (
       <div className="rounded-lg border border-[#d7e5dc] bg-[#f1f7f4] px-4 py-3 text-[#2d7058]">
-        <p className="text-[9px] font-extrabold uppercase">Reading complete</p>
+        <p className="text-[9px] font-extrabold uppercase">
+          {metadataOnly ? "Video details saved" : "Reading complete"}
+        </p>
         <p className="mt-1 text-[11px] font-semibold leading-relaxed text-[#49685b]">
-          {enrichedCount > 0
-            ? `Crowscap found ${enrichedCount} memory cards from this link.`
-            : "Crowscap finished checking the link."}
+          {metadataOnly
+            ? "Crowscap kept the title, channel, link, and your reason. It will not pretend it read a transcript."
+            : enrichedCount > 0
+              ? `Crowscap found ${enrichedCount} memory cards from this link.`
+              : "Crowscap finished checking the link."}
         </p>
       </div>
     );
@@ -1230,27 +1251,46 @@ function inferWorkMode(text: string): WorkMode {
 }
 
 function ThinkingTurn({ mode }: { mode: WorkMode }) {
-  const stages: Record<WorkMode, string[]> = {
-    chat: ["Checking context", "Thinking", "Composing", "Polishing reply"],
-    link: ["Checking link", "Reading source", "Organizing context", "Saving"],
-    save: ["Capturing", "Finding the signal", "Organizing memory", "Saving"],
-    pdf: ["Reading PDF", "Extracting ideas", "Organizing memories", "Saving"],
+  const status: Record<WorkMode, { label: string; detail: string }> = {
+    chat: {
+      label: "Thinking",
+      detail: "Checking your recent context before replying.",
+    },
+    link: {
+      label: "Saving link",
+      detail: "Keeping the reference now, then reading what is available.",
+    },
+    save: {
+      label: "Saving memory",
+      detail: "Finding the useful signal and keeping it clean.",
+    },
+    pdf: {
+      label: "Reading PDF",
+      detail: "Extracting the ideas and organizing them into memory.",
+    },
   };
+  const current = status[mode];
 
   return (
-    <div className="flex items-center gap-3 text-[#6f7376]">
+    <div className="flex items-start gap-3 text-[#6f7376]">
       <div className="flex size-7 items-center justify-center rounded-md bg-[#09090b] text-white shadow-sm">
         <BrandIcon className="size-[18px]" />
       </div>
-      <div className="min-w-[180px]">
-        <div className="work-stage-track">
-          {stages[mode].map((stage) => (
-            <span key={stage} className="work-stage">
-              {stage}
-            </span>
-          ))}
+      <div className="min-w-[220px] pt-0.5">
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] font-extrabold text-[#202223]">
+            {current.label}
+          </span>
+          <div className="work-stage-dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
         </div>
-        <div className="mt-1 h-px w-40 overflow-hidden bg-[#e1e3e4]">
+        <p className="mt-0.5 text-[11px] font-medium leading-relaxed text-[#73777a]">
+          {current.detail}
+        </p>
+        <div className="mt-2 h-px w-48 overflow-hidden bg-[#e1e3e4]">
           <div className="work-progress h-full bg-[#111111]" />
         </div>
       </div>

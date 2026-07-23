@@ -15,6 +15,7 @@ from urllib.robotparser import RobotFileParser
 import httpx
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.schemas.capture import UrlCaptureRequest, TextCaptureResponse
 from app.services.capture_service import create_extracted_text_capture
@@ -37,6 +38,8 @@ SHORT_VIDEO_MAX_DURATION_SECONDS = 180
 MIN_SHORT_VIDEO_TRANSCRIPT_WORDS = 25
 MAX_TRANSCRIPT_WORDS = 15_000
 USER_AGENT = "CrowscapBot/0.1 (+https://crowscap.local)"
+YOUTUBE_OEMBED_URL = "https://www.youtube.com/oembed"
+YOUTUBE_DATA_API_URL = "https://www.googleapis.com/youtube/v3/videos"
 
 
 class IngestionError(RuntimeError):
@@ -167,13 +170,37 @@ def create_youtube_capture(
     user_id: str | None = None,
 ) -> TextCaptureResponse:
     logger.info("\U0001f3a5 capture.youtube.start video_id=%s", video_id)
+    fallback_metadata = fetch_youtube_reference_metadata(url=url, video_id=video_id)
     try:
         from yt_dlp import YoutubeDL
     except ImportError as exc:
+        if fallback_metadata:
+            return create_youtube_metadata_capture(
+                db=db,
+                url=url,
+                video_id=video_id,
+                metadata=fallback_metadata,
+                intent_text=intent_text,
+                user_note=user_note,
+                extractor=extractor,
+                embedder=embedder,
+                relation_detector=relation_detector,
+                user_id=user_id,
+                fallback_reason="YouTube transcript extraction is not installed.",
+            )
         raise IngestionError("YouTube ingestion is not installed. Install yt-dlp.") from exc
 
     try:
-        with YoutubeDL({"quiet": True, "skip_download": True}) as ydl:
+        with YoutubeDL(
+            {
+                "quiet": True,
+                "skip_download": True,
+                "no_warnings": True,
+                "extract_flat": False,
+                "ignore_no_formats_error": True,
+                "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+            }
+        ) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as exc:
         logger.warning(
@@ -185,19 +212,62 @@ def create_youtube_capture(
             raise IngestionError(
                 "Crowscap could not reach YouTube right now. This looks like a network/DNS issue. Please check your connection and try again."
             ) from exc
+        if fallback_metadata:
+            return create_youtube_metadata_capture(
+                db=db,
+                url=url,
+                video_id=video_id,
+                metadata=fallback_metadata,
+                intent_text=intent_text,
+                user_note=user_note,
+                extractor=extractor,
+                embedder=embedder,
+                relation_detector=relation_detector,
+                user_id=user_id,
+                fallback_reason=(
+                    "YouTube blocked transcript access, so Crowscap saved reliable "
+                    "video details instead."
+                ),
+            )
         raise IngestionError(
             "Crowscap could not read this YouTube video. It may be private, unavailable, age-restricted, or missing readable captions."
         ) from exc
 
     if not isinstance(info, dict):
+        if fallback_metadata:
+            return create_youtube_metadata_capture(
+                db=db,
+                url=url,
+                video_id=video_id,
+                metadata=fallback_metadata,
+                intent_text=intent_text,
+                user_note=user_note,
+                extractor=extractor,
+                embedder=embedder,
+                relation_detector=relation_detector,
+                user_id=user_id,
+                fallback_reason="YouTube returned incomplete transcript metadata.",
+            )
         raise IngestionError("Crowscap could not read this YouTube video metadata.")
 
-    youtube_metadata = _youtube_reference_metadata(info, video_id=video_id)
+    youtube_metadata = {**fallback_metadata, **_youtube_reference_metadata(info, video_id=video_id)}
     track = _choose_caption_track(info)
     if track is None:
-        raise IngestionError(
-            "This video does not have captions available. Crowscap cannot process videos without transcripts.",
+        return create_youtube_metadata_capture(
+            db=db,
+            url=url,
+            video_id=video_id,
             metadata=youtube_metadata,
+            intent_text=intent_text,
+            user_note=user_note,
+            extractor=extractor,
+            embedder=embedder,
+            relation_detector=relation_detector,
+            user_id=user_id,
+            fallback_reason=(
+                "No readable captions were available, so Crowscap saved the video "
+                "details and your reason."
+            ),
         )
 
     try:
@@ -209,33 +279,55 @@ def create_youtube_capture(
                 "Crowscap found captions for this YouTube video, but could not reach YouTube to download them right now. Please check your connection and try again.",
                 metadata=youtube_metadata,
             ) from exc
-        raise IngestionError(
-            "Crowscap found captions for this YouTube video, but could not download them right now.",
+        return create_youtube_metadata_capture(
+            db=db,
+            url=url,
+            video_id=video_id,
             metadata=youtube_metadata,
-        ) from exc
+            intent_text=intent_text,
+            user_note=user_note,
+            extractor=extractor,
+            embedder=embedder,
+            relation_detector=relation_detector,
+            user_id=user_id,
+            fallback_reason=(
+                "Caption download failed, so Crowscap saved the video details and "
+                "your reason."
+            ),
+        )
     word_count = len(transcript.split())
     duration = info.get("duration")
     is_short_video = isinstance(duration, (int, float)) and duration <= SHORT_VIDEO_MAX_DURATION_SECONDS
     min_words = MIN_SHORT_VIDEO_TRANSCRIPT_WORDS if is_short_video else MIN_TRANSCRIPT_WORDS
     if word_count < min_words:
         metadata = {**youtube_metadata, "transcript_word_count": word_count}
-        raise IngestionError(
-            "This video's transcript is too short to extract useful memories.",
+        return create_youtube_metadata_capture(
+            db=db,
+            url=url,
+            video_id=video_id,
             metadata=metadata,
+            intent_text=intent_text,
+            user_note=user_note,
+            extractor=extractor,
+            embedder=embedder,
+            relation_detector=relation_detector,
+            user_id=user_id,
+            fallback_reason=(
+                "The transcript was too short, so Crowscap saved the video details "
+                "and your reason."
+            ),
         )
     if word_count > MAX_TRANSCRIPT_WORDS:
         transcript = " ".join(transcript.split()[:MAX_TRANSCRIPT_WORDS])
 
     metadata = {
+        **youtube_metadata,
         "input_kind": "youtube",
         "video_id": video_id,
-        "channel": info.get("uploader") or info.get("channel"),
-        "duration": info.get("duration"),
-        "publish_date": info.get("upload_date"),
-        "view_count": info.get("view_count"),
         "caption_kind": track["kind"],
         "caption_language": track["language"],
         "content_length": len(transcript),
+        "ingestion_mode": "transcript",
     }
     return create_extracted_text_capture(
         db=db,
@@ -263,6 +355,222 @@ def create_youtube_capture(
         relation_detector=relation_detector,
         user_id=user_id,
     )
+
+
+def create_youtube_metadata_capture(
+    *,
+    db: Session,
+    url: str,
+    video_id: str,
+    metadata: dict[str, Any],
+    intent_text: str | None,
+    user_note: str | None,
+    extractor: MemoryExtractor,
+    embedder: MemoryEmbedder,
+    relation_detector: MemoryRelationDetector,
+    fallback_reason: str,
+    user_id: str | None = None,
+) -> TextCaptureResponse:
+    title = _clean_metadata_text(metadata.get("title")) or "YouTube video"
+    channel = _clean_metadata_text(metadata.get("channel"))
+    description = _clean_metadata_text(metadata.get("description"), max_chars=2000)
+    canonical_url = f"https://www.youtube.com/watch?v={video_id}"
+    captured_text = _build_youtube_metadata_text(
+        title=title,
+        channel=channel,
+        description=description,
+        url=canonical_url,
+        intent_text=intent_text,
+        fallback_reason=fallback_reason,
+    )
+    content_hash = hashlib.sha256(captured_text.encode("utf-8")).hexdigest()
+    metadata_json = {
+        **metadata,
+        "input_kind": "youtube_metadata",
+        "video_id": video_id,
+        "ingestion_mode": "metadata_only",
+        "transcript_status": "unavailable",
+        "fallback_reason": fallback_reason,
+        "content_length": len(captured_text),
+    }
+    return create_extracted_text_capture(
+        db=db,
+        source_type="youtube",
+        raw_text=captured_text,
+        title=title,
+        original_url=url,
+        resolved_url=canonical_url,
+        content_hash=f"{video_id}:metadata:{content_hash}",
+        intent_text=intent_text,
+        user_note=user_note,
+        metadata_json={key: value for key, value in metadata_json.items() if value is not None},
+        source_instruction=(
+            "This capture contains YouTube metadata and the user's stated reason, not a "
+            "full video transcript. Do not infer the video's detailed claims unless they "
+            "are present in the title, description, or user reason. Preserve the video as "
+            "a reference and intention when that is all the evidence supports."
+        ),
+        extractor=extractor,
+        embedder=embedder,
+        relation_detector=relation_detector,
+        user_id=user_id,
+    )
+
+
+def fetch_youtube_reference_metadata(*, url: str, video_id: str) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    data_api_metadata = _fetch_youtube_data_api_metadata(video_id)
+    providers: list[str] = []
+    if data_api_metadata:
+        metadata.update(data_api_metadata)
+        providers.append("youtube_data_api")
+    oembed_metadata = _fetch_youtube_oembed_metadata(url=url, video_id=video_id)
+    if oembed_metadata:
+        providers.append("youtube_oembed")
+    for key, value in oembed_metadata.items():
+        if value is not None and key not in {"metadata_provider"}:
+            metadata.setdefault(key, value)
+    if providers:
+        metadata["metadata_providers"] = providers
+    return metadata
+
+
+def _fetch_youtube_data_api_metadata(video_id: str) -> dict[str, Any]:
+    api_key = get_settings().youtube_data_api_key_value
+    if not api_key:
+        return {}
+    try:
+        response = httpx.get(
+            YOUTUBE_DATA_API_URL,
+            params={
+                "part": "snippet,contentDetails,statistics",
+                "id": video_id,
+                "key": api_key,
+            },
+            timeout=8.0,
+            headers={"User-Agent": USER_AGENT},
+        )
+        if response.status_code >= 400:
+            logger.info(
+                "youtube.data_api.unavailable video_id=%s status=%s",
+                video_id,
+                response.status_code,
+            )
+            return {}
+        payload = response.json()
+    except Exception as exc:
+        logger.info(
+            "youtube.data_api.failed video_id=%s error_type=%s",
+            video_id,
+            type(exc).__name__,
+        )
+        return {}
+
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, list) or not items:
+        return {}
+    item = items[0] if isinstance(items[0], dict) else {}
+    snippet = item.get("snippet") if isinstance(item, dict) else {}
+    statistics = item.get("statistics") if isinstance(item, dict) else {}
+    content_details = item.get("contentDetails") if isinstance(item, dict) else {}
+    thumbnails = snippet.get("thumbnails") if isinstance(snippet, dict) else {}
+    thumbnail = None
+    if isinstance(thumbnails, dict):
+        for key in ("maxres", "standard", "high", "medium", "default"):
+            candidate = thumbnails.get(key)
+            if isinstance(candidate, dict) and candidate.get("url"):
+                thumbnail = candidate.get("url")
+                break
+
+    metadata = {
+        "metadata_provider": "youtube_data_api",
+        "title": snippet.get("title") if isinstance(snippet, dict) else None,
+        "description": snippet.get("description") if isinstance(snippet, dict) else None,
+        "channel": snippet.get("channelTitle") if isinstance(snippet, dict) else None,
+        "channel_id": snippet.get("channelId") if isinstance(snippet, dict) else None,
+        "publish_date": snippet.get("publishedAt") if isinstance(snippet, dict) else None,
+        "duration_iso8601": content_details.get("duration")
+        if isinstance(content_details, dict)
+        else None,
+        "view_count": statistics.get("viewCount") if isinstance(statistics, dict) else None,
+        "thumbnail_url": thumbnail,
+    }
+    return {
+        key: _clean_metadata_text(value, max_chars=3000) if isinstance(value, str) else value
+        for key, value in metadata.items()
+        if value is not None
+    }
+
+
+def _fetch_youtube_oembed_metadata(*, url: str, video_id: str) -> dict[str, Any]:
+    canonical_url = f"https://www.youtube.com/watch?v={video_id}"
+    try:
+        response = httpx.get(
+            YOUTUBE_OEMBED_URL,
+            params={"format": "json", "url": canonical_url},
+            timeout=8.0,
+            headers={"User-Agent": USER_AGENT},
+        )
+        if response.status_code >= 400:
+            return {}
+        payload = response.json()
+    except Exception as exc:
+        logger.info(
+            "youtube.oembed.failed video_id=%s error_type=%s",
+            video_id,
+            type(exc).__name__,
+        )
+        return {}
+
+    if not isinstance(payload, dict):
+        return {}
+    metadata = {
+        "metadata_provider": "youtube_oembed",
+        "title": payload.get("title"),
+        "channel": payload.get("author_name"),
+        "author_url": payload.get("author_url"),
+        "thumbnail_url": payload.get("thumbnail_url"),
+        "provider_name": payload.get("provider_name"),
+        "provider_url": payload.get("provider_url"),
+        "oembed_source_url": url,
+    }
+    return {
+        key: _clean_metadata_text(value, max_chars=1000) if isinstance(value, str) else value
+        for key, value in metadata.items()
+        if value is not None
+    }
+
+
+def _build_youtube_metadata_text(
+    *,
+    title: str,
+    channel: str | None,
+    description: str | None,
+    url: str,
+    intent_text: str | None,
+    fallback_reason: str,
+) -> str:
+    lines = [
+        f"YouTube video title: {title}",
+        f"URL: {url}",
+        f"Transcript status: {fallback_reason}",
+    ]
+    if channel:
+        lines.insert(1, f"Channel: {channel}")
+    if description:
+        lines.append(f"Description: {description}")
+    if intent_text:
+        lines.append(f"User reason for saving: {intent_text}")
+    return "\n".join(lines)
+
+
+def _clean_metadata_text(value: object, *, max_chars: int = 500) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = html.unescape(value)
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned[:max_chars] if cleaned else None
 
 
 def create_pdf_capture_from_bytes(
@@ -559,7 +867,7 @@ def _youtube_reference_metadata(info: dict[str, Any], *, video_id: str) -> dict[
 
 
 def _pick_caption_format(tracks: list[dict[str, Any]]) -> dict[str, Any] | None:
-    preferred = ("vtt", "srv3", "ttml", "json3")
+    preferred = ("json3", "vtt", "srv3", "ttml")
     for ext in preferred:
         for track in tracks:
             if track.get("ext") == ext and track.get("url"):
@@ -576,7 +884,7 @@ def clean_transcript(raw: str) -> str:
     stripped = raw.strip()
     if stripped.startswith("{"):
         try:
-            return _normalize_text(_json3_caption_to_text(stripped))
+            return _normalize_text(_strip_caption_noise(_json3_caption_to_text(stripped)))
         except json.JSONDecodeError:
             pass
 
@@ -589,7 +897,7 @@ def clean_transcript(raw: str) -> str:
         if "-->" in line or re.match(r"^\d+$", line):
             continue
         line = re.sub(r"<[^>]+>", " ", line)
-        line = re.sub(r"\[(music|applause|inaudible|laughter).*?\]", " ", line, flags=re.I)
+        line = _strip_caption_noise(line)
         line = _normalize_text(line)
         if not line or line == previous:
             continue
@@ -607,6 +915,15 @@ def _json3_caption_to_text(raw: str) -> str:
             if text:
                 parts.append(text)
     return " ".join(parts)
+
+
+def _strip_caption_noise(text: str) -> str:
+    return re.sub(
+        r"\[(music|applause|inaudible|laughter|silence).*?\]",
+        " ",
+        text,
+        flags=re.I,
+    )
 
 
 def validate_pdf_bytes(file_bytes: bytes) -> None:

@@ -50,7 +50,14 @@ Dynamic JavaScript pages:
 - Enforce timeouts and resource limits.
 
 YouTube:
-- Prefer transcript/caption extraction where available.
+- Save reliable video metadata first: title, channel, thumbnail, URL, and the
+  user's reason for saving when present. Use the YouTube Data API when
+  configured, otherwise fall back to YouTube oEmbed. This prevents a useful
+  video link from becoming a dead reference just because captions are blocked.
+- Prefer transcript/caption extraction where available. `yt-dlp` remains the
+  transcript path, but it is not treated as the only source of truth because
+  YouTube can challenge server-side clients with bot checks, cookies, or PO
+  token requirements.
 - The minimum transcript length is duration-aware. Regular videos require 100
   words; short-form videos (3 minutes or less, e.g. YouTube Shorts) require only
   25 words, since a legitimate Shorts transcript is often under 100 words.
@@ -58,10 +65,11 @@ YouTube:
   accounts and attempts.
 - For short-form videos, extraction is instructed to produce only the 1-3
   genuinely distinct ideas the content contains, never padded counts.
-- If no transcript exists, allow user to paste transcript manually for MVP.
-- If transcript extraction fails but video metadata is available, keep the
-  original reference and attach any safe metadata to the enrichment result. Do
-  not imply the transcript or video content was read.
+- If transcript extraction fails but metadata is available, create metadata-only
+  memories grounded in the title, channel, description when available, and user
+  intent. Do not imply the transcript or full video content was read.
+- If no transcript or metadata exists, keep the URL as a reference and encourage
+  the user to add a short reason.
 - Speech-to-text can be a later feature if needed.
 
 PDF:

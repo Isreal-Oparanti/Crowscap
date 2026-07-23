@@ -46,6 +46,8 @@ Crowscap supports:
 - Chat-first capture of notes, ideas, links, YouTube videos, and PDFs.
 - Immediate link saving with background enrichment, so a slow source read never
   blocks the chat turn.
+- YouTube capture that saves reliable video metadata first, then adds transcript
+  memories when captions are actually available.
 - Reference-only saving for social or private links that cannot be reliably extracted.
 - Atomic memory extraction with Qwen Cloud structured output.
 - Semantic search with Qwen embeddings and PostgreSQL vector support.

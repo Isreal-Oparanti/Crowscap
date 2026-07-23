@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 from sqlalchemy import create_engine, func, select
@@ -16,7 +18,9 @@ from app.services.ingestion_service import (
     clean_transcript,
     create_pdf_capture_from_bytes,
     create_url_capture,
+    create_youtube_capture,
     extract_youtube_video_id,
+    fetch_youtube_reference_metadata,
     unsupported_url_reason,
     validate_pdf_bytes,
     validate_public_url,
@@ -111,6 +115,80 @@ def test_youtube_reference_metadata_preserves_known_title() -> None:
     }
 
 
+def test_youtube_oembed_metadata_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeResponse:
+        status_code = 200
+
+        def json(self) -> dict:
+            return {
+                "title": "How to Apply And Succeed at Y Combinator | Startup School",
+                "author_name": "Y Combinator",
+                "author_url": "https://www.youtube.com/@ycombinator",
+                "thumbnail_url": "https://i.ytimg.com/vi/B5tU2447OK8/hqdefault.jpg",
+                "provider_name": "YouTube",
+            }
+
+    monkeypatch.setattr("app.services.ingestion_service.httpx.get", lambda *_, **__: FakeResponse())
+
+    metadata = fetch_youtube_reference_metadata(
+        url="https://youtu.be/B5tU2447OK8",
+        video_id="B5tU2447OK8",
+    )
+
+    assert metadata["title"] == "How to Apply And Succeed at Y Combinator | Startup School"
+    assert metadata["channel"] == "Y Combinator"
+    assert metadata["metadata_providers"] == ["youtube_oembed"]
+
+
+def test_youtube_capture_falls_back_to_metadata_when_transcript_is_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _testing_session, db = build_db()
+
+    class BotBlockedYoutubeDL:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            pass
+
+        def extract_info(self, *_args, **_kwargs):
+            raise RuntimeError("Sign in to confirm you're not a bot")
+
+    monkeypatch.setattr("yt_dlp.YoutubeDL", BotBlockedYoutubeDL)
+    monkeypatch.setattr(
+        "app.services.ingestion_service.fetch_youtube_reference_metadata",
+        lambda **_kwargs: {
+            "title": "3 common YC interview mistakes",
+            "channel": "Y Combinator",
+            "thumbnail_url": "https://i.ytimg.com/vi/ythRYUxLEks/hq2.jpg",
+        },
+    )
+
+    response = create_youtube_capture(
+        db=db,
+        url="https://www.youtube.com/watch?v=ythRYUxLEks",
+        video_id="ythRYUxLEks",
+        intent_text="will be useful during my YC application",
+        user_note=None,
+        extractor=FakeExtractor(),
+        embedder=FakeEmbedder(),
+        relation_detector=FakeRelationDetector(),
+    )
+
+    assert response.source_type == "youtube"
+    assert response.source_title == "3 common YC interview mistakes"
+    assert "3 common YC interview mistakes" in response.original_content
+    assert "will be useful during my YC application" in response.original_content
+    assert response.metadata_json is not None
+    assert response.metadata_json["ingestion_mode"] == "metadata_only"
+    assert response.metadata_json["transcript_status"] == "unavailable"
+    db.close()
+
+
 def test_whatsapp_invite_url_is_marked_unsupported() -> None:
     reason = unsupported_url_reason("https://chat.whatsapp.com/LK0yk9lerym0VmBi7C8EF7")
 
@@ -147,6 +225,17 @@ Hello there
 Build useful things
 """
     assert clean_transcript(raw) == "Hello there Build useful things"
+
+
+def test_clean_json3_transcript_removes_noise_markers() -> None:
+    raw = {
+        "events": [
+            {"segs": [{"utf8": "[Music] "}, {"utf8": "Build useful things"}]},
+            {"segs": [{"utf8": " [Applause]"}]},
+        ]
+    }
+
+    assert clean_transcript(json.dumps(raw)) == "Build useful things"
 
 
 def test_validate_pdf_bytes_rejects_non_pdf() -> None:

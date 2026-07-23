@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     qwen_embedding_model: str = "text-embedding-v4"
     qwen_rerank_model: str = "qwen3-rerank"
     qwen_belief_audit_model: str = "qwen-plus"
+    youtube_data_api_key: SecretStr | None = Field(default=None)
 
     relationship_candidate_min_score: float = 0.50
     relationship_candidate_limit: int = 3
@@ -79,6 +80,13 @@ class Settings(BaseSettings):
         if self.crowscap_proxy_secret is None:
             return None
         value = self.crowscap_proxy_secret.get_secret_value().strip()
+        return value or None
+
+    @property
+    def youtube_data_api_key_value(self) -> str | None:
+        if self.youtube_data_api_key is None:
+            return None
+        value = self.youtube_data_api_key.get_secret_value().strip()
         return value or None
 
 

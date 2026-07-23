@@ -77,6 +77,16 @@ QWEN_EMBEDDING_MODEL=text-embedding-v4
 QWEN_BELIEF_AUDIT_MODEL=qwen-plus
 ```
 
+Optional for stronger YouTube metadata:
+
+```text
+YOUTUBE_DATA_API_KEY=your_google_youtube_data_api_key
+```
+
+Without this key, Crowscap falls back to YouTube oEmbed for public video title,
+channel, and thumbnail metadata, then uses `yt-dlp` only for captions when
+YouTube allows transcript access.
+
 Production also requires authentication proxy settings so requests are scoped to the signed-in user:
 
 ```text
@@ -138,7 +148,8 @@ Normal conversation stays normal. Knowledge questions use memory retrieval. Capt
 Recent reliability rules:
 
 - A substantial note that includes a URL is saved as the user's note, not reduced to a link preview.
-- Bare URLs are kept as references or extracted when readable, so the user does not lose links they dropped quickly.
+- Bare URLs are kept as references immediately, then enriched in the background when readable, so the user does not lose links they dropped quickly.
+- YouTube links save reliable metadata first and add transcript-derived memories only when captions are available. If captions are blocked, Crowscap keeps the title/channel/reason and does not pretend it watched the video.
 - Facebook, WhatsApp, Instagram, X/Twitter, and similar social links are saved as references with the user's surrounding intent when available; the backend does not claim it can extract private or app-gated content from them.
 - If a readable URL fails extraction, the URL is saved as a reference and Crowscap clearly says it could not read the content.
 - Short confirmations such as `yeah`, `sure`, and `go ahead` only confirm a pending action when one exists.
