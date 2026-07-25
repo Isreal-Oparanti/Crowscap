@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.db.models import User, utc_now
+from app.db.models import (
+    User, Conversation, ChatMessage, Source, Capture, Memory, UserPreference, utc_now
+)
 from app.db.session import get_db
 
 logger = get_logger("core.auth")
@@ -85,6 +87,124 @@ def require_current_user(
     return CurrentUser(id=user_id, email=user_email, name=user_name, image_url=user_image)
 
 
+def _seed_demo_user_data(db: Session, user_id: str) -> None:
+    """Pre-populate a demo workspace with rich sample memories, sources, and conversation."""
+    existing_source = db.scalar(select(Source).where(Source.user_id == user_id))
+    if existing_source is not None:
+        return
+
+    # Create Sources
+    src1 = Source(
+        id=f"src_pg_{user_id[:8]}",
+        user_id=user_id,
+        source_type="web",
+        title="Do Things That Don't Scale - Paul Graham",
+        original_url="https://paulgraham.com/ds.html",
+        author="Paul Graham",
+        publisher="Y Combinator",
+    )
+    src2 = Source(
+        id=f"src_pmf_{user_id[:8]}",
+        user_id=user_id,
+        source_type="youtube",
+        title="How to Find Product Market Fit & Retention",
+        original_url="https://youtube.com/watch?v=demo_pmf",
+        author="YC Startup School",
+        publisher="Y Combinator",
+    )
+    src3 = Source(
+        id=f"src_qwen_{user_id[:8]}",
+        user_id=user_id,
+        source_type="pdf",
+        title="Qwen Cloud Agent Memory Architecture Paper",
+        original_url="https://arxiv.org/abs/2401.memory",
+        author="Alibaba Qwen Research",
+    )
+    db.add_all([src1, src2, src3])
+
+    # Create Captures
+    cap1 = Capture(id=f"cap_pg_{user_id[:8]}", user_id=user_id, source_id=src1.id, status="completed")
+    cap2 = Capture(id=f"cap_pmf_{user_id[:8]}", user_id=user_id, source_id=src2.id, status="completed")
+    cap3 = Capture(id=f"cap_qwen_{user_id[:8]}", user_id=user_id, source_id=src3.id, status="completed")
+    db.add_all([cap1, cap2, cap3])
+
+    # Create Memory Atoms
+    m1 = Memory(
+        id=f"mem_1_{user_id[:8]}",
+        user_id=user_id,
+        source_id=src1.id,
+        capture_id=cap1.id,
+        memory_type="principle",
+        epistemic_label="Early User Acquisition",
+        content="Unscalable manual recruitment of initial users builds the early feedback loop that defines product-market fit.",
+        summary="Recruit your first 100 users manually before attempting automated distribution.",
+        confidence="high",
+        importance_score=0.95,
+        status="active",
+    )
+    m2 = Memory(
+        id=f"mem_2_{user_id[:8]}",
+        user_id=user_id,
+        source_id=src2.id,
+        capture_id=cap2.id,
+        memory_type="insight",
+        epistemic_label="Product Retention",
+        content="Retention curves must flatten horizontally. If cohort retention keeps dropping to zero, growth cannot compound.",
+        summary="Flattening cohort retention curves prove real product-market fit.",
+        confidence="high",
+        importance_score=0.92,
+        status="active",
+    )
+    m3 = Memory(
+        id=f"mem_3_{user_id[:8]}",
+        user_id=user_id,
+        source_id=src3.id,
+        capture_id=cap3.id,
+        memory_type="architecture",
+        epistemic_label="Memory Engine",
+        content="Retrieving small source-aware atomic memories outperforms full-document retrieval within tight LLM context windows.",
+        summary="Atomic memory extraction keeps AI context lean and prevents hallucinated facts.",
+        confidence="high",
+        importance_score=0.98,
+        status="active",
+    )
+    db.add_all([m1, m2, m3])
+
+    # Create Demo Conversation
+    conv = Conversation(
+        id=f"conv_demo_{user_id[:8]}",
+        user_id=user_id,
+        title="YC Demo Memory Audit & Strategy",
+        status="active",
+    )
+    db.add(conv)
+
+    msg1 = ChatMessage(
+        conversation_id=conv.id,
+        user_id=user_id,
+        role="user",
+        content="What do I know about early user acquisition and product retention?",
+    )
+    msg2 = ChatMessage(
+        conversation_id=conv.id,
+        user_id=user_id,
+        role="assistant",
+        content="Based on your saved sources (**Paul Graham Essay** & **YC PMF Guide**):\n\n1. **Manual Acquisition**: Recruit your first 100 users manually. Do things that don't scale to establish a tight feedback loop.\n2. **Retention Criterion**: Ensure your cohort retention curve flattens horizontally. Compound growth is impossible if retention drops to zero.\n\nYour memory engine has indexed 3 atomic memories across 3 sources.",
+    )
+    db.add_all([msg1, msg2])
+
+    # Create User Preference
+    pref = UserPreference(
+        id=f"pref_{user_id[:8]}",
+        user_id=user_id,
+        profile_key=f"profile_{user_id}",
+        evidence_strictness="high",
+        topics_of_interest=["startups", "product-market fit", "memory agents", "distribution"],
+    )
+    db.add(pref)
+    db.commit()
+
+
 def _upsert_user(
     *,
     db: Session,
@@ -95,6 +215,7 @@ def _upsert_user(
     provider: str = "google",
 ) -> None:
     user = db.get(User, user_id)
+    is_new = False
     if user is None:
         existing_by_email = db.scalar(select(User).where(User.email == email))
         if existing_by_email is not None:
@@ -103,9 +224,13 @@ def _upsert_user(
         else:
             user = User(id=user_id, email=email, provider=provider)
             db.add(user)
+            is_new = True
 
     user.email = email
     user.name = name
     user.image_url = image_url
     user.last_seen_at = utc_now()
     db.commit()
+
+    if is_new or "yc" in email.lower() or "demo" in email.lower():
+        _seed_demo_user_data(db, user_id)
