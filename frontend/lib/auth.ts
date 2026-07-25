@@ -1,5 +1,6 @@
 import type { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
+import CredentialsProvider from "next-auth/providers/credentials";
 
 function normalizeUserId(value: string | null | undefined): string {
   const safe = (value ?? "user")
@@ -22,6 +23,19 @@ export const authOptions: NextAuthOptions = {
       clientSecret:
         process.env.AUTH_GOOGLE_SECRET ?? process.env.GOOGLE_CLIENT_SECRET ?? "",
     }),
+    CredentialsProvider({
+      name: "Demo Account",
+      credentials: {
+        email: { label: "Email", type: "text" },
+        password: { label: "Password", type: "password" }
+      },
+      async authorize(credentials) {
+        if (credentials?.email === "yc@crowscap.xyz" && credentials?.password === "demo2026") {
+          return { id: "demo_yc_user", name: "YC Reviewer", email: "yc@crowscap.xyz" };
+        }
+        return null;
+      }
+    })
   ],
   callbacks: {
     async jwt({ token, account }) {

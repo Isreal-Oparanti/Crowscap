@@ -5,17 +5,17 @@ import { signIn } from "next-auth/react";
 import { useState } from "react";
 
 export function SignInScreen() {
-  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [signingInProvider, setSigningInProvider] = useState<"google" | "demo" | null>(null);
 
   function handleGoogleSignIn() {
-    setIsSigningIn(true);
+    setSigningInProvider("google");
     void signIn("google", { callbackUrl: "/" }).finally(() => {
-      setIsSigningIn(false);
+      setSigningInProvider(null);
     });
   }
 
   async function handleDemoSignIn() {
-    setIsSigningIn(true);
+    setSigningInProvider("demo");
     const res = await signIn("credentials", {
       email: "yc@crowscap.xyz",
       password: "demo2026",
@@ -25,6 +25,7 @@ export function SignInScreen() {
     if (res?.url) {
       window.location.href = res.url;
     } else {
+      setSigningInProvider(null);
       window.location.reload();
     }
   }
@@ -66,14 +67,14 @@ export function SignInScreen() {
             <button
               type="button"
               onClick={handleGoogleSignIn}
-              disabled={isSigningIn}
+              disabled={signingInProvider !== null}
               className="mt-9 inline-flex h-12 w-full max-w-sm items-center justify-between gap-3 rounded-lg border border-[#111111] bg-white px-4 text-[13px] font-extrabold text-[#111111] shadow-[0_14px_38px_rgba(17,17,17,0.08)] transition hover:bg-[#f7f8f8] disabled:cursor-wait disabled:opacity-70"
             >
               <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-[#dfe2e3] bg-white text-[12px] font-black text-[#111111]">
                 G
               </span>
               <span className="min-w-0 flex-1 text-center">
-                {isSigningIn ? "Opening Google..." : "Continue with Google"}
+                {signingInProvider === "google" ? "Opening Google..." : "Continue with Google"}
               </span>
               <ArrowRight className="shrink-0" size={16} />
             </button>
@@ -81,14 +82,14 @@ export function SignInScreen() {
             <button
               type="button"
               onClick={handleDemoSignIn}
-              disabled={isSigningIn}
+              disabled={signingInProvider !== null}
               className="mt-3 inline-flex h-12 w-full max-w-sm items-center justify-between gap-3 rounded-lg border border-[#e2e4e5] bg-[#fafafa] px-4 text-[13px] font-extrabold text-[#111111] shadow-[0_2px_4px_rgba(17,17,17,0.02)] transition hover:bg-[#f0f2f2] disabled:cursor-wait disabled:opacity-70"
             >
               <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[#111111] text-[12px] font-black text-white">
                 D
               </span>
               <span className="min-w-0 flex-1 text-center">
-                {isSigningIn ? "Signing in..." : "Demo User"}
+                {signingInProvider === "demo" ? "Signing in..." : "Demo User"}
               </span>
               <ArrowRight className="shrink-0" size={16} />
             </button>
