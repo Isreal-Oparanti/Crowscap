@@ -184,8 +184,8 @@ export function AppShell({
 
 function BrandMark() {
   return (
-    <div className="flex size-9 items-center justify-center rounded-md bg-[#09090b] text-white shadow-[0_4px_16px_rgba(9,9,11,0.2)]">
-      <BrandIcon className="size-[22px]" />
+    <div className="flex size-10 items-center justify-center rounded-[11px] border border-[#e4e5e6] bg-white shadow-[0_8px_22px_rgba(17,17,17,0.12)]">
+      <BrandIcon className="size-[28px]" />
     </div>
   );
 }

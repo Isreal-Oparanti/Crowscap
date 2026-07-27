@@ -588,8 +588,8 @@ function ChatTurn({
   return (
     <div className="rise-in min-w-0">
       <div className="flex min-w-0 items-start gap-3">
-        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-[#09090b] text-white shadow-sm">
-          <BrandIcon className="size-[18px]" />
+        <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-[9px] border border-[#e4e5e6] bg-white shadow-sm">
+          <BrandIcon className="size-[22px]" />
         </div>
         <div className="min-w-0 flex-1">
           <MarkdownText
@@ -1273,8 +1273,8 @@ function ThinkingTurn({ mode }: { mode: WorkMode }) {
 
   return (
     <div className="flex items-start gap-3 text-[#6f7376]">
-      <div className="flex size-7 items-center justify-center rounded-md bg-[#09090b] text-white shadow-sm">
-        <BrandIcon className="size-[18px]" />
+      <div className="flex size-8 items-center justify-center rounded-[9px] border border-[#e4e5e6] bg-white shadow-sm">
+        <BrandIcon className="size-[22px]" />
       </div>
       <div className="min-w-[220px] pt-0.5">
         <div className="flex items-center gap-2">

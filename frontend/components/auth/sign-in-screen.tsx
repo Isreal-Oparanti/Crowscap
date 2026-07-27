@@ -1,38 +1,24 @@
 "use client";
 
 import {
+  ArrowRight,
   Check,
-  Database,
   FileText,
-  KeyRound,
   LockKeyhole,
   MessageSquareText,
   Search,
-  ShieldCheck,
 } from "lucide-react";
 import { signIn } from "next-auth/react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 
-const proofPoints = [
-  "Save links, PDFs, videos, notes, and conversation fragments.",
-  "Turn sources into precise memory cards with evidence attached.",
-  "Recall what matters when it can shape a decision.",
-];
+import { InstallBanner } from "@/components/pwa/install-banner";
+import { BrandIcon } from "@/components/ui/brand-icon";
 
 const memoryRows = [
-  {
-    label: "Claim",
-    text: "YC interviews reward clear, conversational founder communication.",
-  },
-  {
-    label: "Warning",
-    text: "A polished answer can still fail if the founder cannot explain the customer.",
-  },
-  {
-    label: "Action",
-    text: "Review this before the application and practice the answer out loud.",
-  },
+  "Keep the video for my YC application.",
+  "Remind me before the deadline.",
+  "Surface the strongest ideas when I need them.",
 ];
 
 export function SignInScreen() {
@@ -64,222 +50,152 @@ export function SignInScreen() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f5f6f7] text-[#111111]">
-      <section className="relative isolate flex min-h-screen flex-col overflow-hidden border-[#111111] bg-[#f7f7f5]">
-        <header className="flex h-16 shrink-0 items-center justify-between border-b border-[#d9d9d4] bg-[#f7f7f5]/90 px-5 backdrop-blur md:h-[76px] md:px-10">
+    <main className="min-h-screen bg-[#f7f7f5] text-[#111111]">
+      <section className="relative flex min-h-screen flex-col overflow-hidden px-5 pb-28 pt-5 md:px-8 md:pb-24">
+        <header className="mx-auto flex w-full max-w-[1180px] items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-[10px] bg-[#111111] text-white shadow-[0_10px_24px_rgba(17,17,17,0.14)]">
-              <Database size={18} strokeWidth={2} />
+            <div className="flex size-11 items-center justify-center rounded-[12px] border border-[#e2e3e4] bg-white shadow-[0_10px_26px_rgba(17,17,17,0.12)]">
+              <BrandIcon className="size-8" />
             </div>
             <div>
-              <p className="text-[15px] font-[820] tracking-[-0.01em]">
+              <p className="text-[17px] font-[850] tracking-[-0.02em]">
                 Crowscap
               </p>
-              <p className="text-[11px] font-semibold text-[#737373]">
-                Personal memory intelligence
+              <p className="text-[12px] font-semibold text-[#707477]">
+                Personal intelligence
               </p>
             </div>
           </div>
-          <div className="hidden items-center gap-2 rounded-full border border-[#d4d4cf] bg-white px-3 py-1.5 text-[10px] font-extrabold uppercase text-[#555555] md:flex">
+          <div className="hidden items-center gap-2 rounded-full border border-[#dedfdf] bg-white px-3 py-1.5 text-[11px] font-extrabold text-[#4d5154] shadow-sm sm:flex">
             <LockKeyhole size={13} />
-            Private workspace
+            Private by default
           </div>
         </header>
 
-        <div className="grid flex-1 lg:grid-cols-[minmax(0,0.92fr)_minmax(520px,1.08fr)]">
-          <div className="flex flex-col justify-between px-6 py-10 md:px-10 md:py-12 lg:py-14">
-            <div>
-              <p className="inline-flex items-center gap-2 border-b border-[#111111] pb-2 text-[11px] font-extrabold uppercase tracking-[0.12em] text-[#111111]">
-                <ShieldCheck size={14} />
-                Memory you can defend
-              </p>
-              <h1 className="mt-8 max-w-[780px] text-[48px] font-[860] leading-[0.96] tracking-[-0.055em] md:text-[76px] lg:text-[86px]">
-                Your saved learning, made usable.
-              </h1>
-              <p className="mt-7 max-w-[620px] text-[16px] font-medium leading-8 text-[#4d4d4d] md:text-[18px]">
-                Crowscap remembers the sources, ideas, doubts, and decisions you
-                do not want to lose, then brings them back when they can change
-                how you think or act.
-              </p>
+        <div className="mx-auto grid w-full max-w-[1180px] flex-1 items-center gap-10 py-12 lg:grid-cols-[minmax(0,0.94fr)_minmax(430px,0.78fr)] lg:py-0">
+          <div>
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#0f5132]">
+              Source-aware memory
+            </p>
+            <h1 className="mt-6 max-w-[760px] text-[48px] font-[880] leading-[0.95] tracking-[-0.058em] md:text-[74px] lg:text-[86px]">
+              Keep what matters. Use it when it matters.
+            </h1>
+            <p className="mt-7 max-w-[660px] text-[17px] font-medium leading-8 text-[#464a4d] md:text-[19px]">
+              Crowscap turns saved links, notes, videos, PDFs, decisions, and
+              reminders into a private memory you can search, question, revisit,
+              and act on.
+            </p>
 
-              <div className="mt-8 grid max-w-[640px] gap-3">
-                {proofPoints.map((point) => (
-                  <div
-                    key={point}
-                    className="flex items-start gap-3 text-[13px] font-semibold leading-6 text-[#333333]"
-                  >
-                    <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white">
-                      <Check size={12} strokeWidth={2.4} />
-                    </span>
-                    <span>{point}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-10 flex flex-col gap-3 sm:max-w-[420px]">
+            <div className="mt-9 flex flex-col gap-3 sm:max-w-[430px]">
               <button
                 type="button"
                 onClick={handleGoogleSignIn}
                 disabled={signingInProvider !== null}
-                className="inline-flex h-12 items-center justify-center gap-3 rounded-md bg-[#111111] px-4 text-[13px] font-extrabold text-white shadow-[0_18px_44px_rgba(17,17,17,0.18)] transition hover:bg-black disabled:cursor-wait disabled:opacity-70"
+                className="group inline-flex h-12 items-center justify-between rounded-[8px] bg-[#111111] px-4 text-[13px] font-extrabold text-white shadow-[0_18px_44px_rgba(17,17,17,0.18)] transition hover:bg-black disabled:cursor-wait disabled:opacity-70"
               >
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-white text-[12px] font-black text-[#111111]">
-                  G
-                </span>
-                <span className="text-white">
+                <span className="inline-flex items-center gap-3">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-white text-[12px] font-black text-[#111111]">
+                    G
+                  </span>
                   {signingInProvider === "google"
                     ? "Opening Google..."
                     : "Continue with Google"}
                 </span>
+                <ArrowRight
+                  size={16}
+                  className="transition group-hover:translate-x-0.5"
+                />
               </button>
               <button
                 type="button"
                 onClick={handleDemoSignIn}
                 disabled={signingInProvider !== null}
-                className="inline-flex h-12 items-center justify-center gap-3 rounded-md border border-[#d9d9d4] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:border-[#111111] disabled:cursor-wait disabled:opacity-70"
+                className="inline-flex h-12 items-center justify-center rounded-[8px] border border-[#d8dadb] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:border-[#111111] disabled:cursor-wait disabled:opacity-70"
               >
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[#111111] text-[12px] font-black text-white">
-                  D
-                </span>
-                <span>
-                  {signingInProvider === "demo"
-                    ? "Signing in..."
-                    : "Open demo workspace"}
-                </span>
+                {signingInProvider === "demo"
+                  ? "Opening demo..."
+                  : "Open demo workspace"}
               </button>
-              <p className="text-[11px] font-medium leading-5 text-[#777777]">
-                Google is used only to identify your workspace. Your saved
-                memory is separated from every other user.
+              <p className="text-[11px] font-medium leading-5 text-[#73777a]">
+                Google only identifies your workspace. Your memories stay
+                separated from every other user.
               </p>
             </div>
           </div>
 
-          <div className="flex min-h-[620px] flex-col border-t border-[#d9d9d4] bg-[#111111] p-4 text-white md:p-6 lg:border-l lg:border-t-0 lg:p-8">
-            <ProductSurface />
+          <div className="rounded-[18px] border border-[#dfe1e2] bg-white p-3 shadow-[0_26px_90px_rgba(17,17,17,0.12)]">
+            <div className="rounded-[14px] border border-[#eceeef] bg-[#fbfbfa]">
+              <div className="flex items-center justify-between border-b border-[#e5e7e8] px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-9 items-center justify-center rounded-[10px] border border-[#e2e3e4] bg-white shadow-sm">
+                    <BrandIcon className="size-7" />
+                  </div>
+                  <div>
+                    <p className="text-[13px] font-[820]">New thought</p>
+                    <p className="text-[11px] font-semibold text-[#787c80]">
+                      Crowscap is listening
+                    </p>
+                  </div>
+                </div>
+                <span className="size-2 rounded-full bg-[#0f5132]" />
+              </div>
+
+              <div className="space-y-4 px-4 py-5">
+                <div className="ml-auto max-w-[78%] rounded-[18px_18px_4px_18px] bg-[#111111] px-4 py-3 text-[13px] font-semibold leading-6 text-white">
+                  This video will help with my YC application.
+                </div>
+                <div className="max-w-[86%] rounded-[18px_18px_18px_4px] border border-[#e3e5e6] bg-white p-4">
+                  <div className="flex items-center gap-2">
+                    <FileText size={15} />
+                    <p className="text-[11px] font-extrabold uppercase text-[#303437]">
+                      Memory receipt
+                    </p>
+                  </div>
+                  <p className="mt-3 text-[13px] font-medium leading-6 text-[#3f4448]">
+                    Saved with your reason attached. I will bring it back when
+                    you are preparing the application.
+                  </p>
+                </div>
+
+                <div className="grid gap-2">
+                  {memoryRows.map((row) => (
+                    <div
+                      key={row}
+                      className="flex items-start gap-3 rounded-[10px] border border-[#e3e5e6] bg-white px-3 py-3"
+                    >
+                      <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-[#eef5f1] text-[#0f5132]">
+                        <Check size={12} strokeWidth={2.3} />
+                      </span>
+                      <p className="text-[12px] font-semibold leading-5 text-[#33383b]">
+                        {row}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid gap-2 border-t border-[#e5e7e8] pt-4 sm:grid-cols-2">
+                  <PreviewPill
+                    icon={<Search size={14} />}
+                    label="Search memory"
+                    text="Find the idea, not just the keyword."
+                  />
+                  <PreviewPill
+                    icon={<MessageSquareText size={14} />}
+                    label="Recall"
+                    text="One useful nudge at the right time."
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
+        <InstallBanner />
       </section>
     </main>
   );
 }
 
-function ProductSurface() {
-  return (
-    <div className="flex min-h-full flex-col rounded-[10px] border border-[#2b2b2b] bg-[#151515] shadow-[0_30px_90px_rgba(0,0,0,0.35)]">
-      <div className="flex h-12 items-center justify-between border-b border-[#2b2b2b] px-4">
-        <div className="flex items-center gap-2">
-          <span className="size-2.5 rounded-full bg-[#f2f2f2]" />
-          <span className="size-2.5 rounded-full bg-[#8a8a8a]" />
-          <span className="size-2.5 rounded-full bg-[#4a4a4a]" />
-        </div>
-        <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#a8a8a8]">
-          Live memory workspace
-        </p>
-      </div>
-
-      <div className="grid flex-1 gap-0 md:grid-cols-[1fr_260px]">
-        <div className="flex min-h-[540px] flex-col px-4 py-5 md:px-6">
-          <div className="max-w-[82%] rounded-[16px] rounded-bl-[4px] bg-[#222222] px-4 py-3 text-[13px] font-semibold leading-6 text-[#f5f5f5]">
-            This video will help with my YC application.
-            <span className="mt-2 block text-[#bcbcbc]">
-              https://youtu.be/founder-interview
-            </span>
-          </div>
-
-          <div className="mt-5 max-w-[92%] rounded-[16px] rounded-tl-[4px] border border-[#3a3a3a] bg-[#191919] p-4">
-            <div className="flex items-center gap-2 text-[#e8e8e8]">
-              <FileText size={15} />
-              <p className="text-[11px] font-extrabold uppercase">
-                Memory receipt
-              </p>
-            </div>
-            <p className="mt-3 text-[13px] font-semibold leading-6 text-[#d8d8d8]">
-              Saved with your reason attached. Crowscap will bring it back when
-              you are preparing the application.
-            </p>
-          </div>
-
-          <div className="mt-6 grid gap-3">
-            {memoryRows.map((row) => (
-              <div
-                key={row.text}
-                className="rounded-[8px] border border-[#343434] bg-[#1d1d1d] p-4"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-[#bdbdbd]">
-                    {row.label}
-                  </span>
-                  <span className="h-px flex-1 bg-[#333333]" />
-                </div>
-                <p className="mt-3 text-[13px] font-medium leading-6 text-[#eeeeee]">
-                  {row.text}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-auto grid gap-3 pt-6 sm:grid-cols-3">
-            <Metric label="Sources saved" value="47" />
-            <Metric label="Due recalls" value="3" />
-            <Metric label="Tensions found" value="8" />
-          </div>
-        </div>
-
-        <aside className="border-t border-[#2b2b2b] bg-[#101010] p-4 md:border-l md:border-t-0">
-          <div className="flex items-center gap-2 text-[#f0f0f0]">
-            <Search size={15} />
-            <p className="text-[10px] font-extrabold uppercase tracking-[0.12em]">
-              What Crowscap holds
-            </p>
-          </div>
-          <div className="mt-5 space-y-3">
-            <Signal
-              icon={<MessageSquareText size={14} />}
-              label="Recent context"
-              text="YC application, founder clarity, saved interview advice"
-            />
-            <Signal
-              icon={<KeyRound size={14} />}
-              label="Preference"
-              text="Direct answers, practical application, stronger evidence"
-            />
-            <Signal
-              icon={<LockKeyhole size={14} />}
-              label="Boundary"
-              text="Each memory belongs to the signed-in workspace"
-            />
-          </div>
-
-          <div className="mt-8 border-t border-[#2b2b2b] pt-5">
-            <p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#a8a8a8]">
-              Next useful nudge
-            </p>
-            <p className="mt-3 text-[19px] font-[760] leading-tight text-white">
-              Review the YC video before drafting your application.
-            </p>
-            <p className="mt-3 text-[12px] font-medium leading-5 text-[#a8a8a8]">
-              Scheduled for tomorrow morning.
-            </p>
-          </div>
-        </aside>
-      </div>
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="border-t border-[#383838] pt-3">
-      <p className="text-[24px] font-[820] leading-none text-white">{value}</p>
-      <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.08em] text-[#9d9d9d]">
-        {label}
-      </p>
-    </div>
-  );
-}
-
-function Signal({
+function PreviewPill({
   icon,
   label,
   text,
@@ -289,14 +205,12 @@ function Signal({
   text: string;
 }) {
   return (
-    <div className="rounded-[8px] border border-[#303030] bg-[#171717] p-3">
-      <div className="flex items-center gap-2 text-[#d8d8d8]">
+    <div className="rounded-[10px] border border-[#e2e4e5] bg-white p-3">
+      <div className="flex items-center gap-2 text-[#111111]">
         {icon}
-        <p className="text-[10px] font-extrabold uppercase tracking-[0.08em]">
-          {label}
-        </p>
+        <p className="text-[11px] font-extrabold uppercase">{label}</p>
       </div>
-      <p className="mt-2 text-[12px] font-medium leading-5 text-[#b5b5b5]">
+      <p className="mt-2 text-[12px] font-medium leading-5 text-[#676b6e]">
         {text}
       </p>
     </div>

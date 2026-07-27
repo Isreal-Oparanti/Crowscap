@@ -116,8 +116,8 @@ export async function showForegroundNotification(
     body: event.body,
     tag: event.event_key,
     data: { url: event.url },
-    icon: "/icons/crowscap-icon.svg",
-    badge: "/icons/crowscap-icon.svg",
+    icon: "/icons/crowscap-icon-192.png",
+    badge: "/icons/crowscap-icon-192.png",
   });
 }
 
