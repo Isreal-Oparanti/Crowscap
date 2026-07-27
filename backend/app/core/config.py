@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     crowscap_admin_password: str = "launchpad"
     crowscap_jwt_secret: str = "a_very_insecure_default_secret_for_dev_only_change_me_in_prod"
 
+    crowscap_vapid_public_key: str | None = None
+    crowscap_vapid_private_key: SecretStr | None = Field(default=None)
+    crowscap_vapid_subject: str = "mailto:hello@crowscap.xyz"
+    crowscap_notification_stream_interval_seconds: float = 30.0
+    crowscap_notification_worker_enabled: bool = False
+    crowscap_notification_worker_interval_seconds: float = 45.0
 
     @property
     def has_qwen_key(self) -> bool:
@@ -88,6 +94,17 @@ class Settings(BaseSettings):
             return None
         value = self.youtube_data_api_key.get_secret_value().strip()
         return value or None
+
+    @property
+    def crowscap_vapid_private_key_value(self) -> str | None:
+        if self.crowscap_vapid_private_key is None:
+            return None
+        value = self.crowscap_vapid_private_key.get_secret_value().strip()
+        return value or None
+
+    @property
+    def push_notifications_configured(self) -> bool:
+        return bool(self.crowscap_vapid_public_key and self.crowscap_vapid_private_key_value)
 
 
 @lru_cache

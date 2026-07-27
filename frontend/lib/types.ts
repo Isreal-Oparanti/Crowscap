@@ -320,3 +320,30 @@ export type RecallQuickResponse = {
   review_count: number;
   recall_score: number;
 };
+
+export type PushPublicKeyResponse = {
+  configured: boolean;
+  public_key: string | null;
+};
+
+export type PushSubscriptionResponse = {
+  status: "active" | "disabled";
+  configured: boolean;
+};
+
+export type NotificationEvent = {
+  event_id: string;
+  event_key: string;
+  event_type: "heartbeat" | "reminder_due" | "recall_due";
+  due_count: number;
+  title: string;
+  body: string;
+  url: string;
+  reminder_id: string | null;
+  memory_id: string | null;
+  created_at: string;
+};
+
+export type NotificationEventResponse = {
+  event: NotificationEvent;
+};

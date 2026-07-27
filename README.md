@@ -61,6 +61,8 @@ Crowscap supports:
 - User-controlled archiving so unwanted memories stop surfacing.
 - Frontend network handling that catches offline/service outages before they
   become confusing JSON or gateway errors.
+- PWA install support, live in-app notification updates over SSE, and browser
+  push subscription plumbing for reminders and due recalls.
 - MCP tools for agent access over SSE, including read tools (search, audit, recall, preferences) and write tools (capture text, submit quick recall, archive memory).
 
 ## Architecture
@@ -136,6 +138,7 @@ crowscap/
 - Tailwind CSS
 - TanStack Query
 - NextAuth with Google sign-in
+- Web Push and service-worker based PWA support
 
 ## Local Development
 
@@ -207,6 +210,7 @@ Important project docs:
 - [`docs/17-auth-and-user-isolation.md`](docs/17-auth-and-user-isolation.md)
 - [`docs/18-autonomous-preferences-and-perspectives.md`](docs/18-autonomous-preferences-and-perspectives.md)
 - [`docs/19-chat-routing-and-trust.md`](docs/19-chat-routing-and-trust.md)
+- [`docs/20-pwa-push-notifications.md`](docs/20-pwa-push-notifications.md)
 
 ## Current Scope
 
@@ -218,4 +222,4 @@ Save a source -> extract memory atoms -> search and recall them -> audit beliefs
 
 The current MCP surface has seven tools: four read tools (search memory, audit a belief, inspect due recalls, read learned preferences) and three write tools (capture text, submit quick recall, archive memory). The next MCP layer would add `create_reminder`, `update_user_preference`, and `capture_url_or_reference`. Those tools need idempotency keys and clearer per-tool auth policy before they ship.
 
-The next major product layers are stronger background processing, richer proactive perspective notes, better notification delivery, and those broader MCP write tools after the mutation safety model is stable.
+The next major product layers are stronger background processing, richer proactive perspective notes, and those broader MCP write tools after the mutation safety model is stable. The notification foundation is now in place: SSE covers live in-app updates, Web Push covers return-to-app notifications, and the ECS worker can be enabled when VAPID keys are configured.

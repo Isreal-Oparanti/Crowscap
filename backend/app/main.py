@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import asyncio
 import socket
 
 from fastapi import FastAPI, Request
@@ -13,6 +14,7 @@ from app.core.logging import configure_logging, get_logger
 from app.db.schema import ensure_database_schema
 from app.db.session import check_database
 from app.db.session import engine
+from app.services.notification_service import notification_worker_loop
 
 logger = get_logger("app")
 
@@ -43,7 +45,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     else:
         logger.error("\u274c db.connected status=failed url=%s", safe_database_url)
 
-    yield
+    notification_stop_event: asyncio.Event | None = None
+    notification_task: asyncio.Task[None] | None = None
+    if settings.crowscap_notification_worker_enabled and database_ok:
+        notification_stop_event = asyncio.Event()
+        notification_task = asyncio.create_task(notification_worker_loop(notification_stop_event))
+
+    try:
+        yield
+    finally:
+        if notification_stop_event is not None:
+            notification_stop_event.set()
+        if notification_task is not None:
+            await notification_task
 
     logger.info("\U0001f44b app.shutdown name=%s", settings.app_name)
 

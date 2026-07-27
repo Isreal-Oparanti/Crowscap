@@ -76,7 +76,7 @@ Chat:
 - Ordinary thanks, greetings, and confirmations remain ordinary chat.
 
 Recall:
-- Opens from a notification or queue item into a focused conversation.
+- Opens from a notification, mobile list item, or queue item into a focused conversation.
 - Prompts adapt to memory type, evidence quality, and related tensions.
 - User answers in natural language.
 - System persists the answer, evaluates understanding, exposes missing context,
@@ -134,6 +134,28 @@ Never call Qwen Cloud directly from the browser because:
 - API keys must stay server-side.
 - Backend needs to log, validate, retry, and handle failures.
 - The memory pipeline is asynchronous.
+
+## PWA and Notification Runtime
+
+The frontend is installable as a PWA and registers a service worker after sign-in.
+The service worker owns native browser push events and notification clicks.
+
+Live notification updates use a dedicated SSE proxy:
+
+```text
+Browser EventSource
+  -> /api/notifications/stream
+  -> FastAPI /api/v1/notifications/stream
+```
+
+This route is separate from the normal JSON backend proxy because SSE must stream
+without buffering. Events are intentionally small: title, body, due count, and URL.
+The frontend does not run reminder timing logic. The backend decides when a
+reminder or recall is due.
+
+Push permission is user-initiated. The UI may register the service worker quietly,
+but it should ask for notification permission only after the user clicks an
+explicit control such as `Enable push`.
 
 ## Empty, Loading, and Failure States
 

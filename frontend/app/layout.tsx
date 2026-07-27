@@ -5,6 +5,17 @@ import type { Metadata, Viewport } from "next";
 export const metadata: Metadata = {
   title: "Crowscap",
   description: "A second brain that remembers, questions, and resurfaces what you learn.",
+  applicationName: "Crowscap",
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: "/icons/crowscap-icon.svg",
+    apple: "/icons/crowscap-icon.svg",
+  },
+  appleWebApp: {
+    capable: true,
+    title: "Crowscap",
+    statusBarStyle: "default",
+  },
 };
 
 export const viewport: Viewport = {

@@ -6,6 +6,8 @@ import type {
   ConversationTurn,
   DueRecallsResponse,
   PerspectiveNoteListResponse,
+  PushPublicKeyResponse,
+  PushSubscriptionResponse,
   ProcessingJobResponse,
   RecentMemoryListResponse,
   ReminderResponse,
@@ -295,5 +297,31 @@ export function submitQuickRecall(
   return request<RecallQuickResponse>(`recalls/${memoryId}/quick`, {
     method: "POST",
     body: JSON.stringify({ action }),
+  });
+}
+
+export function getPushPublicKey(): Promise<PushPublicKeyResponse> {
+  return request<PushPublicKeyResponse>("notifications/push/public-key");
+}
+
+export function savePushSubscription(
+  subscription: PushSubscriptionJSON,
+): Promise<PushSubscriptionResponse> {
+  return request<PushSubscriptionResponse>("notifications/push/subscribe", {
+    method: "POST",
+    body: JSON.stringify({
+      subscription,
+      user_agent:
+        typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+    }),
+  });
+}
+
+export function removePushSubscription(
+  endpoint: string,
+): Promise<PushSubscriptionResponse> {
+  return request<PushSubscriptionResponse>("notifications/push/unsubscribe", {
+    method: "POST",
+    body: JSON.stringify({ endpoint }),
   });
 }

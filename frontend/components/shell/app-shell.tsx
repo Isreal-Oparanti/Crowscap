@@ -14,6 +14,10 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import {
+  NotificationRuntime,
+  PushNotificationControl,
+} from "@/components/notifications/notification-runtime";
 import { BrandIcon } from "@/components/ui/brand-icon";
 import { getPreferences } from "@/lib/api";
 import type { UserPreferenceProfile } from "@/lib/types";
@@ -172,6 +176,7 @@ export function AppShell({
       <aside className="context-rail desktop-rail bg-[#f8f8f8]">
         {context ?? <DefaultContext />}
       </aside>
+      <NotificationRuntime />
       <NetworkToastHost />
     </div>
   );
@@ -256,6 +261,7 @@ function DefaultContext() {
         Your memory should get more personal over time.
       </h2>
       <div className="mt-6 space-y-2">
+        <PushNotificationControl />
         <PreferenceRow
           label="Answers"
           value={preferences?.answer_style ?? "balanced"}

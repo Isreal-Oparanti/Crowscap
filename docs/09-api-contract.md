@@ -171,6 +171,100 @@ Response:
 }
 ```
 
+## Notifications
+
+Notifications are split into live in-app events and native browser push.
+
+### GET /notifications/current
+
+Returns the lightweight notification event Crowscap would currently surface for
+the signed-in user.
+
+Response:
+
+```json
+{
+  "event": {
+    "event_id": "uuid",
+    "event_key": "reminder_due:reminder-id:2026-07-27T09:00:00+00:00",
+    "event_type": "reminder_due",
+    "due_count": 1,
+    "title": "Reminder ready",
+    "body": "Apply to YC before the deadline",
+    "url": "/recall",
+    "reminder_id": "uuid",
+    "memory_id": null,
+    "created_at": "2026-07-27T09:00:00Z"
+  }
+}
+```
+
+If nothing is due, `event_type` is `heartbeat` and `due_count` is `0`.
+
+### GET /notifications/stream
+
+Server-sent event stream for the open app.
+
+Events:
+
+- `connected`
+- `heartbeat`
+- `reminder_due`
+- `recall_due`
+
+The event payload uses the same shape as `/notifications/current`. The frontend
+proxies this through `/api/notifications/stream` because SSE cannot use the
+normal JSON proxy without buffering.
+
+### GET /notifications/push/public-key
+
+Returns whether Web Push is configured and, if so, the public VAPID key.
+
+```json
+{
+  "configured": true,
+  "public_key": "B..."
+}
+```
+
+### POST /notifications/push/subscribe
+
+Stores or refreshes a browser push subscription for the signed-in user.
+
+Request:
+
+```json
+{
+  "subscription": {
+    "endpoint": "https://fcm.googleapis.com/fcm/send/...",
+    "keys": {
+      "p256dh": "...",
+      "auth": "..."
+    }
+  },
+  "user_agent": "Mozilla/5.0 ..."
+}
+```
+
+Response:
+
+```json
+{
+  "status": "active",
+  "configured": true
+}
+```
+
+### POST /notifications/push/unsubscribe
+
+Disables a browser subscription.
+
+```json
+{
+  "endpoint": "https://fcm.googleapis.com/fcm/send/..."
+}
+```
+
 ## Captures
 
 ### POST /captures/text

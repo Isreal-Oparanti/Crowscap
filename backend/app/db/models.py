@@ -211,6 +211,39 @@ class Reminder(Base, TimestampMixin):
     metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
 
+class PushSubscription(Base, TimestampMixin):
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    user_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    endpoint: Mapped[str] = mapped_column(Text, nullable=False)
+    p256dh: Mapped[str] = mapped_column(Text, nullable=False)
+    auth: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(40), default="active", nullable=False, index=True)
+    user_agent: Mapped[str | None] = mapped_column(Text)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+
+class NotificationDelivery(Base, TimestampMixin):
+    __tablename__ = "notification_deliveries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    user_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    event_key: Mapped[str] = mapped_column(String(180), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    channel: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(40), default="pending", nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(220), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    url: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message_safe: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+
 class ActionItem(Base, TimestampMixin):
     __tablename__ = "action_items"
 

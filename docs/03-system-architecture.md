@@ -42,6 +42,8 @@ The frontend is a Next.js application. It owns the product experience:
 - Recall surface.
 - Source and memory detail views.
 - Preference visibility.
+- PWA install metadata, service-worker registration, foreground SSE updates,
+  and browser push opt-in.
 
 ### Backend API
 
@@ -89,6 +91,7 @@ PostgreSQL stores the durable memory system:
 - Recall reviews and reminders.
 - Preference profiles.
 - Actions, jobs, and perspective notes.
+- Push subscriptions and notification delivery records.
 
 Vector support is used so memories can be searched by meaning rather than exact keywords.
 
@@ -108,6 +111,18 @@ Current tools:
 - `get_user_preferences`
 
 The MCP server delegates to existing backend services. It does not reimplement search, audit, recall, or preferences.
+
+### Notifications
+
+Crowscap separates notification behavior into three pieces:
+
+- Server timing: due reminders and recall-ready memories are selected by the backend, not by browser timers.
+- SSE: the open app receives a lightweight live event with count, title, body, and destination URL.
+- Web Push: subscribed browsers can receive native notifications when the app is closed or backgrounded.
+
+The backend stores push subscriptions and delivery attempts so reminder pushes can
+be idempotent. A due reminder should not create duplicate native notifications
+just because the worker checks again.
 
 ## Memory Flow
 
@@ -210,7 +225,6 @@ Deployment responsibilities:
 The next production layers are:
 
 - A stronger background processing queue for long ingestion jobs.
-- More complete notification delivery.
 - Encrypted storage for raw source content.
 - Richer perspective notes with public evidence leads.
 - MCP write tools after authorization and mutation safety are stronger.

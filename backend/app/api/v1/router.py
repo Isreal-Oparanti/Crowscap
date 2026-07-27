@@ -8,6 +8,7 @@ from app.api.v1 import (
     health,
     jobs,
     memories,
+    notifications,
     preferences,
     qwen,
     recalls,
@@ -25,6 +26,7 @@ api_router.include_router(captures.router, prefix="/captures")
 api_router.include_router(health.router)
 api_router.include_router(jobs.router, prefix="/jobs")
 api_router.include_router(memories.router, prefix="/memories")
+api_router.include_router(notifications.router, prefix="/notifications")
 api_router.include_router(preferences.router, prefix="/preferences")
 api_router.include_router(qwen.router, prefix="/qwen")
 api_router.include_router(recalls.router, prefix="/recalls")

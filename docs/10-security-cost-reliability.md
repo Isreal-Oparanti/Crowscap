@@ -120,6 +120,16 @@ All chat failures should return JSON with a user-safe explanation. Internal
 Pydantic validation errors, provider failures, and extraction errors should not
 leak raw stack traces or plain-text 500 responses to the frontend.
 
+Notification reliability rules:
+- Reminder timing belongs to the backend worker, not browser timers.
+- SSE events are lightweight and may be repeated safely.
+- Web Push delivery is idempotent per event and channel, so a due reminder does
+  not spam the user when the worker checks again.
+- Expired browser push subscriptions are disabled after provider 404 or 410
+  responses.
+- Push-provider errors are logged safely and never surfaced as raw technical
+  text to users.
+
 Retryable:
 - transient network errors.
 - Qwen rate limit or timeout.

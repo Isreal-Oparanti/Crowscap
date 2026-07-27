@@ -15,6 +15,7 @@ dependencies = [
   "pymupdf>=1.27.0",
   "python-multipart>=0.0.20",
   "python-dotenv>=1.0.1",
+  "pywebpush>=2.0.0",
   "sqlalchemy>=2.0.32",
   "trafilatura>=2.1.0",
   "uvicorn[standard]>=0.30.0",

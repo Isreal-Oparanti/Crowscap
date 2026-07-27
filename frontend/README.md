@@ -12,6 +12,7 @@ The frontend is intentionally chat-first. Users should not need to understand me
 - Source views: show original saved content beside extracted memory atoms.
 - Preference surfaces: show what Crowscap has learned about how the user wants to learn.
 - Auth boundary: Google sign-in before private memory can be accessed.
+- PWA shell: installable app metadata, service worker, live in-app notification stream, and browser push opt-in.
 
 ## Stack
 
@@ -20,6 +21,7 @@ The frontend is intentionally chat-first. Users should not need to understand me
 - Tailwind CSS
 - TanStack Query
 - NextAuth
+- Service worker and Web Push APIs
 
 ## Local Setup
 
@@ -71,6 +73,21 @@ CROWSCAP_BACKEND_URL=https://api.crowscap.xyz
 
 The frontend signs backend proxy requests with `CROWSCAP_PROXY_SECRET`, and the backend scopes each request to the authenticated user.
 
+## PWA and Notifications
+
+Crowscap registers a service worker from `/sw.js` and exposes install metadata
+through `/manifest.webmanifest`.
+
+Notification behavior is split intentionally:
+
+- SSE keeps the open app current when a reminder or recall becomes due.
+- Web Push brings the user back when the browser allows native notifications.
+- The user must explicitly click `Enable push`; browsers do not allow silent
+  notification permission prompts.
+
+Push credentials live only in the backend. The frontend reads the public VAPID
+key through the authenticated backend proxy.
+
 ## User Experience Principles
 
 Crowscap should feel like a private learning workspace, not a generic chatbot.
@@ -100,6 +117,7 @@ The interface should:
 9. Search for a saved idea by meaning, not exact wording.
 10. Open recall and confirm it shows one focused nudge.
 11. Archive a memory and confirm it stops surfacing.
+12. Enable push from the right context rail and confirm the browser permission flow appears when VAPID keys are configured.
 
 ## Backend Dependency
 

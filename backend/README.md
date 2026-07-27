@@ -17,6 +17,8 @@ The backend owns the core MemoryAgent behavior: chat routing, capture, extractio
 - Run belief audits over saved memories and public source leads.
 - Track explicit and inferred user preferences.
 - Archive memories the user no longer wants surfaced.
+- Store browser push subscriptions and emit due-reminder or due-recall events
+  through SSE and Web Push.
 - Expose memory tools over MCP/SSE: four read tools (search, audit, recall, preferences) and three write tools (capture text, submit quick recall, archive memory).
 
 ## Stack
@@ -28,6 +30,7 @@ The backend owns the core MemoryAgent behavior: chat routing, capture, extractio
 - PostgreSQL with vector support
 - Qwen Cloud through the OpenAI-compatible SDK
 - MCP over SSE
+- Web Push with VAPID keys
 
 ## Local Setup
 
@@ -95,6 +98,19 @@ CROWSCAP_PROXY_SECRET=shared_secret_between_frontend_and_backend
 ```
 
 Never commit real secrets.
+
+Optional notification delivery values:
+
+```text
+CROWSCAP_VAPID_PUBLIC_KEY=browser_push_public_key
+CROWSCAP_VAPID_PRIVATE_KEY=browser_push_private_key
+CROWSCAP_VAPID_SUBJECT=mailto:hello@crowscap.xyz
+CROWSCAP_NOTIFICATION_WORKER_ENABLED=true
+```
+
+SSE works without VAPID keys and is used for live in-app reminders or recalls.
+Web Push requires VAPID keys and a subscribed browser. The worker is opt-in so
+local development never starts sending native notifications by surprise.
 
 ## Qwen Cloud Integration
 
@@ -190,6 +206,11 @@ POST /api/v1/recalls/{memory_id}/answer
 POST /api/v1/beliefs/audit
 GET  /api/v1/preferences/me
 POST /api/v1/preferences/learn-now
+GET  /api/v1/notifications/current
+GET  /api/v1/notifications/stream
+GET  /api/v1/notifications/push/public-key
+POST /api/v1/notifications/push/subscribe
+POST /api/v1/notifications/push/unsubscribe
 ```
 
 See the full contract in `../docs/09-api-contract.md`.
@@ -252,6 +273,7 @@ Useful focused tests:
 .\.venv\Scripts\python -m pytest tests\test_captures.py
 .\.venv\Scripts\python -m pytest tests\test_ingestion.py
 .\.venv\Scripts\python -m pytest tests\test_mcp_tools.py
+.\.venv\Scripts\python -m pytest tests\test_notifications.py
 ```
 
 ## Deployment
