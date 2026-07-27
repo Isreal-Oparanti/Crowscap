@@ -1369,17 +1369,17 @@ function Composer({
             <textarea
               ref={textareaRef}
               value={draft}
-            rows={1}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                sendMessage();
-              }
-            }}
-            placeholder="Share a thought, ask memory..."
-            className="max-h-40 min-h-10 flex-1 resize-none bg-transparent px-1.5 py-2.5 text-[14px] font-medium leading-6 outline-none placeholder:text-[#9a9da0] md:text-[13px]"
-          />
+              rows={1}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  sendMessage();
+                }
+              }}
+              placeholder="Save a thought, ask your memory."
+              className="max-h-40 min-h-10 flex-1 resize-none bg-transparent px-1.5 py-2.5 text-[14px] font-medium leading-6 outline-none placeholder:text-[#9a9da0] md:text-[13px]"
+            />
             <button
               type="button"
               aria-label="Send message"

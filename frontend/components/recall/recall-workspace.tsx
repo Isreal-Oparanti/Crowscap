@@ -344,15 +344,17 @@ export function RecallWorkspace({
         />
       }
     >
-      <div className="conversation-scroll flex-1 overflow-y-auto px-4 pb-36 pt-8 md:px-8 md:pb-10 md:pt-12">
-        <div className="mx-auto w-full max-w-[1040px]">
+      <div className="conversation-scroll flex-1 overflow-y-auto px-0 pb-36 pt-8 md:pb-10 md:pt-12">
+        <div className="w-full">
           {loading ? (
-            <p className="text-[12px] font-semibold text-[#727679]">
+            <p className="px-4 text-[12px] font-semibold text-[#727679] md:px-10">
               Gathering what is ready
             </p>
           ) : null}
           {error ? (
-            <p className="text-[12px] font-semibold text-[#9b4c51]">{error}</p>
+            <p className="px-4 text-[12px] font-semibold text-[#9b4c51] md:px-10">
+              {error}
+            </p>
           ) : null}
           {!loading && !error && !selected && !selectedReminder ? (
             <EmptyRecall />
@@ -370,7 +372,7 @@ export function RecallWorkspace({
             />
           ) : null}
 
-          <div className={mobileDetailOpen ? "block" : "hidden"}>
+          <div className={mobileDetailOpen ? "block px-4 md:px-10" : "hidden"}>
             {mobileDetailOpen ? (
               <button
                 type="button"
@@ -696,9 +698,9 @@ function MobileRecallQueue({
   if (detailOpen) return null;
 
   return (
-    <section className="mb-8 -mx-4 md:mx-0">
+    <section className="mb-8">
       <div className="bg-white">
-        <div className="border-b border-[#edf0f1] px-4 pb-4 pt-1 md:px-0 md:pt-0">
+        <div className="border-b border-[#edf0f1] px-4 pb-4 pt-1 md:px-10 md:pt-0">
           <p className="text-[10px] font-extrabold uppercase text-[#7e8285]">
             Ready now
           </p>
@@ -708,7 +710,7 @@ function MobileRecallQueue({
         </div>
 
         {!hasItems ? (
-          <div className="px-4 py-6 text-[12px] font-semibold text-[#777b7e] md:px-0">
+          <div className="px-4 py-6 text-[12px] font-semibold text-[#777b7e] md:px-10">
             Nothing needs attention right now.
           </div>
         ) : null}
@@ -763,7 +765,7 @@ function MobileRecallItem({
     <button
       type="button"
       onClick={onClick}
-      className={`flex w-full items-start gap-3 px-4 py-4 text-left transition ${
+      className={`flex w-full items-start gap-3 px-4 py-4 text-left transition md:px-10 ${
         active ? "bg-[#f1f7f4]" : "bg-white hover:bg-[#fbfcfc]"
       }`}
     >

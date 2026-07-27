@@ -130,9 +130,9 @@ export function SearchWorkspace({ user }: { user: AppShellUser }) {
         />
       }
     >
-      <div className="conversation-scroll flex-1 overflow-y-auto px-4 pb-28 pt-7 md:px-8 md:pb-10 md:pt-10">
-        <div className="mx-auto w-full max-w-[1120px]">
-          <div className="max-w-[680px]">
+      <div className="conversation-scroll flex-1 overflow-y-auto px-0 pb-28 pt-7 md:pb-10 md:pt-10">
+        <div className="w-full">
+          <div className="max-w-[680px] px-4 md:px-10">
             <p className="text-[10px] font-extrabold uppercase text-[#7e8285]">
               Your memory
             </p>
@@ -141,7 +141,7 @@ export function SearchWorkspace({ user }: { user: AppShellUser }) {
             </h2>
           </div>
 
-          <form onSubmit={submit} className="relative mt-7">
+          <form onSubmit={submit} className="relative mx-4 mt-7 md:mx-10">
             <Search
               className="absolute left-4 top-1/2 -translate-y-1/2 text-[#696d70]"
               size={19}
@@ -176,7 +176,7 @@ export function SearchWorkspace({ user }: { user: AppShellUser }) {
           </form>
 
           {loading ? (
-            <div className="mt-12 flex items-center gap-3 text-[#6f7376]">
+            <div className="mx-4 mt-12 flex items-center gap-3 text-[#6f7376] md:mx-10">
               <BrainCircuit size={16} />
               <span className="text-[12px] font-semibold">
                 Reaching across your memory
@@ -185,14 +185,14 @@ export function SearchWorkspace({ user }: { user: AppShellUser }) {
           ) : null}
 
           {error ? (
-            <p className="mt-8 text-[12px] font-semibold text-[#9b4c51]">
+            <p className="mx-4 mt-8 text-[12px] font-semibold text-[#9b4c51] md:mx-10">
               {error}
             </p>
           ) : null}
 
           {result ? (
             <div className="mt-9 rise-in">
-              <div className="mb-4 flex items-end justify-between">
+              <div className="mb-4 flex items-end justify-between px-4 md:px-10">
                 <div>
                   <p className="text-[11px] font-extrabold">
                     {result.returned_count > 0
@@ -211,7 +211,7 @@ export function SearchWorkspace({ user }: { user: AppShellUser }) {
                 ) : null}
               </div>
 
-              <div className="grid gap-3">
+              <div className="grid gap-3 px-4 md:px-10">
                 {result.results.map((memory) => (
                   <MemoryCardView key={memory.memory_id} memory={memory} />
                 ))}
@@ -237,7 +237,7 @@ export function SearchWorkspace({ user }: { user: AppShellUser }) {
 
 function SearchSuggestions({ onPick }: { onPick: (query: string) => void }) {
   return (
-    <div className="mt-8 grid gap-2 sm:grid-cols-2">
+    <div className="mx-4 mt-8 grid max-w-[620px] gap-2 sm:grid-cols-2 md:mx-10">
       {[
         "What do I know about distribution?",
         "What have I learned but not applied?",
@@ -246,7 +246,7 @@ function SearchSuggestions({ onPick }: { onPick: (query: string) => void }) {
           key={suggestion}
           type="button"
           onClick={() => onPick(suggestion)}
-          className="min-h-11 rounded-md border border-[#e0e2e3] bg-[#fafafa] px-3 py-2.5 text-left text-[10px] font-semibold leading-snug transition hover:border-[#c8ccce] hover:bg-white md:text-[11px]"
+          className="min-h-10 rounded-md border border-[#e0e2e3] bg-[#fafafa] px-3 py-2 text-left text-[10px] font-semibold leading-snug transition hover:border-[#c8ccce] hover:bg-white"
         >
           {suggestion}
         </button>
@@ -272,7 +272,7 @@ function RecentMemories({
 }) {
   return (
     <section className="mt-10 border-t border-[#e6e8e9] pt-6">
-      <div className="flex items-end justify-between gap-4">
+      <div className="flex items-end justify-between gap-4 px-4 md:px-10">
         <div>
           <p className="text-[10px] font-extrabold uppercase text-[#7e8285]">
             Recently saved
@@ -289,13 +289,13 @@ function RecentMemories({
       </div>
 
       {!loading && memories.length === 0 ? (
-        <p className="mt-4 rounded-lg border border-[#e3e5e6] bg-[#fafafa] px-4 py-5 text-[12px] font-semibold leading-relaxed text-[#777b7e]">
+        <p className="mx-4 mt-4 rounded-lg border border-[#e3e5e6] bg-[#fafafa] px-4 py-5 text-[12px] font-semibold leading-relaxed text-[#777b7e] md:mx-10">
           No active memories yet. Save an idea, link, PDF, or video and it will
           appear here.
         </p>
       ) : null}
 
-      <div className="mt-4 divide-y divide-[#eceeef] overflow-hidden rounded-lg border border-[#e1e3e4] bg-white">
+      <div className="mt-4 divide-y divide-[#eceeef] border-y border-[#e1e3e4] bg-white">
         {memories.map((memory) => (
           <RecentMemoryRow
             key={memory.memory_id}
@@ -311,7 +311,7 @@ function RecentMemories({
           type="button"
           disabled={loading}
           onClick={onLoadMore}
-          className="mt-4 rounded-md border border-[#d7dadc] bg-white px-3 py-2 text-[11px] font-extrabold text-[#4d5255] transition hover:border-[#9fa4a7] disabled:cursor-not-allowed disabled:opacity-60"
+          className="mx-4 mt-4 rounded-md border border-[#d7dadc] bg-white px-3 py-2 text-[11px] font-extrabold text-[#4d5255] transition hover:border-[#9fa4a7] disabled:cursor-not-allowed disabled:opacity-60 md:mx-10"
         >
           Load more
         </button>
@@ -330,7 +330,7 @@ function RecentMemoryRow({
   onArchive: () => void;
 }) {
   return (
-    <article className="group flex items-start gap-3 px-4 py-4 transition hover:bg-[#fbfcfc]">
+    <article className="group flex items-start gap-3 px-4 py-4 transition hover:bg-[#fbfcfc] md:px-10">
       <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-[#eef4f7] text-[#356b8f]">
         <FileText size={15} />
       </div>
