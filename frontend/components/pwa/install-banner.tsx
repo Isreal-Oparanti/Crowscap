@@ -4,6 +4,7 @@ import { Download } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { BrandIcon } from "@/components/ui/brand-icon";
+import { registerCrowscapServiceWorker } from "@/lib/notifications";
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -34,11 +35,17 @@ export function InstallBanner() {
   const [deferredPrompt, setDeferredPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
-  const [showFallbackInstall, setShowFallbackInstall] = useState(false);
+  const [showManualInstall, setShowManualInstall] = useState(false);
+  const [serviceWorkerReady, setServiceWorkerReady] = useState(false);
   const [installing, setInstalling] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+
+    registerCrowscapServiceWorker()
+      .then(() => navigator.serviceWorker.ready)
+      .then(() => setServiceWorkerReady(true))
+      .catch(() => setServiceWorkerReady(false));
 
     const updateInstalled = () => {
       setInstalled(isStandalonePwa() || hasInstalledMemory());
@@ -56,7 +63,7 @@ export function InstallBanner() {
         return;
       }
       setDeferredPrompt(event as BeforeInstallPromptEvent);
-      setShowFallbackInstall(false);
+      setShowManualInstall(false);
     };
 
     const onInstalled = () => {
@@ -69,28 +76,32 @@ export function InstallBanner() {
     window.addEventListener("beforeinstallprompt", onPrompt);
     window.addEventListener("appinstalled", onInstalled);
 
-    const fallbackTimer = window.setTimeout(() => {
-      if (!isStandalonePwa() && !hasInstalledMemory()) {
-        setShowFallbackInstall(true);
+    const manualTimer = window.setTimeout(() => {
+      const ua = window.navigator.userAgent.toLowerCase();
+      const isAppleMobile = /iphone|ipad|ipod/.test(ua);
+      if (isAppleMobile && !isStandalonePwa() && !hasInstalledMemory()) {
+        setShowManualInstall(true);
       }
     }, 1600);
 
     return () => {
-      window.clearTimeout(fallbackTimer);
+      window.clearTimeout(manualTimer);
       media.removeEventListener?.("change", updateInstalled);
       window.removeEventListener("beforeinstallprompt", onPrompt);
       window.removeEventListener("appinstalled", onInstalled);
     };
   }, []);
 
-  if (installed || (!deferredPrompt && !showFallbackInstall)) return null;
+  if (installed || (!deferredPrompt && !showManualInstall && !serviceWorkerReady)) {
+    return null;
+  }
 
   const handleInstall = async () => {
     if (installing) return;
 
     if (!deferredPrompt) {
       window.alert(
-        "Open your browser menu and choose Install app or Add to Home screen.",
+        "On this browser, use the browser menu and choose Add to Home Screen.",
       );
       return;
     }
@@ -106,12 +117,34 @@ export function InstallBanner() {
         window.dispatchEvent(new Event("crowscap:pwa-installed"));
       } else {
         setDeferredPrompt(null);
-        setShowFallbackInstall(true);
       }
     } finally {
       setInstalling(false);
     }
   };
+
+  const canInstall = Boolean(deferredPrompt);
+  const manualOnly = showManualInstall && !canInstall;
+
+  if (!canInstall && !manualOnly) {
+    return (
+      <div className="fixed bottom-4 left-4 right-4 z-[120] mx-auto max-w-xl md:bottom-6">
+        <div className="flex items-center gap-3 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-[0_12px_34px_rgba(17,17,17,0.18)]">
+          <div className="flex size-[38px] shrink-0 items-center justify-center rounded-[10px] border border-[#e5e7e8] bg-white shadow-sm">
+            <BrandIcon className="size-[31px]" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[15px] font-semibold leading-tight text-[#202124]">
+              Preparing install
+            </p>
+            <p className="truncate text-xs font-medium text-[#5f6368]">
+              Crowscap is getting the app shell ready.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed bottom-4 left-4 right-4 z-[120] mx-auto max-w-xl md:bottom-6">
@@ -121,10 +154,10 @@ export function InstallBanner() {
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-[15px] font-semibold leading-tight text-[#202124]">
-            Install Crowscap
+            {manualOnly ? "Add Crowscap to Home Screen" : "Install Crowscap"}
           </p>
           <p className="truncate text-xs font-medium text-[#5f6368]">
-            crowscap.xyz
+            {manualOnly ? "Use your browser menu on this device" : "crowscap.xyz"}
           </p>
         </div>
         <button
@@ -134,7 +167,7 @@ export function InstallBanner() {
           className="inline-flex shrink-0 items-center gap-2 rounded-full px-2 py-2 text-sm font-semibold text-[#202124] transition hover:bg-[#f2f3f4] disabled:opacity-60"
         >
           <Download size={15} />
-          {installing ? "Opening..." : "Install"}
+          {installing ? "Opening..." : manualOnly ? "How" : "Install"}
         </button>
       </div>
     </div>

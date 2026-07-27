@@ -2,12 +2,15 @@
   "name": "Crowscap",
   "short_name": "Crowscap",
   "description": "Private memory intelligence for learning, recall, and action.",
+  "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "background_color": "#ffffff",
   "theme_color": "#111111",
   "orientation": "portrait-primary",
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/icons/crowscap-icon-192.png",
