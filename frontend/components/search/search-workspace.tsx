@@ -237,18 +237,16 @@ export function SearchWorkspace({ user }: { user: AppShellUser }) {
 
 function SearchSuggestions({ onPick }: { onPick: (query: string) => void }) {
   return (
-    <div className="mt-10 grid gap-2 sm:grid-cols-2">
+    <div className="mt-8 grid gap-2 sm:grid-cols-2">
       {[
         "What do I know about distribution?",
-        "Find ideas I saved about product design",
-        "Where have my sources disagreed?",
         "What have I learned but not applied?",
       ].map((suggestion) => (
         <button
           key={suggestion}
           type="button"
           onClick={() => onPick(suggestion)}
-          className="min-h-16 rounded-lg border border-[#e0e2e3] bg-[#fafafa] px-4 py-3 text-left text-[11px] font-semibold leading-relaxed transition hover:border-[#c8ccce] hover:bg-white"
+          className="min-h-11 rounded-md border border-[#e0e2e3] bg-[#fafafa] px-3 py-2.5 text-left text-[10px] font-semibold leading-snug transition hover:border-[#c8ccce] hover:bg-white md:text-[11px]"
         >
           {suggestion}
         </button>

@@ -696,27 +696,24 @@ function MobileRecallQueue({
   if (detailOpen) return null;
 
   return (
-    <section className="mb-8">
-      <div className="rounded-xl border border-[#e1e4e5] bg-white shadow-[0_14px_44px_rgba(17,17,17,0.06)]">
-        <div className="border-b border-[#edf0f1] px-4 py-4">
+    <section className="mb-8 -mx-4 md:mx-0">
+      <div className="bg-white">
+        <div className="border-b border-[#edf0f1] px-4 pb-4 pt-1 md:px-0 md:pt-0">
           <p className="text-[10px] font-extrabold uppercase text-[#7e8285]">
             Ready now
           </p>
           <h2 className="mt-1 text-[21px] font-[760] leading-tight">
             Choose what to revisit.
           </h2>
-          <p className="mt-2 text-[11px] font-semibold leading-relaxed text-[#777b7e]">
-            Reminders and recalls stay separate. Tap one to open the full view.
-          </p>
         </div>
 
         {!hasItems ? (
-          <div className="px-4 py-6 text-[12px] font-semibold text-[#777b7e]">
+          <div className="px-4 py-6 text-[12px] font-semibold text-[#777b7e] md:px-0">
             Nothing needs attention right now.
           </div>
         ) : null}
 
-        <div className="divide-y divide-[#edf0f1]">
+        <div className="divide-y divide-[#edf0f1] border-y border-[#edf0f1] md:border-t">
           {reminders.map((reminder) => (
             <MobileRecallItem
               key={reminder.reminder_id}

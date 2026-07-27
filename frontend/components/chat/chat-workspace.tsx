@@ -10,7 +10,6 @@ import {
   CircleAlert,
   FileText,
   GitCompareArrows,
-  Link2,
   Paperclip,
   Search,
   SlidersHorizontal,
@@ -1367,19 +1366,9 @@ function Composer({
                 }
               }}
             />
-            <button
-              type="button"
-              aria-label="Paste a link"
-              title="Paste a link"
-              onClick={() => textareaRef.current?.focus()}
-              disabled={working}
-              className="mb-0.5 flex size-10 shrink-0 items-center justify-center rounded-full text-[#5f6467] transition hover:bg-[#f0f1f2] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Link2 size={18} />
-            </button>
-          <textarea
-            ref={textareaRef}
-            value={draft}
+            <textarea
+              ref={textareaRef}
+              value={draft}
             rows={1}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
@@ -1388,7 +1377,7 @@ function Composer({
                 sendMessage();
               }
             }}
-            placeholder="Share a thought, or ask your memory..."
+            placeholder="Share a thought, ask memory..."
             className="max-h-40 min-h-10 flex-1 resize-none bg-transparent px-1.5 py-2.5 text-[14px] font-medium leading-6 outline-none placeholder:text-[#9a9da0] md:text-[13px]"
           />
             <button
