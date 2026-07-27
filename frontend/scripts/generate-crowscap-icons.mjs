@@ -7,11 +7,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, "..");
 const input =
   process.argv[2] ??
-  "C:/Users/USER/AppData/Local/Temp/codex-clipboard-d271114e-622f-4bc2-b12b-2c52001acd5e.png";
+  "C:/Users/USER/AppData/Local/Temp/codex-clipboard-ecef0be0-21b1-4566-8670-3fac954a27cd.png";
 const outputDir = path.join(frontendRoot, "public", "icons");
 
 async function saveIcon(size, fileName, padding) {
   await sharp(input)
+    .trim({ background: "#ffffff", threshold: 8 })
     .resize({
       width: size - padding * 2,
       height: size - padding * 2,
@@ -30,6 +31,7 @@ async function saveIcon(size, fileName, padding) {
     .toFile(path.join(outputDir, fileName));
 }
 
+await sharp(input).png().toFile(path.join(outputDir, "crowscap-logo-source.png"));
 await saveIcon(192, "crowscap-icon-192.png", 18);
 await saveIcon(512, "crowscap-icon-512.png", 44);
 await saveIcon(512, "crowscap-maskable-512.png", 72);
