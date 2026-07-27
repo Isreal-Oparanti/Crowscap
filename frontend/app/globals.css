@@ -72,6 +72,10 @@ button {
   grid-template-columns: 252px minmax(0, 1fr) 318px;
 }
 
+.app-grid-wide {
+  grid-template-columns: 252px minmax(0, 1fr);
+}
+
 .desktop-rail {
   position: sticky;
   top: 0;

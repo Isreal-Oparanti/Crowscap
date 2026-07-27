@@ -319,14 +319,17 @@ export function RecallWorkspace({
   return (
     <AppShell
       dueCount={data?.due_count ?? 0}
+      contentMode="wide"
       title="Recall"
       user={user}
       subtitle={
-        selected
+        mobileDetailOpen && selected
           ? "One useful nudge, not a queue"
-          : selectedReminder
+          : mobileDetailOpen && selectedReminder
             ? "A reminder is ready"
-            : "Nothing due"
+            : (data?.due_count ?? 0) > 0
+              ? "Ready items"
+              : "Nothing due"
       }
       context={
         <RecallContext
@@ -342,7 +345,7 @@ export function RecallWorkspace({
       }
     >
       <div className="conversation-scroll flex-1 overflow-y-auto px-4 pb-36 pt-8 md:px-8 md:pb-10 md:pt-12">
-        <div className="mx-auto max-w-[720px]">
+        <div className="mx-auto w-full max-w-[1040px]">
           {loading ? (
             <p className="text-[12px] font-semibold text-[#727679]">
               Gathering what is ready
@@ -367,12 +370,12 @@ export function RecallWorkspace({
             />
           ) : null}
 
-          <div className={mobileDetailOpen ? "block" : "hidden md:block"}>
+          <div className={mobileDetailOpen ? "block" : "hidden"}>
             {mobileDetailOpen ? (
               <button
                 type="button"
                 onClick={() => setMobileDetailOpen(false)}
-                className="mb-5 inline-flex items-center text-[11px] font-extrabold text-[#606568] md:hidden"
+                className="mb-5 inline-flex items-center text-[11px] font-extrabold text-[#606568]"
               >
                 Back to ready items
               </button>
@@ -693,7 +696,7 @@ function MobileRecallQueue({
   if (detailOpen) return null;
 
   return (
-    <section className="mb-8 md:hidden">
+    <section className="mb-8">
       <div className="rounded-xl border border-[#e1e4e5] bg-white shadow-[0_14px_44px_rgba(17,17,17,0.06)]">
         <div className="border-b border-[#edf0f1] px-4 py-4">
           <p className="text-[10px] font-extrabold uppercase text-[#7e8285]">

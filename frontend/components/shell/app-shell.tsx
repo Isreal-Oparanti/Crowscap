@@ -33,6 +33,7 @@ type AppShellProps = {
   children: ReactNode;
   context?: ReactNode;
   dueCount?: number;
+  contentMode?: "default" | "wide";
   title?: string;
   subtitle?: string;
   user: AppShellUser;
@@ -48,6 +49,7 @@ export function AppShell({
   children,
   context,
   dueCount = 0,
+  contentMode = "default",
   title = "Crowscap",
   subtitle = "Your thinking, still within reach",
   user,
@@ -63,8 +65,10 @@ export function AppShell({
     .join("")
     .toUpperCase();
 
+  const isWide = contentMode === "wide";
+
   return (
-    <div className="app-grid">
+    <div className={`app-grid ${isWide ? "app-grid-wide" : ""}`}>
       <aside className="desktop-rail flex flex-col bg-[#f5f6f7] px-4 py-5">
         <div className="flex items-center gap-3 px-2">
           <BrandMark />
@@ -173,9 +177,11 @@ export function AppShell({
         <MobileNavigation pathname={pathname} dueCount={dueCount} />
       </main>
 
-      <aside className="context-rail desktop-rail bg-[#f8f8f8]">
-        {context ?? <DefaultContext />}
-      </aside>
+      {!isWide ? (
+        <aside className="context-rail desktop-rail bg-[#f8f8f8]">
+          {context ?? <DefaultContext />}
+        </aside>
+      ) : null}
       <NotificationRuntime />
       <NetworkToastHost />
     </div>

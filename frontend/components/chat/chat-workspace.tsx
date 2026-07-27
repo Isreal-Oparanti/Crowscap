@@ -578,7 +578,7 @@ function ChatTurn({
   if (message.role === "user") {
     return (
       <div className="rise-in flex justify-end">
-        <div className="max-w-[88%] rounded-[18px_18px_4px_18px] bg-[#111111] px-4 py-3 text-[13px] font-medium leading-relaxed text-white md:max-w-[72%]">
+        <div className="max-w-[88%] whitespace-pre-wrap rounded-[18px_18px_5px_18px] bg-[#eef0f1] px-4 py-3 text-[13px] font-medium leading-relaxed text-[#17191a] shadow-[0_1px_0_rgba(17,17,17,0.04)] md:max-w-[72%]">
           {message.text}
         </div>
       </div>
@@ -594,7 +594,7 @@ function ChatTurn({
         <div className="min-w-0 flex-1">
           <MarkdownText
             text={message.text}
-            className="max-w-[620px] break-words text-[13px] font-semibold leading-6 text-[#252627]"
+            className="max-w-[650px] break-words text-[13px] font-medium leading-[1.75] text-[#252627]"
           />
 
           {message.kind === "capture" ? (
@@ -1317,6 +1317,13 @@ function Composer({
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 42), 160)}px`;
+  }, [draft, textareaRef]);
+
   return (
     <div className="absolute inset-x-0 bottom-[72px] z-30 max-w-full bg-gradient-to-t from-white via-white to-transparent px-3 pb-3 pt-8 md:bottom-0 md:px-7 md:pb-5">
       <div className="mx-auto max-w-[780px]">
@@ -1335,31 +1342,17 @@ function Composer({
             </button>
           </div>
         )}
-        <div className="rounded-lg border border-[#cfd2d4] bg-white p-2 shadow-[0_16px_50px_rgba(17,17,17,0.12)] focus-within:border-[#92979a]">
-          <textarea
-            ref={textareaRef}
-            value={draft}
-            rows={1}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                sendMessage();
-              }
-            }}
-            placeholder="Share a thought, or ask your memory..."
-            className="max-h-32 min-h-11 w-full resize-none bg-transparent px-2 py-2 text-[13px] font-medium leading-relaxed outline-none placeholder:text-[#979a9d]"
-          />
-          <div className="flex items-center gap-1">
+        <div className="rounded-[28px] border border-[#d4d7d9] bg-white px-2 py-2 shadow-[0_16px_50px_rgba(17,17,17,0.12)] focus-within:border-[#9da2a5]">
+          <div className="flex items-end gap-1">
             <button
               type="button"
               aria-label="Attach a PDF"
               title="Attach a PDF"
               onClick={() => fileInputRef.current?.click()}
               disabled={working}
-              className="flex size-8 items-center justify-center rounded-md text-[#6e7275] transition hover:bg-[#f0f1f2]"
+              className="mb-0.5 flex size-10 shrink-0 items-center justify-center rounded-full text-[#5f6467] transition hover:bg-[#f0f1f2] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <Paperclip size={17} />
+              <Paperclip size={19} />
             </button>
             <input
               ref={fileInputRef}
@@ -1376,20 +1369,37 @@ function Composer({
             />
             <button
               type="button"
-              aria-label="Add a link"
-              title="Add a link"
-              className="flex size-8 items-center justify-center rounded-md text-[#6e7275] transition hover:bg-[#f0f1f2]"
+              aria-label="Paste a link"
+              title="Paste a link"
+              onClick={() => textareaRef.current?.focus()}
+              disabled={working}
+              className="mb-0.5 flex size-10 shrink-0 items-center justify-center rounded-full text-[#5f6467] transition hover:bg-[#f0f1f2] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <Link2 size={16} />
+              <Link2 size={18} />
             </button>
+          <textarea
+            ref={textareaRef}
+            value={draft}
+            rows={1}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                sendMessage();
+              }
+            }}
+            placeholder="Share a thought, or ask your memory..."
+            className="max-h-40 min-h-10 flex-1 resize-none bg-transparent px-1.5 py-2.5 text-[14px] font-medium leading-6 outline-none placeholder:text-[#9a9da0] md:text-[13px]"
+          />
             <button
               type="button"
-              aria-label="Send"
+              aria-label="Send message"
+              title="Send message"
               onClick={sendMessage}
               disabled={(!draft.trim() && !attachedFile) || working}
-              className="ml-auto flex size-8 items-center justify-center rounded-md bg-[#111111] text-white transition hover:bg-black disabled:cursor-not-allowed disabled:bg-[#d3d5d6] [&_svg]:stroke-white"
+              className="mb-0.5 ml-0 flex size-10 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white transition hover:bg-black disabled:cursor-not-allowed disabled:bg-[#d3d5d6] [&_svg]:stroke-white"
             >
-              <ArrowUp size={16} strokeWidth={2.3} />
+              <ArrowUp size={18} strokeWidth={2.4} />
             </button>
           </div>
         </div>

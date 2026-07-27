@@ -118,6 +118,7 @@ export function SearchWorkspace({ user }: { user: AppShellUser }) {
   return (
     <AppShell
       dueCount={dueCount}
+      contentMode="wide"
       title="Search memory"
       subtitle="Find meaning, not just matching words"
       user={user}
@@ -130,8 +131,8 @@ export function SearchWorkspace({ user }: { user: AppShellUser }) {
       }
     >
       <div className="conversation-scroll flex-1 overflow-y-auto px-4 pb-28 pt-7 md:px-8 md:pb-10 md:pt-10">
-        <div className="mx-auto max-w-[780px]">
-          <div className="max-w-[620px]">
+        <div className="mx-auto w-full max-w-[1120px]">
+          <div className="max-w-[680px]">
             <p className="text-[10px] font-extrabold uppercase text-[#7e8285]">
               Your memory
             </p>
@@ -148,7 +149,7 @@ export function SearchWorkspace({ user }: { user: AppShellUser }) {
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Try “what did I learn about distribution?”"
+              placeholder='Try "what did I learn about distribution?"'
               className="h-14 w-full rounded-lg border border-[#cfd2d4] bg-white pl-12 pr-24 text-[13px] font-semibold outline-none transition focus:border-[#858a8d] focus:shadow-[0_10px_34px_rgba(17,17,17,0.06)]"
             />
             {query ? (

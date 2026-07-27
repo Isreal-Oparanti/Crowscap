@@ -36,7 +36,7 @@ export function MarkdownText({
     <div
       className={cn(
         "min-w-0 break-words [overflow-wrap:anywhere]",
-        useDefaultTypography && variant === "assistant" && "text-[14px] font-semibold leading-relaxed",
+        useDefaultTypography && variant === "assistant" && "text-[13px] font-medium leading-[1.75]",
         useDefaultTypography && variant === "compact" && "text-[12px] font-medium leading-5",
         useDefaultTypography && variant === "source" && "text-[12px] font-medium leading-6",
         className,
@@ -94,8 +94,16 @@ export function MarkdownText({
 export function normalizeDisplayText(text: string): string {
   return text
     .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]*[—–][ \t]*/g, " - ")
     .replace(/([.!?])(?=[A-Z][a-z]{2,})/g, "$1 ")
-    .replace(/([^\n])(?=(?:What is still missing|Ideas worth comparing|Useful next move|What I know|Why it matters)\s*:)/gi, "$1\n\n")
+    .replace(
+      /([^\n])(?=(?:What is still missing|Ideas worth comparing|Useful next move|What I know|Why it matters)\s*:)/gi,
+      "$1\n\n",
+    )
+    .replace(
+      /^(What is still missing|Ideas worth comparing|Useful next move|What I know|Why it matters)\s*:/gim,
+      "### $1",
+    )
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
