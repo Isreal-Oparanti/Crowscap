@@ -3,7 +3,6 @@
 import {
   ArrowRight,
   Bell,
-  BookOpenCheck,
   Check,
   FileText,
   LockKeyhole,
@@ -40,10 +39,30 @@ const capabilityCards = [
   },
 ];
 
+const menuSections = [
+  {
+    title: "Features",
+    items: [
+      "Save links, videos, PDFs, notes, and decisions",
+      "Ask your memory in natural language",
+      "Recall useful ideas before they go cold",
+    ],
+  },
+  {
+    title: "How it works",
+    items: [
+      "Capture what matters",
+      "Crowscap organizes it into source-aware memory",
+      "You search, revisit, compare, and act later",
+    ],
+  },
+];
+
 export function SignInScreen() {
   const [signingInProvider, setSigningInProvider] = useState<
     "google" | "demo" | null
   >(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   function handleGoogleSignIn() {
     setSigningInProvider("google");
@@ -74,9 +93,9 @@ export function SignInScreen() {
         <div className="absolute inset-x-0 top-0 h-px bg-[#d7d9da]" />
         <div className="absolute inset-y-0 left-1/2 hidden w-px bg-[#e4e5e5] lg:block" />
 
-        <header className="mx-auto flex w-full max-w-[1220px] items-center justify-between px-5 py-5 md:px-8">
+        <header className="relative z-20 mx-auto flex w-full max-w-[1220px] items-center justify-between px-5 py-5 md:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex size-11 items-center justify-center rounded-[12px] border border-[#dedfdf] bg-white shadow-[0_12px_34px_rgba(17,17,17,0.12)]">
+            <div className="flex size-11 items-center justify-center rounded-[12px] border border-[#dedfdf] bg-white">
               <BrandIcon className="size-8" />
             </div>
             <div>
@@ -88,19 +107,70 @@ export function SignInScreen() {
               </p>
             </div>
           </div>
-          <div className="hidden items-center gap-2 rounded-full border border-[#dedfdf] bg-white px-3 py-1.5 text-[11px] font-extrabold text-[#4d5154] shadow-sm sm:flex">
-            <LockKeyhole size={13} />
-            Private by default
+          <div className="flex items-center gap-2">
+            <div className="hidden items-center gap-2 rounded-full border border-[#dedfdf] bg-white px-3 py-1.5 text-[11px] font-extrabold text-[#4d5154] sm:flex">
+              <LockKeyhole size={13} />
+              Private by default
+            </div>
+            <button
+              type="button"
+              aria-label={menuOpen ? "Close menu" : "Open menu"}
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((value) => !value)}
+              className="group flex size-11 items-center justify-center rounded-full border border-[#d9dcde] bg-white transition hover:border-[#aeb3b5] hover:bg-[#fbfbfb]"
+            >
+              <span className="relative flex size-5 flex-col items-center justify-center">
+                <span
+                  className={`absolute h-[2px] w-5 rounded-full bg-[#111111] transition duration-200 ${
+                    menuOpen ? "translate-y-0 rotate-45" : "-translate-y-2"
+                  }`}
+                />
+                <span
+                  className={`absolute h-[2px] w-4 rounded-full bg-[#111111] transition duration-200 ${
+                    menuOpen ? "opacity-0" : "opacity-100"
+                  }`}
+                />
+                <span
+                  className={`absolute h-[2px] w-5 rounded-full bg-[#111111] transition duration-200 ${
+                    menuOpen ? "translate-y-0 -rotate-45" : "translate-y-2"
+                  }`}
+                />
+              </span>
+            </button>
           </div>
         </header>
 
+        {menuOpen ? (
+          <div className="absolute right-5 top-[74px] z-30 w-[min(calc(100vw-40px),390px)] rounded-[18px] border border-[#d9dcde] bg-white p-2 shadow-[0_24px_70px_rgba(17,17,17,0.14)] md:right-8">
+            <div className="grid gap-1">
+              {menuSections.map((section) => (
+                <div
+                  key={section.title}
+                  className="rounded-[14px] border border-[#eceeef] bg-[#fbfbfa] p-4"
+                >
+                  <p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#7d8184]">
+                    {section.title}
+                  </p>
+                  <ul className="mt-3 space-y-2">
+                    {section.items.map((item) => (
+                      <li
+                        key={item}
+                        className="flex items-start gap-2 text-[12px] font-semibold leading-5 text-[#303437]"
+                      >
+                        <span className="mt-2 size-1 rounded-full bg-[#111111]" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <div className="mx-auto grid w-full max-w-[1220px] flex-1 items-center gap-10 px-5 pb-28 pt-8 md:px-8 lg:grid-cols-[minmax(0,0.92fr)_minmax(430px,0.8fr)] lg:gap-16 lg:pb-24 lg:pt-2">
           <div className="max-w-[760px]">
-            <p className="inline-flex items-center gap-2 rounded-full border border-[#dedfdf] bg-white px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-[0.12em] text-[#3f4447] shadow-sm">
-              <BookOpenCheck size={13} />
-              Memory that acts with you
-            </p>
-            <h1 className="mt-6 text-[48px] font-[880] leading-[0.95] tracking-[-0.058em] md:text-[76px] lg:text-[92px]">
+            <h1 className="text-[48px] font-[880] leading-[0.95] tracking-[-0.058em] md:text-[76px] lg:text-[92px]">
               Save what you learn. Ask it later.
             </h1>
             <p className="mt-7 max-w-[680px] text-[17px] font-medium leading-8 text-[#464a4d] md:text-[19px]">
@@ -131,16 +201,12 @@ export function SignInScreen() {
                 type="button"
                 onClick={handleDemoSignIn}
                 disabled={signingInProvider !== null}
-                className="inline-flex h-12 items-center justify-center rounded-[10px] bg-[#111111] px-4 text-[13px] font-extrabold text-white shadow-[0_16px_44px_rgba(17,17,17,0.16)] transition hover:bg-black disabled:cursor-wait disabled:opacity-70"
+                className="inline-flex h-12 items-center justify-center rounded-[10px] border border-[#d5d8da] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:border-[#a8adb0] hover:bg-[#fbfbfb] disabled:cursor-wait disabled:opacity-70"
               >
                 {signingInProvider === "demo"
                   ? "Opening demo..."
                   : "Open demo workspace"}
               </button>
-              <p className="text-[11px] font-medium leading-5 text-[#73777a]">
-                Google identifies your workspace. Your memories stay separated
-                from every other user.
-              </p>
             </div>
 
             <div className="mt-10 grid gap-2 sm:grid-cols-3">
@@ -151,11 +217,10 @@ export function SignInScreen() {
           </div>
 
           <div className="relative">
-            <div className="absolute -inset-4 rounded-[28px] bg-white/50 blur-2xl" />
             <div className="relative overflow-hidden rounded-[22px] border border-[#d8dbdc] bg-white shadow-[0_32px_100px_rgba(17,17,17,0.13)]">
               <div className="flex items-center justify-between border-b border-[#e5e7e8] px-4 py-3">
                 <div className="flex items-center gap-3">
-                  <div className="flex size-9 items-center justify-center rounded-[10px] border border-[#e2e3e4] bg-white shadow-sm">
+                  <div className="flex size-9 items-center justify-center rounded-[10px] border border-[#e2e3e4] bg-white">
                     <BrandIcon className="size-7" />
                   </div>
                   <div>
@@ -170,7 +235,8 @@ export function SignInScreen() {
 
               <div className="space-y-4 px-4 py-5">
                 <div className="ml-auto max-w-[80%] rounded-[20px_20px_6px_20px] bg-[#eef0f1] px-4 py-3 text-[13px] font-semibold leading-6 text-[#1a1c1d]">
-                  This video will help with my YC application.
+                  This video will help my yc application
+                  https://youtu.be/B5tU2447OK8
                 </div>
 
                 <div className="max-w-[88%] rounded-[20px_20px_20px_6px] border border-[#e2e4e5] bg-white p-4">
@@ -224,6 +290,16 @@ export function SignInScreen() {
             </div>
           </div>
         </div>
+        <footer className="border-t border-[#e1e3e4] px-5 py-5 md:px-8">
+          <div className="mx-auto flex w-full max-w-[1220px] flex-col gap-3 text-[11px] font-semibold text-[#686d70] sm:flex-row sm:items-center sm:justify-between">
+            <p>Crowscap keeps learning private, searchable, and ready to use.</p>
+            <div className="flex items-center gap-4">
+              <span>Capture</span>
+              <span>Search</span>
+              <span>Recall</span>
+            </div>
+          </div>
+        </footer>
         <InstallBanner />
       </section>
     </main>

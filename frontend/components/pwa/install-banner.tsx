@@ -130,7 +130,7 @@ export function InstallBanner() {
     return (
       <div className="fixed bottom-4 left-4 right-4 z-[120] mx-auto max-w-xl md:bottom-6">
         <div className="flex items-center gap-3 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-[0_12px_34px_rgba(17,17,17,0.18)]">
-          <div className="flex size-[38px] shrink-0 items-center justify-center rounded-[10px] border border-[#e5e7e8] bg-white shadow-sm">
+          <div className="flex size-[38px] shrink-0 items-center justify-center rounded-[10px] border border-[#e5e7e8] bg-white">
             <BrandIcon className="size-[31px]" />
           </div>
           <div className="min-w-0 flex-1">
@@ -149,7 +149,7 @@ export function InstallBanner() {
   return (
     <div className="fixed bottom-4 left-4 right-4 z-[120] mx-auto max-w-xl md:bottom-6">
       <div className="flex items-center gap-3 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-[0_12px_34px_rgba(17,17,17,0.18)]">
-        <div className="flex size-[38px] shrink-0 items-center justify-center rounded-[10px] border border-[#e5e7e8] bg-white shadow-sm">
+        <div className="flex size-[38px] shrink-0 items-center justify-center rounded-[10px] border border-[#e5e7e8] bg-white">
           <BrandIcon className="size-[31px]" />
         </div>
         <div className="min-w-0 flex-1">

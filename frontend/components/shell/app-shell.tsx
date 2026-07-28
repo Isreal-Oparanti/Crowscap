@@ -190,7 +190,7 @@ export function AppShell({
 
 function BrandMark() {
   return (
-    <div className="flex size-10 items-center justify-center rounded-[11px] border border-[#e4e5e6] bg-white shadow-[0_8px_22px_rgba(17,17,17,0.12)]">
+    <div className="flex size-10 items-center justify-center rounded-[11px] border border-[#e4e5e6] bg-white">
       <BrandIcon className="size-[28px]" />
     </div>
   );

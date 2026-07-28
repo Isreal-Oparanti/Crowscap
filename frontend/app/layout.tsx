@@ -4,7 +4,7 @@ import type { Metadata, Viewport } from "next";
 
 export const metadata: Metadata = {
   title: "Crowscap",
-  description: "A second brain that remembers, questions, and resurfaces what you learn.",
+  description: "A second brain that remembers, questions, and recalls what you learn.",
   applicationName: "Crowscap",
   manifest: "/manifest.webmanifest",
   icons: {
