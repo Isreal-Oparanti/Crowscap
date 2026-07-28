@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import re
 import secrets
+import datetime
 from dataclasses import dataclass
 
 from fastapi import Depends, Header, HTTPException
+import jwt
+from jwt import InvalidTokenError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -30,6 +33,7 @@ class CurrentUser:
 
 def require_current_user(
     db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None, alias="Authorization"),
     proxy_secret: str | None = Header(default=None, alias="X-Crowscap-Proxy-Secret"),
     user_id: str | None = Header(default=None, alias="X-Crowscap-User-Id"),
     user_email: str | None = Header(default=None, alias="X-Crowscap-User-Email"),
@@ -44,6 +48,15 @@ def require_current_user(
     """
 
     settings = get_settings()
+
+    mobile_user = _current_user_from_mobile_token(
+        db=db,
+        authorization=authorization,
+        jwt_secret=settings.crowscap_jwt_secret,
+    )
+    if mobile_user is not None:
+        return mobile_user
+
     expected_secret = settings.crowscap_proxy_secret_value
 
     if expected_secret:
@@ -84,6 +97,104 @@ def require_current_user(
         provider=user_provider or "google",
     )
 
+    return CurrentUser(id=user_id, email=user_email, name=user_name, image_url=user_image)
+
+
+def normalize_google_user_id(value: str | None) -> str:
+    safe = (value or "user").replace(" ", "")
+    safe = re.sub(r"[^a-zA-Z0-9_.:-]", "", safe)[:34]
+    return f"g_{safe or 'user'}"
+
+
+def issue_mobile_session_token(
+    *,
+    user_id: str,
+    email: str,
+    name: str | None,
+    image_url: str | None,
+    provider: str,
+    days: int = 30,
+) -> tuple[str, datetime.datetime]:
+    settings = get_settings()
+    expires_at = utc_now() + datetime.timedelta(days=days)
+    payload = {
+        "aud": "crowscap-mobile",
+        "iss": "crowscap-api",
+        "sub": user_id,
+        "email": email,
+        "name": name,
+        "picture": image_url,
+        "provider": provider,
+        "exp": expires_at,
+        "iat": utc_now(),
+    }
+    token = jwt.encode(payload, settings.crowscap_jwt_secret, algorithm="HS256")
+    return token, expires_at
+
+
+def _current_user_from_mobile_token(
+    *,
+    db: Session,
+    authorization: str | None,
+    jwt_secret: str,
+) -> CurrentUser | None:
+    if not authorization:
+        return None
+
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        return None
+
+    settings = get_settings()
+    if (
+        settings.crowscap_mobile_demo_enabled
+        and secrets.compare_digest(token.strip(), settings.crowscap_mobile_demo_token)
+    ):
+        _upsert_user(
+            db=db,
+            user_id="demo_yc_user",
+            email="yc@crowscap.xyz",
+            name="YC Reviewer",
+            image_url=None,
+            provider="mobile_demo",
+        )
+        _seed_demo_user_data(db, "demo_yc_user")
+        return CurrentUser(
+            id="demo_yc_user",
+            email="yc@crowscap.xyz",
+            name="YC Reviewer",
+            image_url=None,
+        )
+
+    try:
+        payload = jwt.decode(
+            token.strip(),
+            jwt_secret,
+            algorithms=["HS256"],
+            audience="crowscap-mobile",
+        )
+    except InvalidTokenError:
+        logger.warning("🔒 auth.rejected reason=bad_mobile_token")
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+    user_id = str(payload.get("sub") or "").strip()
+    user_email = str(payload.get("email") or "").strip().lower()
+    user_name = str(payload.get("name") or "").strip() or None
+    user_image = str(payload.get("picture") or "").strip() or None
+    provider = str(payload.get("provider") or "mobile").strip() or "mobile"
+
+    if not _SAFE_USER_ID.fullmatch(user_id) or "@" not in user_email:
+        logger.warning("🔒 auth.rejected reason=invalid_mobile_identity")
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+    _upsert_user(
+        db=db,
+        user_id=user_id,
+        email=user_email,
+        name=user_name,
+        image_url=user_image,
+        provider=provider,
+    )
     return CurrentUser(id=user_id, email=user_email, name=user_name, image_url=user_image)
 
 

@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     actions,
+    auth,
     beliefs,
     captures,
     chat,
@@ -19,6 +20,7 @@ from app.api.v1 import (
 
 api_router = APIRouter()
 api_router.include_router(admin.router, prefix="/admin")
+api_router.include_router(auth.router, prefix="/auth")
 api_router.include_router(chat.router, prefix="/chat")
 api_router.include_router(actions.router, prefix="/actions")
 api_router.include_router(beliefs.router, prefix="/beliefs")

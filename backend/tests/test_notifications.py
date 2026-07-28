@@ -4,11 +4,13 @@ from collections.abc import Generator
 from datetime import timedelta
 
 from fastapi.testclient import TestClient
+from pytest import MonkeyPatch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.auth import CurrentUser, require_current_user
+from app.core.config import get_settings
 from app.db.base import Base
 from app.db.models import Reminder, utc_now
 from app.db.session import get_db
@@ -55,7 +57,12 @@ def build_notification_db_override(with_due_reminder: bool = False):
     return override_db
 
 
-def test_push_public_key_reports_unconfigured_without_vapid_keys() -> None:
+def test_push_public_key_reports_unconfigured_without_vapid_keys(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "crowscap_vapid_public_key", None)
+    monkeypatch.setattr(settings, "crowscap_vapid_private_key", None)
     app.dependency_overrides[require_current_user] = override_auth
     app.dependency_overrides[get_db] = build_notification_db_override()
 
@@ -69,7 +76,12 @@ def test_push_public_key_reports_unconfigured_without_vapid_keys() -> None:
         app.dependency_overrides.clear()
 
 
-def test_push_subscription_can_be_saved_even_before_vapid_is_configured() -> None:
+def test_push_subscription_can_be_saved_even_before_vapid_is_configured(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "crowscap_vapid_public_key", None)
+    monkeypatch.setattr(settings, "crowscap_vapid_private_key", None)
     app.dependency_overrides[require_current_user] = override_auth
     app.dependency_overrides[get_db] = build_notification_db_override()
 

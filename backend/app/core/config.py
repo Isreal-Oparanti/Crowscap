@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     crowscap_admin_username: str = "admin"
     crowscap_admin_password: str = "launchpad"
     crowscap_jwt_secret: str = "a_very_insecure_default_secret_for_dev_only_change_me_in_prod"
+    auth_google_id: str | None = None
+    google_client_id: str | None = None
+    google_mobile_ios_client_id: str | None = None
+    google_mobile_android_client_id: str | None = None
+    crowscap_mobile_demo_enabled: bool = True
+    crowscap_mobile_demo_token: str = "crowscap-demo-workspace"
 
     crowscap_vapid_public_key: str | None = None
     crowscap_vapid_private_key: SecretStr | None = Field(default=None)
