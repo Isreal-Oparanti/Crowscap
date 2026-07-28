@@ -21,40 +21,41 @@ const proofRows = [
   "Brings one useful thing back when it can help.",
 ];
 
-const capabilityCards = [
+const navLinks = [
+  { label: "Features", href: "#features" },
+  { label: "How it works", href: "#how-it-works" },
+];
+
+const featureCards = [
   {
     icon: <FileText size={15} />,
-    title: "Capture",
-    body: "Drop in links, notes, videos, PDFs, and ideas without building folders first.",
+    title: "Capture without breaking flow",
+    body: "Save the link, note, PDF, video, question, or decision while the thought is still fresh.",
   },
   {
     icon: <Search size={15} />,
-    title: "Ask",
-    body: "Search by meaning and compare what your sources say, even months later.",
+    title: "Ask what you already know",
+    body: "Search by meaning, compare sources, and recover the exact idea without digging through folders.",
   },
   {
     icon: <Bell size={15} />,
-    title: "Return",
-    body: "Get reminded of the right memory when it can change what you do next.",
+    title: "Come back at the right time",
+    body: "Recall does not flood you with a queue. It brings forward one useful thought when it can help.",
   },
 ];
 
-const menuSections = [
+const howItWorks = [
   {
-    title: "Features",
-    items: [
-      "Save links, videos, PDFs, notes, and decisions",
-      "Ask your memory in natural language",
-      "Recall useful ideas before they go cold",
-    ],
+    title: "Drop it in",
+    body: "Paste a source, upload a PDF, or write the thought in plain language. Crowscap keeps the intent around it.",
   },
   {
-    title: "How it works",
-    items: [
-      "Capture what matters",
-      "Crowscap organizes it into source-aware memory",
-      "You search, revisit, compare, and act later",
-    ],
+    title: "It becomes memory",
+    body: "Useful ideas are separated from noise, attached to their source, and stored as small pieces that are easy to retrieve.",
+  },
+  {
+    title: "Use it later",
+    body: "Ask a question, revisit a saved belief, or let recall bring back the next useful thing when timing matters.",
   },
 ];
 
@@ -141,30 +142,19 @@ export function SignInScreen() {
         </header>
 
         {menuOpen ? (
-          <div className="absolute right-5 top-[74px] z-30 w-[min(calc(100vw-40px),390px)] rounded-[18px] border border-[#d9dcde] bg-white p-2 shadow-[0_24px_70px_rgba(17,17,17,0.14)] md:right-8">
-            <div className="grid gap-1">
-              {menuSections.map((section) => (
-                <div
-                  key={section.title}
-                  className="rounded-[14px] border border-[#eceeef] bg-[#fbfbfa] p-4"
+          <div className="absolute right-5 top-[74px] z-30 w-[min(calc(100vw-40px),260px)] rounded-[16px] border border-[#d9dcde] bg-white p-2 shadow-[0_24px_70px_rgba(17,17,17,0.14)] md:right-8">
+            <nav aria-label="Landing page navigation" className="grid gap-1">
+              {navLinks.map((link) => (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  onClick={() => setMenuOpen(false)}
+                  className="rounded-[12px] px-3 py-3 text-[13px] font-extrabold text-[#202223] transition hover:bg-[#f3f4f4]"
                 >
-                  <p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#7d8184]">
-                    {section.title}
-                  </p>
-                  <ul className="mt-3 space-y-2">
-                    {section.items.map((item) => (
-                      <li
-                        key={item}
-                        className="flex items-start gap-2 text-[12px] font-semibold leading-5 text-[#303437]"
-                      >
-                        <span className="mt-2 size-1 rounded-full bg-[#111111]" />
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                  {link.label}
+                </a>
               ))}
-            </div>
+            </nav>
           </div>
         ) : null}
 
@@ -184,18 +174,14 @@ export function SignInScreen() {
                 type="button"
                 onClick={handleGoogleSignIn}
                 disabled={signingInProvider !== null}
-                className="group inline-flex h-12 items-center justify-between rounded-[10px] border border-[#d5d8da] bg-white px-4 text-[13px] font-extrabold text-[#111111] shadow-[0_16px_44px_rgba(17,17,17,0.10)] transition hover:border-[#a8adb0] hover:bg-[#fbfbfb] disabled:cursor-wait disabled:opacity-70"
+                className="relative inline-flex h-12 items-center justify-center rounded-[10px] border border-[#d5d8da] bg-white px-4 text-center text-[13px] font-extrabold text-[#111111] shadow-[0_16px_44px_rgba(17,17,17,0.10)] transition hover:border-[#a8adb0] hover:bg-[#fbfbfb] disabled:cursor-wait disabled:opacity-70"
               >
-                <span className="inline-flex items-center gap-3">
+                <span className="absolute left-4">
                   <GoogleMark />
-                  {signingInProvider === "google"
-                    ? "Opening Google..."
-                    : "Continue with Google"}
                 </span>
-                <ArrowRight
-                  size={16}
-                  className="transition group-hover:translate-x-0.5"
-                />
+                {signingInProvider === "google"
+                  ? "Opening Google..."
+                  : "Continue with Google"}
               </button>
               <button
                 type="button"
@@ -209,11 +195,13 @@ export function SignInScreen() {
               </button>
             </div>
 
-            <div className="mt-10 grid gap-2 sm:grid-cols-3">
-              {capabilityCards.map((card) => (
-                <CapabilityCard key={card.title} {...card} />
-              ))}
-            </div>
+            <a
+              href="#features"
+              className="mt-7 inline-flex items-center gap-2 text-[12px] font-extrabold text-[#3f4447] transition hover:text-[#111111]"
+            >
+              See what it remembers
+              <ArrowRight size={14} />
+            </a>
           </div>
 
           <div className="relative">
@@ -290,13 +278,101 @@ export function SignInScreen() {
             </div>
           </div>
         </div>
-        <footer className="border-t border-[#e1e3e4] px-5 py-5 md:px-8">
-          <div className="mx-auto flex w-full max-w-[1220px] flex-col gap-3 text-[11px] font-semibold text-[#686d70] sm:flex-row sm:items-center sm:justify-between">
-            <p>Crowscap keeps learning private, searchable, and ready to use.</p>
-            <div className="flex items-center gap-4">
-              <span>Capture</span>
-              <span>Search</span>
-              <span>Recall</span>
+        <section
+          id="features"
+          className="border-t border-[#e1e3e4] bg-white px-5 py-16 md:px-8 md:py-22"
+        >
+          <div className="mx-auto grid w-full max-w-[1220px] gap-10 lg:grid-cols-[0.78fr_1.22fr] lg:gap-16">
+            <div>
+              <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#7d8184]">
+                Features
+              </p>
+              <h2 className="mt-4 max-w-[520px] text-[34px] font-[840] leading-[1.02] tracking-[-0.045em] md:text-[52px]">
+                A memory layer for the things you cannot afford to lose.
+              </h2>
+              <p className="mt-5 max-w-[500px] text-[15px] font-medium leading-7 text-[#555a5d]">
+                Crowscap is built for scattered learning: the video you meant
+                to revisit, the note that changed your mind, the source you
+                need before a decision, and the reminder that should not become
+                clutter.
+              </p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              {featureCards.map((card) => (
+                <FeatureCard key={card.title} {...card} />
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="how-it-works"
+          className="border-t border-[#e1e3e4] bg-[#f5f5f3] px-5 py-16 md:px-8 md:py-22"
+        >
+          <div className="mx-auto w-full max-w-[1220px]">
+            <div className="max-w-[680px]">
+              <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#7d8184]">
+                How it works
+              </p>
+              <h2 className="mt-4 text-[34px] font-[840] leading-[1.02] tracking-[-0.045em] md:text-[52px]">
+                Save naturally. Retrieve precisely.
+              </h2>
+            </div>
+
+            <div className="mt-10 grid border-y border-[#dfe1e2] bg-white md:grid-cols-3">
+              {howItWorks.map((step, index) => (
+                <div
+                  key={step.title}
+                  className="border-b border-[#e5e7e8] p-6 md:border-b-0 md:border-r md:last:border-r-0"
+                >
+                  <p className="text-[11px] font-extrabold uppercase text-[#8a8e91]">
+                    0{index + 1}
+                  </p>
+                  <h3 className="mt-5 text-[21px] font-[800] tracking-[-0.025em]">
+                    {step.title}
+                  </h3>
+                  <p className="mt-3 text-[13px] font-medium leading-6 text-[#555a5d]">
+                    {step.body}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <footer className="border-t border-[#dfe1e2] bg-[#101112] px-5 py-8 text-white md:px-8">
+          <div className="mx-auto flex w-full max-w-[1220px] flex-col gap-8 md:flex-row md:items-end md:justify-between">
+            <div>
+              <div className="flex items-center gap-3">
+                <div className="flex size-10 items-center justify-center rounded-[11px] border border-white/15 bg-white">
+                  <BrandIcon className="size-7" />
+                </div>
+                <div>
+                  <p className="text-[15px] font-[850]">Crowscap</p>
+                  <p className="text-[11px] font-semibold text-white/55">
+                    Private memory for serious learning.
+                  </p>
+                </div>
+              </div>
+              <p className="mt-5 max-w-[460px] text-[13px] font-medium leading-6 text-white/62">
+                Your memory should not depend on the tab you forgot to reopen.
+                Keep the idea, its source, and the reason it mattered.
+              </p>
+            </div>
+            <div className="flex flex-col gap-4 text-[11px] font-bold text-white/62 md:items-end">
+              <nav className="flex items-center gap-4" aria-label="Footer navigation">
+                {navLinks.map((link) => (
+                  <a
+                    key={link.href}
+                    href={link.href}
+                    className="transition hover:text-white"
+                  >
+                    {link.label}
+                  </a>
+                ))}
+              </nav>
+              <p>Copyright 2026 Crowscap. All rights reserved.</p>
             </div>
           </div>
         </footer>
@@ -335,7 +411,7 @@ function GoogleMark() {
   );
 }
 
-function CapabilityCard({
+function FeatureCard({
   icon,
   title,
   body,
