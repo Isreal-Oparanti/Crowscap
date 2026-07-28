@@ -104,15 +104,15 @@ export function SignInScreen() {
                 Crowscap
               </p>
               <p className="text-[12px] font-semibold text-[#6f7376]">
-                Personal intelligence
+                Personal intelligent Memory
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="hidden items-center gap-2 rounded-full border border-[#dedfdf] bg-white px-3 py-1.5 text-[11px] font-extrabold text-[#4d5154] sm:flex">
-              <LockKeyhole size={13} />
-              Private by default
-            </div>
+            {/* <div className="hidden items-center gap-2 rounded-full border border-[#dedfdf] bg-white px-3 py-1.5 text-[11px] font-extrabold text-[#4d5154] sm:flex"> */}
+              {/* <LockKeyhole size={13} /> */}
+              {/* Private by default */}
+            {/* </div> */}
             <button
               type="button"
               aria-label={menuOpen ? "Close menu" : "Open menu"}
@@ -161,12 +161,12 @@ export function SignInScreen() {
         <div className="mx-auto grid w-full max-w-[1220px] flex-1 items-center gap-10 px-5 pb-28 pt-8 md:px-8 lg:grid-cols-[minmax(0,0.92fr)_minmax(430px,0.8fr)] lg:gap-16 lg:pb-24 lg:pt-2">
           <div className="max-w-[760px]">
             <h1 className="text-[48px] font-[880] leading-[0.95] tracking-[-0.058em] md:text-[76px] lg:text-[92px]">
-              Save what you learn. Ask it later.
+              Stop losing what you learn. Start actually using it.
             </h1>
             <p className="mt-7 max-w-[680px] text-[17px] font-medium leading-8 text-[#464a4d] md:text-[19px]">
-              Crowscap is a private memory layer for people who learn from
-              scattered sources and need those ideas to return at the right
-              moment.
+              Crowscap is your personal intelligent memory that saves what you read and watch, 
+              connects it to what you already know, 
+              and brings the right idea back the moment you actually need it.
             </p>
 
             <div className="mt-9 flex flex-col gap-3 sm:max-w-[430px]">
