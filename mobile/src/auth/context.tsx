@@ -1,7 +1,7 @@
 "use client";
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { getSession, clearSession, isSessionExpired } from "./session";
-import { setTokenProvider, getToken } from "@/api/client";
+import { getSession, clearSession, isSessionExpired, getToken } from "./session";
+import { setTokenProvider } from "@/api/client";
 import type { MobileSessionResponse } from "@/types/api";
 
 interface AuthContextValue {

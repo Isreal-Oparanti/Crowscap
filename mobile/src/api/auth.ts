@@ -10,3 +10,20 @@ export async function createMobileSession(payload: {
     body: JSON.stringify(payload),
   });
 }
+
+export async function createDemoSession(payload: {
+  platform: "ios" | "android";
+}): Promise<MobileSessionResponse> {
+  void payload;
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 30);
+
+  return {
+    token: "crowscap-demo-workspace",
+    user_id: "demo_yc_user",
+    email: "yc@crowscap.xyz",
+    name: "YC Reviewer",
+    image_url: null,
+    expires_at: expiresAt.toISOString(),
+  };
+}

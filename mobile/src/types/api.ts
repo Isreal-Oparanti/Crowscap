@@ -73,6 +73,8 @@ export interface ChatResponse {
   knowledge_gaps: string[];
   tensions: string[];
   next_step: string | null;
+  preference_updates: string[];
+  preferences: Record<string, unknown> | null;
 }
 
 // ─── Captures ─────────────────────────────────────────────────────────────────
