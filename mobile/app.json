@@ -12,7 +12,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "xyz.crowscap.app",
@@ -28,13 +30,25 @@
       "intentFilters": [
         {
           "action": "android.intent.action.SEND",
-          "data": [{ "mimeType": "text/plain" }],
-          "category": ["android.intent.category.DEFAULT"]
+          "data": [
+            {
+              "mimeType": "text/plain"
+            }
+          ],
+          "category": [
+            "android.intent.category.DEFAULT"
+          ]
         },
         {
           "action": "android.intent.action.SEND",
-          "data": [{ "mimeType": "text/*" }],
-          "category": ["android.intent.category.DEFAULT"]
+          "data": [
+            {
+              "mimeType": "text/*"
+            }
+          ],
+          "category": [
+            "android.intent.category.DEFAULT"
+          ]
         }
       ]
     },
@@ -62,8 +76,10 @@
     },
     "extra": {
       "eas": {
-        "projectId": "YOUR_EAS_PROJECT_ID"
-      }
-    }
+        "projectId": "e608ef6e-7ad3-47d8-b80e-eb4e592b7870"
+      },
+      "router": {}
+    },
+    "owner": "isreal"
   }
 }

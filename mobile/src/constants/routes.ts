@@ -4,7 +4,7 @@ export const ROUTES = {
   CHAT: "/(tabs)/" as const,
   RECALL: "/(tabs)/recall" as const,
   SEARCH: "/(tabs)/search" as const,
-  SETTINGS: "/(tabs)/settings" as const,
+  SETTINGS: "/settings" as const,
   CAPTURE: "/(modals)/capture" as const,
   CAPTURE_RESULT: "/(modals)/capture-result" as const,
   MEMORY_DETAIL: (id: string) => `/(modals)/memory/${id}` as const,

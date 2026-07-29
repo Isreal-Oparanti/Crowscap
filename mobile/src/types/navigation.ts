@@ -3,13 +3,12 @@
  * Keep in sync with the app/ directory structure.
  */
 
-export type RootRoute = "/sign-in" | "/(tabs)" | "/(modals)/capture" | "/(modals)/capture-result";
+export type RootRoute = "/sign-in" | "/(tabs)" | "/settings" | "/(modals)/capture" | "/(modals)/capture-result";
 
 export type TabRoute =
   | "/(tabs)/"
   | "/(tabs)/recall"
-  | "/(tabs)/search"
-  | "/(tabs)/settings";
+  | "/(tabs)/search";
 
 export type ModalRoute =
   | "/(modals)/capture"

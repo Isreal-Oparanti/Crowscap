@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     google_mobile_android_client_id: str | None = None
     crowscap_mobile_demo_enabled: bool = True
     crowscap_mobile_demo_token: str = "crowscap-demo-workspace"
+    resend_api_key: SecretStr | None = Field(default=None)
+    crowscap_email_from: str = "Crowscap <hello@crowscap.xyz>"
+    crowscap_email_code_ttl_minutes: int = 10
 
     crowscap_vapid_public_key: str | None = None
     crowscap_vapid_private_key: SecretStr | None = Field(default=None)
@@ -106,6 +109,13 @@ class Settings(BaseSettings):
         if self.crowscap_vapid_private_key is None:
             return None
         value = self.crowscap_vapid_private_key.get_secret_value().strip()
+        return value or None
+
+    @property
+    def resend_api_key_value(self) -> str | None:
+        if self.resend_api_key is None:
+            return None
+        value = self.resend_api_key.get_secret_value().strip()
         return value or None
 
     @property

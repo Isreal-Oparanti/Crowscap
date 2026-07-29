@@ -9,12 +9,14 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useSearch } from "@/hooks/useSearch";
 import { memoryTypeLabel, formatDate } from "@/utils/format";
 import { tokens } from "@/theme/tokens";
 
 export default function SearchScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const {
     query,
     setQuery,
@@ -72,6 +74,13 @@ export default function SearchScreen() {
           ) : (
             <Text style={styles.searchBtnText}>Search</Text>
           )}
+        </Pressable>
+        <Pressable
+          style={styles.settingsBtn}
+          onPress={() => router.push("/settings" as never)}
+          hitSlop={8}
+        >
+          <Feather name="settings" size={18} color={tokens.colors.text} />
         </Pressable>
       </View>
 
@@ -275,6 +284,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: "#ffffff",
+  },
+  settingsBtn: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   scroll: { flex: 1 },

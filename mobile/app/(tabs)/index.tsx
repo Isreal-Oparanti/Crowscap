@@ -18,6 +18,7 @@ import { sendChatMessage } from "@/api/chat";
 import { BrandMark } from "@/components/shell/BrandMark";
 import type { ChatAction, ChatResponse, CaptureResponse } from "@/types/api";
 import { tokens } from "@/theme/tokens";
+import { makeId } from "@/utils/id";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -74,7 +75,7 @@ export default function ChatScreen() {
     const text = input.trim();
     if (!text || working) return;
 
-    const userMsg: UserMessage = { id: crypto.randomUUID(), role: "user", text };
+    const userMsg: UserMessage = { id: makeId("msg"), role: "user", text };
     setMessages((prev) => [...prev, userMsg]);
     setDraft("");
     setWorking(true);
@@ -94,7 +95,7 @@ export default function ChatScreen() {
 
       if (action === "capture" && raw.capture) {
         assistantMsg = {
-          id: crypto.randomUUID(),
+          id: makeId("msg"),
           role: "assistant",
           kind: "capture",
           text: raw.message,
@@ -107,7 +108,7 @@ export default function ChatScreen() {
         (raw.preference_updates && raw.preference_updates.length > 0)
       ) {
         assistantMsg = {
-          id: crypto.randomUUID(),
+          id: makeId("msg"),
           role: "assistant",
           kind: "answer",
           text: raw.message,
@@ -115,7 +116,7 @@ export default function ChatScreen() {
         };
       } else {
         assistantMsg = {
-          id: crypto.randomUUID(),
+          id: makeId("msg"),
           role: "assistant",
           kind: "text",
           text: raw.message,
@@ -127,7 +128,7 @@ export default function ChatScreen() {
       setMessages((prev) => [
         ...prev,
         {
-          id: crypto.randomUUID(),
+          id: makeId("msg"),
           role: "assistant",
           kind: "error",
           text: err instanceof Error ? err.message : "I could not complete that thought.",
@@ -176,12 +177,11 @@ export default function ChatScreen() {
           </View>
         </View>
         <Pressable
-          style={styles.captureButton}
-          onPress={() => router.push("/(modals)/capture")}
+          style={styles.headerIconButton}
+          onPress={() => router.push("/settings" as never)}
           hitSlop={8}
         >
-          <Feather name="plus" size={16} color="#ffffff" />
-          <Text style={styles.captureButtonText}>Capture</Text>
+          <Feather name="settings" size={20} color={tokens.colors.text} />
         </Pressable>
       </View>
 
@@ -454,19 +454,12 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#787c80",
   },
-  captureButton: {
-    flexDirection: "row",
+  headerIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
-    gap: 6,
-    backgroundColor: tokens.colors.text,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  captureButtonText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#ffffff",
+    justifyContent: "center",
   },
 
   // Message list

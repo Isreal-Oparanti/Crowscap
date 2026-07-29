@@ -79,15 +79,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="settings"
         options={{
-          title: "Settings",
-          tabBarIcon: ({ color, focused }) => (
-            <Feather
-              name="sliders"
-              size={20}
-              color={color}
-              style={{ opacity: focused ? 1 : 0.75 }}
-            />
-          ),
+          href: null,
         }}
       />
     </Tabs>

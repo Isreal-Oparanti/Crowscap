@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -91,5 +92,41 @@ def test_mobile_demo_session_seeds_demo_workspace_once() -> None:
             assert users[0].id == "demo_yc_user"
         finally:
             db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_mobile_email_code_session_can_access_protected_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    app.dependency_overrides[get_db] = build_auth_db_override()
+    monkeypatch.setattr("random.SystemRandom.randint", lambda _self, _start, _end: 123456)
+
+    try:
+        client = TestClient(app)
+        start = client.post(
+            "/api/v1/auth/email/start",
+            json={"email": "founder@example.com", "mode": "signup"},
+        )
+
+        assert start.status_code == 200
+        assert start.json()["status"] == "code_sent"
+        assert start.json()["email"] == "founder@example.com"
+
+        verified = client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": "founder@example.com", "code": "123456", "mode": "signup"},
+        )
+
+        assert verified.status_code == 200
+        session = verified.json()
+        assert session["email"] == "founder@example.com"
+        assert session["user_id"].startswith("e_")
+        assert session["token"]
+
+        protected_response = client.get(
+            "/api/v1/notifications/push/public-key",
+            headers={"Authorization": f"Bearer {session['token']}"},
+        )
+
+        assert protected_response.status_code == 200
     finally:
         app.dependency_overrides.clear()

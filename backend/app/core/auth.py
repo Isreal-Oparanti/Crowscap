@@ -343,5 +343,5 @@ def _upsert_user(
     user.last_seen_at = utc_now()
     db.commit()
 
-    if is_new or "yc" in email.lower() or "demo" in email.lower():
+    if provider in {"demo", "mobile_demo"}:
         _seed_demo_user_data(db, user_id)

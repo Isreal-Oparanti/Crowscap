@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { sendChatMessage } from "@/api/chat";
 import type { ChatResponse } from "@/types/api";
+import { makeId } from "@/utils/id";
 
 export type LocalMessage =
   | { id: string; role: "user"; text: string }
@@ -25,7 +26,7 @@ export function useChat(userName?: string | null) {
     async (text: string) => {
       if (!text.trim() || working) return;
 
-      const userMsg: LocalMessage = { id: crypto.randomUUID(), role: "user", text };
+      const userMsg: LocalMessage = { id: makeId("msg"), role: "user", text };
       setMessages((prev) => [...prev, userMsg]);
       setWorking(true);
 
@@ -39,11 +40,11 @@ export function useChat(userName?: string | null) {
 
         let assistantMsg: LocalMessage;
         if (raw.action === "capture" && raw.capture) {
-          assistantMsg = { id: crypto.randomUUID(), role: "assistant", kind: "capture", text: raw.message, data: raw.capture };
+          assistantMsg = { id: makeId("msg"), role: "assistant", kind: "capture", text: raw.message, data: raw.capture };
         } else if (["answer", "forget", "self"].includes(raw.action) || (raw.preference_updates?.length ?? 0) > 0) {
-          assistantMsg = { id: crypto.randomUUID(), role: "assistant", kind: "answer", text: raw.message, data: raw };
+          assistantMsg = { id: makeId("msg"), role: "assistant", kind: "answer", text: raw.message, data: raw };
         } else {
-          assistantMsg = { id: crypto.randomUUID(), role: "assistant", kind: "text", text: raw.message };
+          assistantMsg = { id: makeId("msg"), role: "assistant", kind: "text", text: raw.message };
         }
 
         setMessages((prev) => [...prev, assistantMsg]);
@@ -51,7 +52,7 @@ export function useChat(userName?: string | null) {
         setMessages((prev) => [
           ...prev,
           {
-            id: crypto.randomUUID(),
+            id: makeId("msg"),
             role: "assistant",
             kind: "error",
             text: err instanceof Error ? err.message : "I could not complete that thought.",

@@ -44,8 +44,15 @@ export default function SettingsScreen() {
     <View style={styles.root}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <Text style={styles.headerTitle}>Settings</Text>
-        <Text style={styles.headerSub}>Workspace preferences & profile</Text>
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={8}>
+            <Feather name="arrow-left" size={20} color={tokens.colors.text} />
+          </Pressable>
+          <View>
+            <Text style={styles.headerTitle}>Settings</Text>
+            <Text style={styles.headerSub}>Account preferences & profile</Text>
+          </View>
+        </View>
       </View>
 
       <ScrollView
@@ -63,7 +70,7 @@ export default function SettingsScreen() {
           </View>
           <View style={styles.profileMeta}>
             <Text style={styles.displayName}>{displayName}</Text>
-            <Text style={styles.emailText}>{session?.email ?? "Private workspace"}</Text>
+            <Text style={styles.emailText}>{session?.email ?? "Private account"}</Text>
           </View>
         </View>
 
@@ -143,7 +150,7 @@ export default function SettingsScreen() {
           <Text style={styles.signOutText}>Sign Out</Text>
         </Pressable>
 
-        <Text style={styles.versionText}>Crowscap Mobile v1.0.0 (Expo SDK 52)</Text>
+        <Text style={styles.versionText}>Crowscap Mobile v1.0.0 (Expo SDK 54)</Text>
       </ScrollView>
     </View>
   );
@@ -160,6 +167,18 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#e7e8e9",
     backgroundColor: "#ffffff",
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  backButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
   },
   headerTitle: {
     fontSize: 18,

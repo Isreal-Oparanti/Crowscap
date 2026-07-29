@@ -50,6 +50,7 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
           <Stack.Screen name="sign-in" />
           <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="settings" />
           <Stack.Screen
             name="(modals)/capture"
             options={{

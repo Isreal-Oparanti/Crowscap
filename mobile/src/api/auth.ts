@@ -11,19 +11,28 @@ export async function createMobileSession(payload: {
   });
 }
 
-export async function createDemoSession(payload: {
-  platform: "ios" | "android";
-}): Promise<MobileSessionResponse> {
-  void payload;
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 30);
+export async function startEmailSession(payload: {
+  email: string;
+  mode: "signup" | "login";
+}): Promise<{
+  status: "code_sent";
+  email: string;
+  expires_in_seconds: number;
+  resend_after_seconds: number;
+}> {
+  return apiRequest("/auth/email/start", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
 
-  return {
-    token: "crowscap-demo-workspace",
-    user_id: "demo_yc_user",
-    email: "yc@crowscap.xyz",
-    name: "YC Reviewer",
-    image_url: null,
-    expires_at: expiresAt.toISOString(),
-  };
+export async function verifyEmailSession(payload: {
+  email: string;
+  code: string;
+  mode: "signup" | "login";
+}): Promise<MobileSessionResponse> {
+  return apiRequest<MobileSessionResponse>("/auth/email/verify", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }

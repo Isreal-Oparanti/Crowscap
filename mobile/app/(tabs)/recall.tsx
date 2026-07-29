@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useState } from "react";
 import { useRecalls } from "@/hooks/useRecalls";
 import { memoryTypeLabel, formatOverdue } from "@/utils/format";
@@ -18,6 +19,7 @@ import { tokens } from "@/theme/tokens";
 
 export default function RecallScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const {
     data,
     loading,
@@ -61,9 +63,14 @@ export default function RecallScreen() {
             <Text style={styles.headerSub}>Active review queue</Text>
           )}
         </View>
-        <Pressable onPress={refresh} style={styles.refreshBtn} hitSlop={8}>
-          <Feather name="refresh-cw" size={16} color="#777a7e" />
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable onPress={refresh} style={styles.refreshBtn} hitSlop={8}>
+            <Feather name="refresh-cw" size={16} color="#777a7e" />
+          </Pressable>
+          <Pressable onPress={() => router.push("/settings" as never)} style={styles.refreshBtn} hitSlop={8}>
+            <Feather name="settings" size={18} color={tokens.colors.text} />
+          </Pressable>
+        </View>
       </View>
 
       {loading ? (
@@ -344,6 +351,11 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#2d7058",
     letterSpacing: 0.3,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   refreshBtn: {
     padding: 6,

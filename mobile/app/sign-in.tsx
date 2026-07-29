@@ -1,14 +1,16 @@
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Feather } from "@expo/vector-icons";
 import * as AuthSession from "expo-auth-session";
 import * as Crypto from "expo-crypto";
@@ -17,7 +19,7 @@ import * as WebBrowser from "expo-web-browser";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { createDemoSession, createMobileSession } from "@/api/auth";
+import { createMobileSession, startEmailSession, verifyEmailSession } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { saveSession } from "@/auth/session";
 import { BrandMark } from "@/components/shell/BrandMark";
@@ -42,13 +44,20 @@ const googleDiscovery = {
   tokenEndpoint: "https://oauth2.googleapis.com/token",
 };
 
-type SignInProvider = "google" | "demo" | null;
+type AuthMode = "signup" | "login";
+type BusyState = "google" | "email-start" | "email-verify" | "resend" | null;
 
 export default function SignInScreen() {
   const { setSession } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [signingInProvider, setSigningInProvider] = useState<SignInProvider>(null);
+  const [mode, setMode] = useState<AuthMode>("signup");
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
+  const [busy, setBusy] = useState<BusyState>(null);
+  const [resendIn, setResendIn] = useState(0);
+  const [toast, setToast] = useState<string | null>(null);
   const nonce = useMemo(() => Crypto.randomUUID(), []);
 
   const redirectUri = AuthSession.makeRedirectUri({
@@ -67,6 +76,20 @@ export default function SignInScreen() {
     googleDiscovery
   );
 
+  useEffect(() => {
+    if (!resendIn) return;
+    const timer = setInterval(() => {
+      setResendIn((value) => Math.max(0, value - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendIn]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4200);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
   async function finishSignIn(session: Awaited<ReturnType<typeof createMobileSession>>) {
     await saveSession(session);
     setSession(session);
@@ -82,7 +105,7 @@ export default function SignInScreen() {
       return;
     }
 
-    setSigningInProvider("google");
+    setBusy("google");
     try {
       const result = await promptAsync();
       if (result?.type !== "success") return;
@@ -99,104 +122,225 @@ export default function SignInScreen() {
       });
       await finishSignIn(session);
     } catch (err) {
-      Alert.alert("Sign in failed", readableAuthError(err, "google"));
+      Alert.alert("Sign in failed", readableAuthError(err));
     } finally {
-      setSigningInProvider(null);
+      setBusy(null);
     }
   }
 
-  async function handleDemoSignIn() {
-    setSigningInProvider("demo");
+  async function requestEmailCode(kind: BusyState = "email-start") {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized || !normalized.includes("@")) {
+      Alert.alert("Email required", "Enter the email you want to use for Crowscap.");
+      return;
+    }
+
+    setBusy(kind);
     try {
-      const session = await createDemoSession({
-        platform: Platform.OS === "ios" ? "ios" : "android",
+      const result = await startEmailSession({ email: normalized, mode });
+      setEmail(result.email);
+      setCode("");
+      setCodeSent(true);
+      setResendIn(result.resend_after_seconds);
+      setToast(`We sent a code to ${result.email}.`);
+    } catch (err) {
+      Alert.alert("Code could not send", readableAuthError(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function verifyEmailCode() {
+    const cleanCode = code.replace(/\D/g, "");
+    if (cleanCode.length !== 6) {
+      Alert.alert("Enter the code", "Use the 6-digit code we sent to your inbox.");
+      return;
+    }
+
+    setBusy("email-verify");
+    try {
+      const session = await verifyEmailSession({
+        email: email.trim().toLowerCase(),
+        code: cleanCode,
+        mode,
       });
       await finishSignIn(session);
     } catch (err) {
-      Alert.alert("Demo could not open", readableAuthError(err, "demo"));
+      Alert.alert("Code did not work", readableAuthError(err));
     } finally {
-      setSigningInProvider(null);
+      setBusy(null);
     }
   }
 
-  const busy = signingInProvider !== null;
+  function switchMode(nextMode: AuthMode) {
+    setMode(nextMode);
+    setCode("");
+    setCodeSent(false);
+    setToast(null);
+  }
+
+  const isSignup = mode === "signup";
+  const headline = isSignup ? "Sign Up" : "Log in";
+  const busyNow = busy !== null;
 
   return (
-    <ScrollView
+    <KeyboardAvoidingView
       style={styles.root}
-      contentContainerStyle={[
-        styles.content,
-        { paddingTop: insets.top + 34, paddingBottom: insets.bottom + 28 },
-      ]}
-      showsVerticalScrollIndicator={false}
-      keyboardShouldPersistTaps="handled"
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={styles.topBar}>
-        <BrandMark size={54} imageSize={44} />
-        <View style={styles.privatePill}>
-          <Feather name="lock" size={13} color="#4f5356" />
-          <Text style={styles.privateText}>Private workspace</Text>
-        </View>
-      </View>
-
-      <View style={styles.brandBlock}>
-        <Text style={styles.productName}>Crowscap</Text>
-        <Text style={styles.productSub}>Personal intelligence</Text>
-      </View>
-
-      <View style={styles.panel}>
-        <Text style={styles.eyebrow}>Sign in</Text>
-        <Text style={styles.title}>Open your memory.</Text>
-        <Text style={styles.body}>
-          Keep your saved ideas, sources, reminders, and recalls tied to one private
-          workspace.
-        </Text>
-
-        <View style={styles.authGroup}>
-          <AuthButton
-            label={
-              signingInProvider === "google" ? "Opening Google..." : "Continue with Google"
-            }
-            icon={<GoogleMark />}
-            onPress={handleGoogleSignIn}
-            disabled={busy}
-            loading={signingInProvider === "google"}
-          />
-          <AuthButton
-            label={
-              signingInProvider === "demo" ? "Opening demo..." : "Open demo workspace"
-            }
-            icon={<Feather name="play-circle" size={19} color={tokens.colors.text} />}
-            onPress={handleDemoSignIn}
-            disabled={busy}
-            loading={signingInProvider === "demo"}
-          />
+      <ScrollView
+        style={styles.root}
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: insets.top + 46, paddingBottom: insets.bottom + 28 },
+        ]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.logoWrap}>
+          <BrandMark size={58} imageSize={44} />
         </View>
 
-        <Text style={styles.note}>
-          Google is only used to identify your workspace. Your memory stays separated
-          from every other user.
-        </Text>
-      </View>
+        <Text style={styles.heading}>{headline}</Text>
+        <Text style={styles.tagline}>Turn your knowledge into your edge</Text>
 
-      <View style={styles.footer}>
-        <View style={styles.footerLine} />
-        <Text style={styles.footerText}>Capture. Ask. Recall.</Text>
-      </View>
-    </ScrollView>
+        <Pressable
+          style={({ pressed }) => [styles.googleButton, pressed && !busyNow ? styles.pressed : null]}
+          onPress={handleGoogleSignIn}
+          disabled={busyNow}
+        >
+          <GoogleMark />
+          <Text style={styles.googleText}>
+            {busy === "google" ? "Opening Google..." : "Continue with Google"}
+          </Text>
+          {busy === "google" ? (
+            <ActivityIndicator size="small" color={tokens.colors.text} />
+          ) : (
+            <View style={styles.googleSpacer} />
+          )}
+        </Pressable>
+
+        <View style={styles.dividerRow}>
+          <View style={styles.divider} />
+          <Text style={styles.dividerText}>OR</Text>
+          <View style={styles.divider} />
+        </View>
+
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Email</Text>
+          <View style={styles.inputWrap}>
+            <TextInput
+              style={styles.input}
+              value={email}
+              onChangeText={(value) => {
+                setEmail(value);
+                if (codeSent) {
+                  setCode("");
+                  setCodeSent(false);
+                }
+              }}
+              placeholder="Enter your email address..."
+              placeholderTextColor="#a9abae"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!busyNow}
+              returnKeyType={codeSent ? "next" : "send"}
+              onSubmitEditing={() => {
+                if (!codeSent) void requestEmailCode();
+              }}
+            />
+            {email ? (
+              <Pressable
+                onPress={() => {
+                  setEmail("");
+                  setCode("");
+                  setCodeSent(false);
+                }}
+                hitSlop={8}
+              >
+                <Feather name="x" size={20} color="#696d70" />
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+
+        {codeSent ? (
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Verification code</Text>
+            <View style={styles.inputWrap}>
+              <TextInput
+                style={styles.input}
+                value={code}
+                onChangeText={(value) => setCode(value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="Enter code"
+                placeholderTextColor="#a9abae"
+                keyboardType="number-pad"
+                editable={!busyNow}
+                maxLength={6}
+                returnKeyType="done"
+                onSubmitEditing={verifyEmailCode}
+              />
+            </View>
+            <Text style={styles.helper}>We sent a code to your inbox</Text>
+          </View>
+        ) : null}
+
+        <Pressable
+          style={({ pressed }) => [styles.continueButton, pressed && !busyNow ? styles.pressed : null]}
+          onPress={() => (codeSent ? verifyEmailCode() : requestEmailCode())}
+          disabled={busyNow}
+        >
+          {busy === "email-start" || busy === "email-verify" ? (
+            <ActivityIndicator size="small" color="#ffffff" />
+          ) : (
+            <Text style={styles.continueText}>Continue</Text>
+          )}
+        </Pressable>
+
+        {codeSent ? (
+          <Pressable
+            disabled={resendIn > 0 || busyNow}
+            onPress={() => requestEmailCode("resend")}
+            style={styles.resendButton}
+          >
+            <Text style={styles.resendText}>
+              {resendIn > 0 ? `Resend in ${resendIn}s` : "Resend code"}
+            </Text>
+          </Pressable>
+        ) : null}
+
+        <View style={styles.modeRow}>
+          <Text style={styles.modeText}>
+            {isSignup ? "Already have an account?" : "Don't have an account?"}
+          </Text>
+          <Pressable onPress={() => switchMode(isSignup ? "login" : "signup")}>
+            <Text style={styles.modeLink}>{isSignup ? "Log in" : "Sign up"}</Text>
+          </Pressable>
+        </View>
+
+        <Text style={styles.terms}>
+          By continuing, you acknowledge that you understand and agree to the Terms & Conditions and Privacy Policy.
+        </Text>
+      </ScrollView>
+
+      {toast ? (
+        <View style={[styles.toast, { bottom: insets.bottom + 18 }]}>
+          <View style={styles.toastIcon}>
+            <Feather name="check" size={20} color="#2d7058" />
+          </View>
+          <Text style={styles.toastText}>{toast}</Text>
+          <Pressable onPress={() => setToast(null)} hitSlop={8}>
+            <Feather name="x" size={20} color="#4b4f52" />
+          </Pressable>
+        </View>
+      ) : null}
+    </KeyboardAvoidingView>
   );
 }
 
-function readableAuthError(error: unknown, provider: "google" | "demo") {
+function readableAuthError(error: unknown) {
   if (error instanceof ApiError) {
-    if (error.status === 404) {
-      return provider === "demo"
-        ? "The mobile demo endpoint is not live on this backend yet. Deploy the latest backend, then try again."
-        : "The mobile auth endpoint is not live on this backend yet. Deploy the latest backend, then try again.";
-    }
-    if (error.status === 401 || error.status === 403) {
-      return "The backend rejected this sign in. Check the mobile OAuth client ID and backend auth environment.";
-    }
     return error.message;
   }
 
@@ -205,42 +349,6 @@ function readableAuthError(error: unknown, provider: "google" | "demo") {
   }
 
   return error instanceof Error ? error.message : "Something went wrong. Try again.";
-}
-
-function AuthButton({
-  label,
-  icon,
-  onPress,
-  disabled,
-  loading,
-}: {
-  label: string;
-  icon: ReactNode;
-  onPress: () => void;
-  disabled: boolean;
-  loading: boolean;
-}) {
-  return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.authButton,
-        pressed && !disabled ? styles.authButtonPressed : null,
-        disabled ? styles.authButtonDisabled : null,
-      ]}
-      onPress={onPress}
-      disabled={disabled}
-    >
-      <View style={styles.authButtonIcon}>{icon}</View>
-      <Text style={styles.authButtonText}>{label}</Text>
-      <View style={styles.authButtonRight}>
-        {loading ? (
-          <ActivityIndicator size="small" color={tokens.colors.text} />
-        ) : (
-          <Feather name="arrow-right" size={19} color={tokens.colors.text} />
-        )}
-      </View>
-    </Pressable>
-  );
 }
 
 function GoogleMark() {
@@ -254,166 +362,208 @@ function GoogleMark() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#f5f5f3",
+    backgroundColor: "#ffffff",
   },
   content: {
     minHeight: "100%",
-    paddingHorizontal: 26,
+    paddingHorizontal: 28,
   },
-  topBar: {
+  logoWrap: {
+    alignItems: "center",
+    marginBottom: 30,
+  },
+  heading: {
+    textAlign: "center",
+    fontSize: 35,
+    lineHeight: 40,
+    fontWeight: "900",
+    color: tokens.colors.text,
+    letterSpacing: -0.7,
+  },
+  tagline: {
+    marginTop: 24,
+    textAlign: "center",
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "500",
+    color: "#777b7e",
+  },
+  googleButton: {
+    marginTop: 76,
+    minHeight: 58,
+    borderWidth: 1,
+    borderColor: "#dfe1e2",
+    borderRadius: 999,
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 18,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 14,
-  },
-  privatePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    borderWidth: 1,
-    borderColor: "#d9dcde",
-    backgroundColor: "#ffffff",
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  privateText: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#4f5356",
-    textTransform: "uppercase",
-  },
-  brandBlock: {
-    marginTop: 22,
-  },
-  productName: {
-    fontSize: 31,
-    lineHeight: 35,
-    fontWeight: "900",
-    color: tokens.colors.text,
-    letterSpacing: -0.8,
-  },
-  productSub: {
-    marginTop: 3,
-    fontSize: 15,
-    lineHeight: 21,
-    fontWeight: "600",
-    color: "#73777a",
-  },
-  panel: {
-    marginTop: 42,
-    borderWidth: 1,
-    borderColor: "#dfe1e2",
-    backgroundColor: "#ffffff",
-    borderRadius: 24,
-    paddingHorizontal: 20,
-    paddingVertical: 22,
     shadowColor: "#111111",
-    shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.08,
-    shadowRadius: 34,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.05,
+    shadowRadius: 18,
+    elevation: 2,
   },
-  eyebrow: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "900",
-    color: "#6f7376",
-    textTransform: "uppercase",
-    letterSpacing: 1.3,
-  },
-  title: {
-    marginTop: 18,
-    fontSize: 40,
-    lineHeight: 42,
-    fontWeight: "900",
-    color: tokens.colors.text,
-    letterSpacing: -1.2,
-  },
-  body: {
-    marginTop: 14,
-    fontSize: 15,
-    lineHeight: 25,
-    fontWeight: "500",
-    color: "#4b5053",
-  },
-  authGroup: {
-    gap: 12,
-    marginTop: 26,
-  },
-  authButton: {
-    minHeight: 56,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#d4d7d9",
-    backgroundColor: "#ffffff",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-  },
-  authButtonPressed: {
-    backgroundColor: "#f6f7f7",
-    borderColor: "#a9aeb1",
-  },
-  authButtonDisabled: {
-    opacity: 0.68,
-  },
-  authButtonIcon: {
-    width: 30,
-    alignItems: "flex-start",
-  },
-  authButtonText: {
+  googleText: {
     flex: 1,
     textAlign: "center",
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 16,
     fontWeight: "800",
     color: tokens.colors.text,
   },
-  authButtonRight: {
-    width: 30,
-    alignItems: "flex-end",
+  googleSpacer: {
+    width: 28,
   },
   googleMark: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#e2e4e5",
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#ffffff",
+  },
+  googleG: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: "#4285f4",
+  },
+  pressed: {
+    opacity: 0.75,
+    transform: [{ scale: 0.995 }],
+  },
+  dividerRow: {
+    marginTop: 54,
+    marginBottom: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 18,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "#e5e6e7",
+  },
+  dividerText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#777b7e",
+  },
+  fieldGroup: {
+    gap: 12,
+    marginBottom: 24,
+  },
+  label: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#676b6f",
+  },
+  inputWrap: {
+    minHeight: 66,
+    borderWidth: 1,
+    borderColor: "#cfd2d4",
+    borderRadius: 14,
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 20,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  input: {
+    flex: 1,
+    fontSize: 19,
+    lineHeight: 24,
+    fontWeight: "600",
+    color: tokens.colors.text,
+    paddingVertical: Platform.OS === "ios" ? 18 : 12,
+  },
+  helper: {
+    marginTop: -6,
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#777b7e",
+  },
+  continueButton: {
+    minHeight: 60,
+    borderRadius: 999,
+    backgroundColor: tokens.colors.text,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 4,
+  },
+  continueText: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: "#ffffff",
+  },
+  resendButton: {
+    alignItems: "center",
+    paddingVertical: 28,
+  },
+  resendText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#6e7275",
+  },
+  modeRow: {
+    marginTop: 30,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 14,
+  },
+  modeText: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "700",
+    color: "#6e7275",
+  },
+  modeLink: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "900",
+    color: tokens.colors.text,
+  },
+  terms: {
+    marginTop: 90,
+    textAlign: "center",
+    fontSize: 13,
+    lineHeight: 24,
+    fontWeight: "500",
+    color: "#a0a3a6",
+  },
+  toast: {
+    position: "absolute",
+    left: 24,
+    right: 24,
+    minHeight: 72,
+    borderRadius: 22,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#eceeef",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 20,
+    shadowColor: "#111111",
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.15,
+    shadowRadius: 30,
+    elevation: 8,
+  },
+  toastIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 2,
+    borderColor: "#85caa8",
     alignItems: "center",
     justifyContent: "center",
   },
-  googleG: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#4285F4",
-  },
-  note: {
-    marginTop: 18,
-    fontSize: 12,
-    lineHeight: 19,
-    fontWeight: "500",
-    color: "#7a7e81",
-  },
-  footer: {
-    marginTop: "auto",
-    paddingTop: 42,
-    alignItems: "center",
-  },
-  footerLine: {
-    width: 36,
-    height: 2,
-    borderRadius: 999,
-    backgroundColor: "#cfd2d4",
-    marginBottom: 14,
-  },
-  footerText: {
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: "800",
-    color: "#73777a",
-    textTransform: "uppercase",
-    letterSpacing: 1,
+  toastText: {
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: "600",
+    color: "#4b4f52",
   },
 });
