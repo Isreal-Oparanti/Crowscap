@@ -13,7 +13,6 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { Feather } from "@expo/vector-icons";
 import * as AuthSession from "expo-auth-session";
-import * as Crypto from "expo-crypto";
 import Constants from "expo-constants";
 import * as WebBrowser from "expo-web-browser";
 import { useRouter } from "expo-router";
@@ -25,6 +24,7 @@ import { saveSession } from "@/auth/session";
 import { BrandMark } from "@/components/shell/BrandMark";
 import { useAuth } from "@/hooks/useAuth";
 import { tokens } from "@/theme/tokens";
+import { makeId } from "@/utils/id";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -58,7 +58,7 @@ export default function SignInScreen() {
   const [busy, setBusy] = useState<BusyState>(null);
   const [resendIn, setResendIn] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
-  const nonce = useMemo(() => Crypto.randomUUID(), []);
+  const nonce = useMemo(() => makeId("google_nonce"), []);
 
   const redirectUri = AuthSession.makeRedirectUri({
     scheme: "crowscap",

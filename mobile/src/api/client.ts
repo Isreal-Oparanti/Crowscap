@@ -43,7 +43,7 @@ export async function apiRequest<T>(
       const body = await response.json();
       detail = body?.detail ?? detail;
     } catch {
-      // non-JSON error body — keep status string
+      // Non-JSON error body: keep status string.
     }
     throw new ApiError(response.status, detail);
   }
