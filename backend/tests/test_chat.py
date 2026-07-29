@@ -844,6 +844,58 @@ def test_youtube_reference_keeps_metadata_title_when_transcript_is_unusable(monk
         app.dependency_overrides.clear()
 
 
+def test_followup_context_attaches_to_recent_reference_link(monkeypatch) -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter("capture")
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+
+    stub_url_enrichment_job(monkeypatch)
+
+    try:
+        client = TestClient(app)
+        save_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "https://youtube.com/shorts/ythRYUxLEks?si=test",
+                "history": [],
+            },
+        )
+        assert save_response.status_code == 200
+        conversation_id = save_response.json()["conversation_id"]
+
+        context_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": (
+                    "The above video is actually about obeying laws and using obedience "
+                    "as a path to success."
+                ),
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+        assert context_response.status_code == 200
+        payload = context_response.json()
+        assert payload["action"] == "conversation"
+        assert payload["saved"] is True
+        assert "added that context" in payload["message"].lower()
+
+        db = testing_session()
+        source = db.scalar(select(Source))
+        assert source is not None
+        assert "obeying laws" in source.raw_text
+        assert source.metadata_json["latest_user_context"].startswith("The above video")
+
+        memory = db.scalar(select(Memory).where(Memory.memory_type == "reference"))
+        assert memory is not None
+        assert "obeying laws" in memory.content
+        assert "obeying laws" in (memory.summary or "")
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_local_definition_after_capture_does_not_pull_saved_source_context(monkeypatch) -> None:
     override_db, testing_session = build_chat_db_override()
     app.dependency_overrides[get_db] = override_db

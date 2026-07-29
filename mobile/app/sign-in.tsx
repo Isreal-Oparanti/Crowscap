@@ -10,10 +10,10 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Feather } from "@expo/vector-icons";
-import * as AuthSession from "expo-auth-session";
-import Constants from "expo-constants";
+import * as Google from "expo-auth-session/providers/google";
+import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as WebBrowser from "expo-web-browser";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -36,13 +36,13 @@ const ANDROID_CLIENT_ID =
   Constants.expoConfig?.extra?.googleClientIdAndroid ??
   process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID ??
   "";
+const WEB_CLIENT_ID =
+  Constants.expoConfig?.extra?.googleClientIdWeb ??
+  process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB ??
+  "";
 
-const CLIENT_ID = Platform.OS === "ios" ? IOS_CLIENT_ID : ANDROID_CLIENT_ID;
-
-const googleDiscovery = {
-  authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
-  tokenEndpoint: "https://oauth2.googleapis.com/token",
-};
+const PLATFORM_CLIENT_ID = Platform.OS === "ios" ? IOS_CLIENT_ID : ANDROID_CLIENT_ID;
+const IS_EXPO_GO = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 
 type AuthMode = "signup" | "login";
 type BusyState = "google" | "email-start" | "email-verify" | "resend" | null;
@@ -58,22 +58,16 @@ export default function SignInScreen() {
   const [busy, setBusy] = useState<BusyState>(null);
   const [resendIn, setResendIn] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
-  const nonce = useMemo(() => makeId("google_nonce"), []);
+  const [handledGoogleKey, setHandledGoogleKey] = useState<string | null>(null);
 
-  const redirectUri = AuthSession.makeRedirectUri({
-    scheme: "crowscap",
-    path: "auth",
-  });
-
-  const [, , promptAsync] = AuthSession.useAuthRequest(
+  const [, googleResponse, promptAsync] = Google.useIdTokenAuthRequest(
     {
-      clientId: CLIENT_ID,
-      redirectUri,
+      webClientId: WEB_CLIENT_ID || PLATFORM_CLIENT_ID,
+      iosClientId: IOS_CLIENT_ID || WEB_CLIENT_ID,
+      androidClientId: ANDROID_CLIENT_ID || WEB_CLIENT_ID,
       scopes: ["openid", "email", "profile"],
-      responseType: AuthSession.ResponseType.IdToken,
-      extraParams: { nonce },
-    },
-    googleDiscovery
+      selectAccount: true,
+    }
   );
 
   useEffect(() => {
@@ -90,17 +84,64 @@ export default function SignInScreen() {
     return () => clearTimeout(timer);
   }, [toast]);
 
-  async function finishSignIn(session: Awaited<ReturnType<typeof createMobileSession>>) {
+  const finishSignIn = useCallback(async (session: Awaited<ReturnType<typeof createMobileSession>>) => {
     await saveSession(session);
     setSession(session);
     router.replace("/(tabs)" as never);
-  }
+  }, [router, setSession]);
+
+  useEffect(() => {
+    if (!googleResponse || googleResponse.type === "cancel" || googleResponse.type === "dismiss") {
+      if (busy === "google") setBusy(null);
+      return;
+    }
+
+    if (googleResponse.type === "error") {
+      setBusy(null);
+      Alert.alert("Google sign in failed", "Google rejected this sign-in request. Check the mobile OAuth client IDs and try again.");
+      return;
+    }
+
+    if (googleResponse.type !== "success") return;
+
+    const idToken = googleResponse.params.id_token;
+    const responseKey = idToken || googleResponse.params.code || makeId("google_response");
+    if (handledGoogleKey === responseKey) return;
+
+    if (!idToken) {
+      if (googleResponse.params.code) return;
+      setHandledGoogleKey(responseKey);
+      setBusy(null);
+      Alert.alert("Sign in failed", "Google did not return a valid identity token.");
+      return;
+    }
+
+    setHandledGoogleKey(responseKey);
+    setBusy("google");
+    createMobileSession({
+      id_token: idToken,
+      platform: Platform.OS === "ios" ? "ios" : "android",
+    })
+      .then(finishSignIn)
+      .catch((err) => {
+        Alert.alert("Sign in failed", readableAuthError(err));
+      })
+      .finally(() => setBusy(null));
+  }, [busy, finishSignIn, googleResponse, handledGoogleKey]);
 
   async function handleGoogleSignIn() {
-    if (!CLIENT_ID) {
+    if (IS_EXPO_GO) {
+      Alert.alert(
+        "Use a development build for Google",
+        "Expo Go cannot complete this Google sign-in flow securely. Use the email code while testing in Expo Go, or run a Crowscap development build for Google sign in."
+      );
+      return;
+    }
+
+    if (!WEB_CLIENT_ID || !PLATFORM_CLIENT_ID) {
       Alert.alert(
         "Google sign in is not configured",
-        "Add the mobile Google OAuth client ID to the app environment, then try again."
+        "Add the Web and mobile Google OAuth client IDs to the app environment, then restart Expo."
       );
       return;
     }
@@ -108,22 +149,11 @@ export default function SignInScreen() {
     setBusy("google");
     try {
       const result = await promptAsync();
-      if (result?.type !== "success") return;
-
-      const idToken = result.params.id_token;
-      if (!idToken) {
-        Alert.alert("Sign in failed", "Google did not return a valid identity token.");
-        return;
+      if (result?.type !== "success") {
+        setBusy(null);
       }
-
-      const session = await createMobileSession({
-        id_token: idToken,
-        platform: Platform.OS === "ios" ? "ios" : "android",
-      });
-      await finishSignIn(session);
     } catch (err) {
       Alert.alert("Sign in failed", readableAuthError(err));
-    } finally {
       setBusy(null);
     }
   }

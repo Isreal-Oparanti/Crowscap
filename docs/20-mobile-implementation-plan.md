@@ -26,7 +26,7 @@ The typography and color tokens are shared with the web product in spirit but im
 
 | Layer | Choice | Reason |
 |---|---|---|
-| Framework | Expo SDK 52 (bare workflow) | Native push, share-sheet, file picker, background tasks |
+| Framework | Expo SDK 54 | Native push, share-sheet, file picker, background tasks |
 | Language | TypeScript (strict) | Matches the frontend codebase |
 | Navigation | Expo Router v4 (file-based) | Consistent with Next.js mental model. Tab + stack routing |
 | Auth | Expo Auth Session + Google OAuth | Native Google sign-in flow using `expo-auth-session` |
@@ -38,7 +38,7 @@ The typography and color tokens are shared with the web product in spirit but im
 | Styling | React Native StyleSheet + design tokens | No external styling library |
 | Storage | Expo Secure Store + AsyncStorage | Tokens in Secure Store, non-sensitive cache in AsyncStorage |
 | Icons | `@expo/vector-icons` (Lucide subset) | Matches Lucide icons used on web |
-| Environment | `expo-constants` + `.env` via Expo config | `EXPO_PUBLIC_BACKEND_URL`, `EXPO_PUBLIC_GOOGLE_CLIENT_ID` |
+| Environment | `expo-constants` + Expo public env vars | `EXPO_PUBLIC_BACKEND_URL`, `EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB`, `EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS`, `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` |
 
 ---
 
@@ -47,7 +47,7 @@ The typography and color tokens are shared with the web product in spirit but im
 The mobile app does **not** use NextAuth or the Next.js proxy. Instead:
 
 ```
-Native Google OAuth (expo-auth-session)
+Native Google OAuth (expo-auth-session/providers/google)
   → Google ID token returned to app
   → POST /api/v1/auth/mobile-session  (NEW lightweight backend endpoint)
   → Backend validates Google ID token with Google's tokeninfo endpoint
@@ -57,7 +57,7 @@ Native Google OAuth (expo-auth-session)
   → Backend reads user identity from the JWT, not from proxy headers
 ```
 
-This is separate from the web proxy header trust model. The backend must add a `/api/v1/auth/mobile-session` endpoint.
+This is separate from the web proxy header trust model. The backend already exposes `/api/v1/auth/mobile-session` for mobile sessions.
 
 ---
 
@@ -334,8 +334,9 @@ All subsequent mobile API calls carry `Authorization: Bearer <token>`. The FastA
 
 ## Open Questions
 
-1. **Google OAuth client ID for mobile** — A separate Google OAuth client (type iOS and Android) is required in Google Cloud. The web client ID cannot be reused.
-2. **Backend JWT secret** — New env variable `CROWSCAP_MOBILE_JWT_SECRET` needed on the backend for signing and verifying mobile session tokens.
-3. **EAS account** — An Expo Application Services account is needed for cloud builds.
-4. **Apple Developer account** — Required for TestFlight and App Store submission.
-5. **Share intent Android intent filter** — The `expo-share-intent` plugin needs a custom intent filter in `app.json` using the `crowscap://` scheme.
+Current setup notes:
+
+1. **Google OAuth client IDs** - Google sign-in needs a Web client ID plus platform client IDs. Use `EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB`, `EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS`, and `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` in the mobile app. The backend must also allow those audiences through `AUTH_GOOGLE_ID` or `GOOGLE_CLIENT_ID`, `GOOGLE_MOBILE_IOS_CLIENT_ID`, and `GOOGLE_MOBILE_ANDROID_CLIENT_ID`.
+2. **Expo Go limitation** - Expo Go cannot reliably complete the secure Google flow. Use email code sign-in while testing in Expo Go, and use a Crowscap development build for Google sign-in and native notification testing.
+3. **Email code delivery** - Backend email sign-in requires `RESEND_API_KEY` and a verified `CROWSCAP_EMAIL_FROM` sender. Without those values, production cannot send login codes.
+4. **Backend JWT secret** - `CROWSCAP_MOBILE_JWT_SECRET` is needed on the backend for signing and verifying mobile session tokens.

@@ -354,6 +354,25 @@ def process_chat_message(
         user_id=user_id,
     )
 
+    context_update = _process_recent_reference_context_update(
+        db=db,
+        conversation=conversation,
+        message=payload.message,
+        route=route,
+        embedder=embedder,
+        user_id=user_id,
+    )
+    if context_update is not None:
+        response = _with_preference_learning(context_update, preference_learning)
+        logger.info("\u2705 chat.message.complete action=reference_context_update saved=True")
+        return _persist_assistant_response(
+            db=db,
+            conversation=conversation,
+            user_message=user_message,
+            response=response,
+            user_id=user_id,
+        )
+
     if route.action == "acknowledge":
         reply = route.reply or _preference_acknowledgement(preference_learning) or (
             "You are welcome. I am here when you want to keep going."
@@ -2280,6 +2299,241 @@ def _source_display_name(source: Source) -> str:
     if source.source_type == "article":
         return f"the article {label!r}"
     return f"the source {label!r}"
+
+
+def _process_recent_reference_context_update(
+    *,
+    db: Session,
+    conversation: Conversation,
+    message: str,
+    route: ChatRoute,
+    embedder: MemoryEmbedder,
+    user_id: str | None,
+) -> ChatResponse | None:
+    if route.action not in {"conversation", "capture", "recent"}:
+        return None
+    if not _looks_like_recent_source_context_update(message):
+        return None
+
+    recent = _latest_captured_source_from_conversation(
+        db=db,
+        conversation=conversation,
+        user_id=user_id,
+        source_type_hint=None,
+    )
+    if recent is None:
+        return None
+
+    source_url = recent.source.original_url or recent.source.resolved_url
+    if source_url is None and recent.source.source_type not in {"reference", "youtube", "article"}:
+        return None
+
+    context_text = _clean_recent_source_context_text(message)
+    if context_text is None:
+        return None
+
+    _attach_user_context_to_recent_source(
+        db=db,
+        recent=recent,
+        context_text=context_text,
+        conversation_id=conversation.id,
+        embedder=embedder,
+    )
+    source_kind = _source_kind_label(recent.source)
+    return ChatResponse(
+        action="conversation",
+        message=(
+            f"Got it. I added that context to the saved {source_kind}, "
+            "so future search and recall understand why it matters."
+        ),
+        saved=True,
+    )
+
+
+def _looks_like_recent_source_context_update(message: str) -> bool:
+    if _first_url(message):
+        return False
+    normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
+    if not normalized:
+        return False
+    if _is_greeting_word(normalized) or _looks_like_acknowledgement_only(normalized):
+        return False
+    if _is_reminder_command(normalized) or _is_forget_command(normalized):
+        return False
+    if _is_save_previous_response_command(message):
+        return False
+    question_starts = (
+        "what ",
+        "whats ",
+        "what's ",
+        "why ",
+        "how ",
+        "can ",
+        "could ",
+        "should ",
+        "do ",
+        "does ",
+        "did ",
+        "is ",
+        "are ",
+        "was ",
+        "were ",
+        "tell me ",
+        "summarize ",
+        "summarise ",
+        "explain ",
+    )
+    if "?" in message or normalized.startswith(question_starts):
+        return False
+    if _asks_about_recent_capture(normalized):
+        return False
+
+    source_markers = (
+        "above video",
+        "above link",
+        "above source",
+        "above article",
+        "previous video",
+        "previous link",
+        "previous source",
+        "last video",
+        "last link",
+        "last source",
+        "that video",
+        "that link",
+        "that source",
+        "this video",
+        "this link",
+        "this source",
+        "the video",
+        "the link",
+        "the source",
+        "the above",
+    )
+    if not any(marker in normalized for marker in source_markers):
+        return False
+
+    words = re.findall(r"[a-z0-9']+", normalized)
+    return len(words) >= 5 or len(normalized) >= 35
+
+
+def _clean_recent_source_context_text(message: str) -> str | None:
+    cleaned = re.sub(r"\s+", " ", message.strip()).strip(" .")
+    if len(cleaned) < 20:
+        return None
+    return cleaned[:1000]
+
+
+def _attach_user_context_to_recent_source(
+    *,
+    db: Session,
+    recent: RecentCaptureContext,
+    context_text: str,
+    conversation_id: str,
+    embedder: MemoryEmbedder,
+) -> None:
+    now = utc_now()
+    source = recent.source
+    capture = recent.capture
+    metadata = dict(source.metadata_json or {})
+    contexts = metadata.get("user_added_contexts")
+    if not isinstance(contexts, list):
+        contexts = []
+    context_record = {
+        "text": context_text,
+        "conversation_id": conversation_id,
+        "created_at": now.isoformat(),
+    }
+    contexts.append(context_record)
+    metadata["user_added_contexts"] = contexts[-10:]
+    metadata["latest_user_context"] = context_text
+    if not metadata.get("reason"):
+        metadata["reason"] = context_text
+    source.metadata_json = metadata
+
+    raw_text = (source.raw_text or "").strip()
+    context_line = f"User context: {context_text}"
+    if context_text.lower() not in raw_text.lower():
+        source.raw_text = f"{raw_text}\n{context_line}".strip() if raw_text else context_line
+
+    capture.user_note = _merge_context_field(capture.user_note, context_text)
+    capture.user_intent_text = _merge_context_field(capture.user_intent_text, context_text)
+    db.add_all([source, capture])
+
+    target_reference = next(
+        (
+            memory
+            for memory in recent.memories
+            if memory.status == "active" and memory.memory_type == "reference"
+        ),
+        None,
+    )
+    if target_reference is not None:
+        if context_text.lower() not in (target_reference.content or "").lower():
+            target_reference.content = f"{target_reference.content.rstrip()}\nUser context: {context_text}"
+        target_reference.summary = _snippet(context_text, max_chars=220)
+        target_reference.confidence = "high"
+        target_reference.confidence_reason = "The user added this context after saving the source."
+        db.add(target_reference)
+        _refresh_memory_embedding(db=db, memory=target_reference, embedder=embedder)
+    else:
+        source_url = source.original_url or source.resolved_url
+        memory_content = f"User context for saved {_source_kind_label(source)}: {context_text}"
+        if source_url:
+            memory_content += f"\nLink: {source_url}"
+        embedding = _safe_embed_memory_text(embedder=embedder, text=memory_content)
+        memory = Memory(
+            user_id=capture.user_id,
+            source_id=source.id,
+            capture_id=capture.id,
+            memory_type="reference",
+            epistemic_label="personal_reflection",
+            content=memory_content,
+            summary=_snippet(context_text, max_chars=220),
+            confidence="high",
+            confidence_reason="The user added this context after saving the source.",
+            source_strength="unknown",
+            embedding_json=embedding,
+            next_review_at=initial_next_review_at(memory_confidence="medium"),
+            review_count=0,
+            recall_score=0.5,
+        )
+        db.add(memory)
+        db.flush()
+        if embedding:
+            update_memory_embedding_vector(db=db, memory_id=memory.id, embedding=embedding)
+
+    db.commit()
+
+
+def _merge_context_field(existing: str | None, context_text: str) -> str:
+    if not existing:
+        return context_text
+    if context_text.lower() in existing.lower():
+        return existing
+    merged = f"{existing.rstrip()}\n{context_text}"
+    return merged[:2000]
+
+
+def _refresh_memory_embedding(
+    *,
+    db: Session,
+    memory: Memory,
+    embedder: MemoryEmbedder,
+) -> None:
+    embedding = _safe_embed_memory_text(embedder=embedder, text=memory.content)
+    if not embedding:
+        return
+    memory.embedding_json = embedding
+    update_memory_embedding_vector(db=db, memory_id=memory.id, embedding=embedding)
+
+
+def _safe_embed_memory_text(*, embedder: MemoryEmbedder, text: str) -> list[float]:
+    try:
+        return embedder.embed_texts([text])[0]
+    except Exception:
+        logger.exception("context_update.embedding_failed")
+        return []
 
 
 def _process_save_previous_response_request(

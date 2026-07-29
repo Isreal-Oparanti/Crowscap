@@ -283,11 +283,27 @@ def _send_login_code(*, email: str, code: str) -> None:
             timeout=8.0,
         )
         response.raise_for_status()
-    except httpx.HTTPError as exc:
-        logger.warning("email.code.resend_failed email=%s error=%s", email, str(exc))
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code
+        response_text = exc.response.text[:600]
+        logger.warning(
+            "email.code.resend_rejected email=%s status=%s body=%s",
+            email,
+            status_code,
+            response_text,
+        )
+        if status_code in {401, 403}:
+            detail = "Email sign in is not configured correctly yet. Check the Resend API key."
+        elif status_code in {400, 422}:
+            detail = "Email provider rejected the sender setup. Check that the Resend sender domain is verified."
+        else:
+            detail = "Crowscap could not send the email code right now. Try again shortly."
+        raise HTTPException(status_code=503, detail=detail) from None
+    except httpx.RequestError as exc:
+        logger.warning("email.code.resend_network_failed email=%s error=%s", email, str(exc))
         raise HTTPException(
             status_code=503,
-            detail="Crowscap could not send the email code right now. Try again shortly.",
+            detail="Crowscap could not reach the email provider. Check the connection and try again shortly.",
         ) from None
 
 

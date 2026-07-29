@@ -1,6 +1,6 @@
 # Auth and User Isolation
 
-Last updated: 2026-07-17
+Last updated: 2026-07-29
 
 ## Why This Exists
 
@@ -88,6 +88,54 @@ https://www.crowscap.xyz/api/auth/callback/google
 ```
 
 Use the Google client ID and client secret in the frontend environment.
+
+## Mobile Auth Setup
+
+The React Native app does not use the browser's NextAuth cookie. It signs in
+through the backend and receives a Crowscap mobile session token. The same
+Python backend serves both web and mobile clients, but the auth entry point is
+different:
+
+```text
+Mobile app
+  -> Google ID token or email code
+  -> FastAPI /api/v1/auth/mobile/*
+  -> Crowscap mobile session token
+  -> FastAPI private routes scoped by user_id
+```
+
+Required mobile Google values:
+
+```text
+EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB=<google web client id>
+EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS=<google ios client id>
+EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID=<google android client id>
+```
+
+The Web client ID is still required on mobile because Expo's browser-based
+AuthSession flow uses web OAuth semantics. Expo Go should use email code sign-in
+for local testing. Google sign-in should be tested in a Crowscap development
+build, where the native client IDs and custom scheme are available.
+
+Required backend mobile values:
+
+```text
+CROWSCAP_MOBILE_JWT_SECRET=<long random secret>
+GOOGLE_MOBILE_IOS_CLIENT_ID=<google ios client id>
+GOOGLE_MOBILE_ANDROID_CLIENT_ID=<google android client id>
+```
+
+Email code sign-in uses Resend:
+
+```text
+RESEND_API_KEY=<resend api key>
+CROWSCAP_EMAIL_FROM=Crowscap <hello@crowscap.xyz>
+CROWSCAP_EMAIL_CODE_TTL_MINUTES=10
+```
+
+`CROWSCAP_EMAIL_FROM` must use a sender domain that Resend has verified. If
+Resend rejects the sender or API key, the backend returns a configuration
+specific error instead of a generic internal failure.
 
 ## Legacy Data Note
 
