@@ -1,10 +1,9 @@
 /**
  * API response types for the Crowscap mobile app.
- * Mirrors frontend/lib/types.ts — keep in sync with the API contract in docs/09-api-contract.md.
+ * Mirrors frontend/lib/types.ts. Keep in sync with docs/09-api-contract.md.
  */
 
-// ─── Enums ────────────────────────────────────────────────────────────────────
-
+// Enums
 export type MemoryType =
   | "claim"
   | "principle"
@@ -41,8 +40,7 @@ export type ChatAction =
   | "self"
   | "recent";
 
-// ─── Auth ─────────────────────────────────────────────────────────────────────
-
+// Auth
 export interface MobileSessionResponse {
   token: string;
   user_id: string;
@@ -52,8 +50,7 @@ export interface MobileSessionResponse {
   expires_at: string;
 }
 
-// ─── Chat ─────────────────────────────────────────────────────────────────────
-
+// Chat
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
@@ -77,8 +74,7 @@ export interface ChatResponse {
   preferences: Record<string, unknown> | null;
 }
 
-// ─── Captures ─────────────────────────────────────────────────────────────────
-
+// Captures
 export interface CaptureResponse {
   capture_id: string;
   source_id: string;
@@ -89,8 +85,7 @@ export interface CaptureResponse {
   memories: MemoryAtom[];
 }
 
-// ─── Memories ─────────────────────────────────────────────────────────────────
-
+// Memories
 export interface MemoryAtom {
   id: string;
   memory_type: MemoryType;
@@ -134,8 +129,7 @@ export interface RecentMemoryListResponse {
   memories: RecentMemory[];
 }
 
-// ─── Search ───────────────────────────────────────────────────────────────────
-
+// Search
 export interface SearchResult {
   memory_id: string;
   source_id: string;
@@ -160,8 +154,7 @@ export interface SearchResponse {
   results: SearchResult[];
 }
 
-// ─── Recalls ──────────────────────────────────────────────────────────────────
-
+// Recalls
 export interface RecallMemory {
   memory_id: string;
   source_id: string;
@@ -180,10 +173,21 @@ export interface RecallMemory {
   relationships: MemoryRelation[];
 }
 
+export interface DueReminder {
+  reminder_id: string;
+  content: string;
+  due_at: string;
+  overdue_seconds: number;
+  save_as_memory: boolean;
+  memory_id: string | null;
+  status: string;
+}
+
 export interface RecallDueResponse {
   due_count: number;
   now: string;
   memories: RecallMemory[];
+  reminders: DueReminder[];
 }
 
 export interface RecallAnswerResponse {

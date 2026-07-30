@@ -1,22 +1,41 @@
 import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  ScrollView,
-  Pressable,
   ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BrandMark } from "@/components/shell/BrandMark";
+import { Icons } from "@/components/ui/Icon";
+import { useRecalls } from "@/hooks/useRecalls";
 import { useSearch } from "@/hooks/useSearch";
-import { memoryTypeLabel, formatDate } from "@/utils/format";
 import { tokens } from "@/theme/tokens";
+import { fontFamily } from "@/theme/typography";
+import type { RecentMemory, SearchResult } from "@/types/api";
+import { formatDate, memoryTypeLabel, truncate } from "@/utils/format";
+
+type MemoryRowItem = RecentMemory | SearchResult;
+
+const PROMPTS = [
+  "What do I know about distribution?",
+  "What have I learned but not applied?",
+];
+
+function isRecentMemory(item: MemoryRowItem): item is RecentMemory {
+  return "created_at" in item;
+}
 
 export default function SearchScreen() {
-  const insets = useSafeAreaInsets();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { data: recallData } = useRecalls();
+  const hasUnreadRecalls = (recallData?.memories?.length ?? 0) > 0;
+
   const {
     query,
     setQuery,
@@ -33,203 +52,231 @@ export default function SearchScreen() {
     handleArchive,
   } = useSearch();
 
-  const handleSearchSubmit = () => {
-    executeSearch(query);
+  const visibleMemories = searchResult ? searchResult.results : recent;
+  const showingResults = Boolean(searchResult);
+
+  const archiveWithConfirm = (memory: MemoryRowItem) => {
+    Alert.alert(
+      "Archive memory?",
+      "This removes it from active search, recall, audits, and nearby context.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Archive",
+          style: "destructive",
+          onPress: () => handleArchive(memory.memory_id),
+        },
+      ]
+    );
   };
 
-  const isQuerying = searchResult !== null;
+  const openMemory = (memoryId: string) => {
+    router.push({ pathname: "/(modals)/memory/[id]", params: { id: memoryId } } as never);
+  };
 
   return (
     <View style={styles.root}>
-      {/* Header with Search Bar */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <View style={styles.searchBarContainer}>
-          <Feather name="search" size={16} color="#8a8d90" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search your memories by meaning…"
-            placeholderTextColor="#b4b7b9"
-            returnKeyType="search"
-            onSubmitEditing={handleSearchSubmit}
-          />
-          {query ? (
-            <Pressable onPress={clearSearch} style={styles.clearBtn} hitSlop={8}>
-              <Feather name="x" size={14} color="#8a8d90" />
-            </Pressable>
-          ) : null}
+        <View style={styles.headerBrand}>
+          <BrandMark size={38} imageSize={29} />
+          <View>
+            <Text style={styles.headerTitle}>Search</Text>
+            <Text style={styles.headerSub}>Explore memory</Text>
+          </View>
         </View>
-        <Pressable
-          style={({ pressed }) => [
-            styles.searchBtn,
-            query.trim().length < 2 && styles.searchBtnDisabled,
-            pressed && query.trim().length >= 2 && { opacity: 0.8 },
-          ]}
-          onPress={handleSearchSubmit}
-          disabled={query.trim().length < 2 || searching}
-        >
-          {searching ? (
-            <ActivityIndicator size="small" color="#ffffff" />
-          ) : (
-            <Text style={styles.searchBtnText}>Search</Text>
-          )}
-        </Pressable>
-        <Pressable
-          style={styles.settingsBtn}
-          onPress={() => router.push("/settings" as never)}
-          hitSlop={8}
-        >
-          <Feather name="settings" size={18} color={tokens.colors.text} />
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable onPress={() => router.push("/(tabs)/recall" as never)} hitSlop={8} style={styles.iconButton}>
+            <Icons.Bell size={19} color={tokens.colors.text} />
+            {hasUnreadRecalls ? <View style={styles.bellDot} /> : null}
+          </Pressable>
+          <Pressable onPress={() => router.push("/settings" as never)} hitSlop={8} style={styles.iconButton}>
+            <Icons.Settings size={19} color={tokens.colors.text} />
+          </Pressable>
+        </View>
       </View>
 
       <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: insets.bottom + 32 },
-        ]}
+        style={styles.content}
+        contentContainerStyle={[styles.contentInner, { paddingBottom: insets.bottom + 96 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        <View style={styles.searchHero}>
+          <Text style={styles.eyebrow}>YOUR MEMORY</Text>
+          <Text style={styles.heroTitle}>What are you trying to reach?</Text>
+
+          <View style={styles.searchBox}>
+            <Icons.Search size={18} color="#8a8e94" />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder={'Try "what did I learn about customers?"'}
+              placeholderTextColor="#8a8e94"
+              style={styles.searchInput}
+              returnKeyType="search"
+              onSubmitEditing={() => executeSearch(query)}
+              autoCapitalize="none"
+              autoCorrect
+            />
+            {query ? (
+              <Pressable onPress={clearSearch} hitSlop={8} style={styles.clearButton}>
+                <Icons.X size={16} color="#757a80" />
+              </Pressable>
+            ) : null}
+            <Pressable
+              onPress={() => executeSearch(query)}
+              disabled={searching || query.trim().length < 2}
+              style={[
+                styles.searchSubmit,
+                (searching || query.trim().length < 2) && styles.searchSubmitDisabled,
+              ]}
+            >
+              {searching ? (
+                <ActivityIndicator size="small" color="#ffffff" />
+              ) : (
+                <Icons.ArrowRight size={18} color="#ffffff" />
+              )}
+            </Pressable>
+          </View>
+
+          <View style={styles.promptList}>
+            {PROMPTS.map((prompt) => (
+              <Pressable
+                key={prompt}
+                style={({ pressed }) => [styles.promptRow, pressed && styles.promptRowPressed]}
+                onPress={() => {
+                  setQuery(prompt);
+                  executeSearch(prompt);
+                }}
+              >
+                <Text style={styles.promptText}>{prompt}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
         {error ? (
           <View style={styles.errorBox}>
+            <Icons.CircleAlert size={16} color="#9b4c51" />
             <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : null}
 
-        {/* Query Results View */}
-        {isQuerying ? (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionLabel}>
-                SEARCH RESULTS ({searchResult.returned_count})
-              </Text>
-              <Pressable onPress={clearSearch}>
-                <Text style={styles.clearResultsText}>Clear search</Text>
-              </Pressable>
-            </View>
+        <View style={styles.sectionHead}>
+          <Text style={styles.eyebrow}>{showingResults ? "SEARCH RESULTS" : "RECENTLY SAVED"}</Text>
+          <Text style={styles.sectionTitle}>
+            {showingResults ? "Matches from your memory" : "Your newest memories"}
+          </Text>
+        </View>
 
-            {searchResult.results.length === 0 ? (
-              <View style={styles.emptyWrap}>
-                <Text style={styles.emptyTitle}>No matching memories</Text>
-                <Text style={styles.emptySub}>
-                  No saved memories matched your search for &quot;{searchResult.query}&quot;. Try capturing more ideas or phrasing your search differently.
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.cardList}>
-                {searchResult.results.map((item) => (
-                  <View key={item.memory_id} style={styles.memoryCard}>
-                    <View style={styles.cardTopRow}>
-                      <View style={styles.typeBadge}>
-                        <Text style={styles.typeBadgeText}>
-                          {memoryTypeLabel(item.memory_type)}
-                        </Text>
-                      </View>
-                      <Text style={styles.scoreText}>
-                        {Math.round(item.similarity_score * 100)}% match
-                      </Text>
-                    </View>
-
-                    <Text style={styles.cardContent}>{item.content}</Text>
-
-                    {item.source_title ? (
-                      <View style={styles.sourceRow}>
-                        <Feather name="file-text" size={11} color="#8a8d90" />
-                        <Text style={styles.sourceTitleText} numberOfLines={1}>
-                          {item.source_title}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
-                ))}
-              </View>
-            )}
+        {loadingRecent && !showingResults ? (
+          <View style={styles.loadingRow}>
+            <ActivityIndicator size="small" color={tokens.colors.text} />
+            <Text style={styles.loadingText}>Loading recent memories.</Text>
+          </View>
+        ) : visibleMemories.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>
+              {showingResults ? "No matching memories yet." : "No memories saved yet."}
+            </Text>
+            <Text style={styles.emptyBody}>
+              {showingResults
+                ? "Try a simpler phrase or search for the topic in your own words."
+                : "Save a useful note, link, video, or PDF and it will appear here."}
+            </Text>
           </View>
         ) : (
-          /* Recent Memory Stream View */
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>RECENT MEMORIES</Text>
+          <View style={styles.memoryList}>
+            {visibleMemories.map((memory) => (
+              <MemoryRow
+                key={memory.memory_id}
+                item={memory}
+                archiving={archivingId === memory.memory_id}
+                onArchive={() => archiveWithConfirm(memory)}
+              />
+            ))}
 
-            {loadingRecent && recent.length === 0 ? (
-              <View style={styles.loadingWrap}>
-                <ActivityIndicator size="small" color={tokens.colors.text} />
-              </View>
-            ) : recent.length === 0 ? (
-              <View style={styles.emptyWrap}>
-                <Text style={styles.emptyTitle}>No memories yet</Text>
-                <Text style={styles.emptySub}>
-                  Drop in your first note or URL using the Capture button to start building your memory layer.
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.cardList}>
-                {recent.map((item) => (
-                  <View key={item.memory_id} style={styles.memoryCard}>
-                    <View style={styles.cardTopRow}>
-                      <View style={styles.badgeGroup}>
-                        <View style={styles.typeBadge}>
-                          <Text style={styles.typeBadgeText}>
-                            {memoryTypeLabel(item.memory_type)}
-                          </Text>
-                        </View>
-                        <Text style={styles.dateText}>
-                          {formatDate(item.created_at)}
-                        </Text>
-                      </View>
-                      <Pressable
-                        onPress={() => handleArchive(item.memory_id)}
-                        disabled={archivingId === item.memory_id}
-                        hitSlop={8}
-                        style={styles.archiveBtn}
-                      >
-                        <Feather name="archive" size={13} color="#9a9d9f" />
-                      </Pressable>
-                    </View>
-
-                    <Text style={styles.cardContent}>{item.content}</Text>
-
-                    {item.summary ? (
-                      <Text style={styles.summaryText}>{item.summary}</Text>
-                    ) : null}
-
-                    {item.source_title ? (
-                      <View style={styles.sourceRow}>
-                        <Feather name="file-text" size={11} color="#8a8d90" />
-                        <Text style={styles.sourceTitleText} numberOfLines={1}>
-                          {item.source_title}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
-                ))}
-
-                {recentHasMore ? (
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.loadMoreBtn,
-                      pressed && { opacity: 0.8 },
-                    ]}
-                    onPress={loadMoreRecent}
-                    disabled={loadingRecent}
-                  >
-                    {loadingRecent ? (
-                      <ActivityIndicator size="small" color={tokens.colors.text} />
-                    ) : (
-                      <Text style={styles.loadMoreText}>Load older memories</Text>
-                    )}
-                  </Pressable>
-                ) : null}
-              </View>
-            )}
           </View>
         )}
+
+        {!showingResults && recentHasMore ? (
+          <Pressable style={styles.loadMoreButton} onPress={loadMoreRecent} disabled={loadingRecent}>
+            {loadingRecent ? (
+              <ActivityIndicator size="small" color={tokens.colors.text} />
+            ) : (
+              <Text style={styles.loadMoreText}>Load more</Text>
+            )}
+          </Pressable>
+        ) : null}
       </ScrollView>
     </View>
   );
 }
+
+function cleanSourceTitle(raw: string | null | undefined): string {
+  if (!raw) return "Saved source";
+  try {
+    return decodeURIComponent(raw).replace(/%20/g, " ");
+  } catch {
+    return raw.replace(/%20/g, " ");
+  }
+}
+
+function MemoryRow({
+  item,
+  archiving,
+  onArchive,
+}: {
+  item: MemoryRowItem;
+  archiving: boolean;
+  onArchive: () => void;
+}) {
+  const sourceType = isRecentMemory(item) ? item.source_type : null;
+  const date = isRecentMemory(item) ? formatDate(item.created_at) : null;
+  const sourceTitle = cleanSourceTitle(item.source_title);
+
+  return (
+    <View style={styles.memoryRow}>
+      <View style={styles.memoryOpenArea}>
+        <View style={styles.memoryIcon}>
+          {sourceType === "pdf" ? (
+            <Icons.FileText size={15} color="#2d7058" />
+          ) : (
+            <Icons.BookOpenCheck size={15} color="#2d7058" />
+          )}
+        </View>
+        <View style={styles.memoryBody}>
+          <View style={styles.metaRow}>
+            <Text style={styles.metaText}>{memoryTypeLabel(item.memory_type).toUpperCase()}</Text>
+            {sourceType ? <Text style={styles.metaDot}>·</Text> : null}
+            {sourceType ? <Text style={styles.metaText}>{sourceType.toUpperCase()}</Text> : null}
+            {date ? (
+              <View style={styles.dateMeta}>
+                <Icons.Clock3 size={11} color="#8c9096" />
+                <Text style={styles.dateText}>{date}</Text>
+              </View>
+            ) : null}
+          </View>
+          <Text style={styles.memoryTitle} numberOfLines={2}>
+            {isRecentMemory(item) ? item.summary || item.content : item.content}
+          </Text>
+          <Text style={styles.memorySource} numberOfLines={1}>
+            {sourceTitle}
+          </Text>
+        </View>
+      </View>
+      <Pressable onPress={onArchive} hitSlop={8} style={styles.archiveButton} disabled={archiving}>
+        {archiving ? (
+          <ActivityIndicator size="small" color="#9b4c51" />
+        ) : (
+          <Icons.Archive size={16} color="#9aa0a6" />
+        )}
+      </Pressable>
+    </View>
+  );
+}
+
+
 
 const styles = StyleSheet.create({
   root: {
@@ -239,207 +286,284 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    gap: tokens.spacing[2],
+    justifyContent: "space-between",
     paddingHorizontal: tokens.spacing[4],
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#e7e8e9",
+    borderBottomColor: "#f0f1f3",
     backgroundColor: "#ffffff",
   },
-  searchBarContainer: {
-    flex: 1,
+  headerBrand: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#f5f6f7",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#e1e3e4",
-    paddingHorizontal: 10,
-    height: 44,
+    gap: 12,
   },
-  searchIcon: {
-    marginRight: 6,
+  headerTitle: {
+    fontSize: 19,
+    fontFamily: fontFamily.extrabold,
+    color: tokens.colors.text,
+  },
+  headerSub: {
+    marginTop: 2,
+    fontSize: 13,
+    color: tokens.colors.textMuted,
+    fontFamily: fontFamily.medium,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  bellDot: {
+    position: "absolute",
+    top: 7,
+    right: 7,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#2d7058",
+  },
+  iconButton: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  content: {
+    flex: 1,
+  },
+  contentInner: {
+    backgroundColor: "#ffffff",
+  },  searchHero: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f1f3",
+  },
+  eyebrow: {
+    fontSize: 10.5,
+    fontFamily: fontFamily.extrabold,
+    color: "#787c80",
+    marginBottom: 4,
+    letterSpacing: 0.5,
+  },
+  heroTitle: {
+    fontSize: 21,
+    lineHeight: 27,
+    fontFamily: fontFamily.bold,
+    color: "#111418",
+    marginBottom: 16,
+  },
+  searchBox: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: "#e3e5e8",
+    borderRadius: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 14,
+    paddingRight: 5,
+    gap: 8,
+    backgroundColor: "#ffffff",
   },
   searchInput: {
     flex: 1,
-    fontSize: 13,
-    fontWeight: "400",
-    color: tokens.colors.text,
+    minHeight: 44,
+    fontSize: 13.5,
+    color: "#111418",
+    fontFamily: fontFamily.medium,
   },
-  clearBtn: {
-    padding: 4,
+  clearButton: {
+    width: 26,
+    height: 26,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  searchBtn: {
-    height: 44,
-    backgroundColor: tokens.colors.text,
-    borderRadius: 10,
+  searchSubmit: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#111111",
+  },
+  searchSubmitDisabled: {
+    backgroundColor: "#c7c9cc",
+  },
+  promptList: {
+    marginTop: 14,
+    gap: 8,
+  },
+  promptRow: {
+    minHeight: 42,
+    borderWidth: 1,
+    borderColor: "#e8eaec",
+    borderRadius: 8,
+    justifyContent: "center",
     paddingHorizontal: 14,
-    alignItems: "center",
-    justifyContent: "center",
+    paddingVertical: 10,
+    backgroundColor: "#f7f8f9",
   },
-  searchBtnDisabled: {
-    backgroundColor: "#c4c7c9",
+  promptRowPressed: {
+    backgroundColor: "#eceeed",
   },
-  searchBtnText: {
+  promptText: {
     fontSize: 13,
-    fontWeight: "700",
-    color: "#ffffff",
+    lineHeight: 18,
+    color: "#303438",
+    fontFamily: fontFamily.semibold,
   },
-  settingsBtn: {
-    width: 44,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  scroll: { flex: 1 },
-  scrollContent: {
-    paddingHorizontal: tokens.spacing[5],
-    paddingTop: tokens.spacing[4],
-  },
-
   errorBox: {
-    backgroundColor: "#fde8e8",
+    marginHorizontal: 20,
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: "#f1cccc",
     borderRadius: 10,
-    padding: tokens.spacing[3],
-    marginBottom: tokens.spacing[4],
+    backgroundColor: "#fff6f6",
+    padding: 12,
+    flexDirection: "row",
+    gap: 8,
   },
   errorText: {
-    fontSize: 12,
-    color: tokens.colors.danger,
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    color: "#9b4c51",
+    fontFamily: fontFamily.semibold,
   },
-
-  section: {
-    gap: tokens.spacing[3],
+  sectionHead: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f1f3",
   },
-  sectionHeader: {
-    flexDirection: "row",
+  sectionTitle: {
+    fontSize: 18,
+    lineHeight: 24,
+    fontFamily: fontFamily.bold,
+    color: "#111418",
+  },
+  loadingRow: {
+    paddingVertical: 24,
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "center",
+    gap: 10,
   },
-  sectionLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#8a8d90",
-    letterSpacing: 0.6,
+  loadingText: {
+    fontSize: 13,
+    color: tokens.colors.textMuted,
+    fontFamily: fontFamily.semibold,
   },
-  clearResultsText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: tokens.colors.text,
-  },
-
-  loadingWrap: {
-    paddingVertical: tokens.spacing[8],
-    alignItems: "center",
-  },
-  emptyWrap: {
-    paddingVertical: tokens.spacing[8],
-    alignItems: "center",
+  emptyState: {
+    paddingHorizontal: 20,
+    paddingTop: 28,
     gap: 8,
   },
   emptyTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: tokens.colors.text,
+    fontSize: 17,
+    fontFamily: fontFamily.bold,
+    color: "#111418",
   },
-  emptySub: {
-    fontSize: 12,
-    fontWeight: "400",
-    color: tokens.colors.textMuted,
-    textAlign: "center",
-    lineHeight: 18,
-  },
-
-  cardList: {
-    gap: tokens.spacing[3],
-  },
-  memoryCard: {
-    borderWidth: 1,
-    borderColor: "#e2e4e5",
-    borderRadius: 14,
-    padding: tokens.spacing[4],
-    backgroundColor: "#ffffff",
-    gap: 8,
-    shadowColor: "#111111",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  cardTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  badgeGroup: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  typeBadge: {
-    backgroundColor: "#f2f3f4",
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  typeBadgeText: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#4d5154",
-    letterSpacing: 0.3,
-  },
-  dateText: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: "#9a9d9f",
-  },
-  scoreText: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#2d7058",
-  },
-  archiveBtn: {
-    padding: 4,
-  },
-  cardContent: {
+  emptyBody: {
     fontSize: 13,
-    fontWeight: "500",
-    color: "#252627",
-    lineHeight: 20,
+    lineHeight: 19,
+    color: tokens.colors.textMuted,
+    fontFamily: fontFamily.medium,
   },
-  summaryText: {
-    fontSize: 11,
-    fontWeight: "400",
-    color: "#787c80",
-    lineHeight: 16,
+  memoryList: {
+    backgroundColor: "#ffffff",
   },
-  sourceRow: {
+  memoryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f1f3",
+    paddingLeft: 20,
+    paddingRight: 12,
+    backgroundColor: "#ffffff",
+  },
+  memoryOpenArea: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 13,
+  },
+  memoryIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#e8f4ed",
+  },
+  memoryBody: {
+    flex: 1,
+    gap: 3,
+  },
+  metaRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    marginTop: 2,
   },
-  sourceTitleText: {
+  metaText: {
     fontSize: 10,
-    fontWeight: "600",
-    color: "#8a8d90",
-    flex: 1,
+    color: "#787c80",
+    fontFamily: fontFamily.extrabold,
+    letterSpacing: 0.5,
   },
-
-  loadMoreBtn: {
-    borderWidth: 1,
-    borderColor: "#e1e3e4",
-    borderRadius: 10,
-    paddingVertical: 12,
+  metaDot: {
+    fontSize: 11,
+    color: "#b0b4b8",
+  },
+  dateMeta: {
+    marginLeft: "auto",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  dateText: {
+    fontSize: 11,
+    color: "#8a8e94",
+    fontFamily: fontFamily.medium,
+  },
+  memoryTitle: {
+    fontSize: 13.5,
+    lineHeight: 19,
+    color: "#111418",
+    fontFamily: fontFamily.bold,
+  },
+  memorySource: {
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: "#8a8e94",
+    fontFamily: fontFamily.medium,
+  },
+  archiveButton: {
+    width: 34,
+    height: 34,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fafafa",
-    marginTop: 8,
+  },
+  loadMoreButton: {
+    alignSelf: "center",
+    marginTop: 18,
+    minWidth: 120,
+    minHeight: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#e1e3e7",
+    borderRadius: 8,
+    backgroundColor: "#ffffff",
   },
   loadMoreText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: tokens.colors.text,
+    fontSize: 13,
+    color: "#111418",
+    fontFamily: fontFamily.bold,
   },
 });
+
+

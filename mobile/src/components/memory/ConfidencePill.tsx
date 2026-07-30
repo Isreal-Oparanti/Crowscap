@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet } from "react-native";
 import type { Confidence } from "@/types/api";
+import { fontFamily } from "@/theme/typography";
 
 const CONFIDENCE_COLORS: Record<Confidence, string> = {
   high: "#2d7058",
@@ -32,7 +33,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 10,
-    fontWeight: "600",
+    fontFamily: fontFamily.semibold,
     color: "#8a8d90",
   },
 });

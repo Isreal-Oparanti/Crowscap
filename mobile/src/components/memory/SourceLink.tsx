@@ -1,5 +1,6 @@
 import { Text, StyleSheet, Pressable, Linking } from "react-native";
-import { Feather } from "@expo/vector-icons";
+import { Icons } from "@/components/ui/Icon";
+import { fontFamily } from "@/theme/typography";
 
 export function SourceLink({
   title,
@@ -27,11 +28,11 @@ export function SourceLink({
       onPress={url ? handleOpenUrl : undefined}
       disabled={!url}
     >
-      <Feather name="file-text" size={12} color="#7d8083" />
+      <Icons.FileText size={12} color="#7d8083" />
       <Text style={styles.title} numberOfLines={1}>
         {title || url || "Original Source"}
       </Text>
-      {url ? <Feather name="external-link" size={11} color="#7d8083" /> : null}
+      {url ? <Icons.ExternalLink size={11} color="#7d8083" /> : null}
     </Pressable>
   );
 }
@@ -50,7 +51,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 11,
-    fontWeight: "600",
+    fontFamily: fontFamily.semibold,
     color: "#555860",
     flexShrink: 1,
   },

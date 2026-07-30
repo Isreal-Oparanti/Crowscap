@@ -33,7 +33,7 @@ const styles = StyleSheet.create({
   frame: {
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: tokens.colors.surface,
+    backgroundColor: "#ffffff",
     borderWidth: 1,
     borderColor: tokens.colors.border,
   },

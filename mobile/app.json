@@ -21,12 +21,14 @@
       "buildNumber": "1"
     },
     "android": {
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "package": "xyz.crowscap.app",
       "versionCode": 1,
+
       "intentFilters": [
         {
           "action": "android.intent.action.SEND",

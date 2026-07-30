@@ -15,41 +15,41 @@ export function useRecalls() {
       setError(null);
       const res = await getDueRecalls(50);
       setData(res);
-      if (res.memories.length > 0 && !selectedId) {
-        setSelectedId(res.memories[0].memory_id);
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not fetch due recalls.");
     } finally {
       setLoading(false);
     }
-  }, [selectedId]);
+  }, []);
 
   useEffect(() => {
     fetchDue();
   }, [fetchDue]);
 
   const selectedMemory: RecallMemory | null =
-    data?.memories.find((m) => m.memory_id === selectedId) ??
-    (data?.memories[0] || null);
+    data?.memories.find((m) => m.memory_id === selectedId) ?? null;
 
-  const submitAnswer = async (answerText: string, selfRating: number) => {
-    if (!selectedMemory || answering) return;
+  const submitAnswerFor = async (memoryId: string, answerText: string, selfRating: number) => {
+    if (answering) return;
     setAnswering(true);
     setError(null);
     try {
-      const evalRes = await answerRecall(selectedMemory.memory_id, {
+      const evalRes = await answerRecall(memoryId, {
         answer: answerText,
         self_rating: selfRating,
       });
       setEvaluation(evalRes);
-      // Refresh due list
       await fetchDue();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not submit recall answer.");
     } finally {
       setAnswering(false);
     }
+  };
+
+  const submitAnswer = async (answerText: string, selfRating: number) => {
+    if (!selectedMemory) return;
+    await submitAnswerFor(selectedMemory.memory_id, answerText, selfRating);
   };
 
   const nextRecall = () => {
@@ -63,6 +63,11 @@ export function useRecalls() {
     }
   };
 
+  const clearSelected = () => {
+    setSelectedId(null);
+    setEvaluation(null);
+  };
+
   return {
     data,
     loading,
@@ -73,7 +78,9 @@ export function useRecalls() {
     answering,
     evaluation,
     submitAnswer,
+    submitAnswerFor,
     nextRecall,
+    clearSelected,
     refresh: fetchDue,
   };
 }

@@ -1,51 +1,39 @@
-import { StyleSheet } from "react-native";
-import { tokens } from "./tokens";
+export const fontFamily = {
+  regular: "Manrope_400Regular",
+  medium: "Manrope_500Medium",
+  semibold: "Manrope_600SemiBold",
+  bold: "Manrope_700Bold",
+  extrabold: "Manrope_800ExtraBold",
+} as const;
 
-/**
- * Typography style presets.
- * Use these instead of defining font styles ad-hoc in components.
- */
-export const typography = StyleSheet.create({
-  label: {
-    fontSize: tokens.fontSize.xs,
-    fontWeight: tokens.fontWeight.extrabold,
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
-    color: tokens.colors.textMuted,
-  },
-  caption: {
-    fontSize: tokens.fontSize.xs,
-    fontWeight: tokens.fontWeight.semibold,
-    color: tokens.colors.textSubtle,
+export const type = {
+  eyebrow: {
+    fontFamily: fontFamily.extrabold,
+    fontSize: 11,
+    letterSpacing: 0,
   },
   body: {
-    fontSize: tokens.fontSize.base,
-    fontWeight: tokens.fontWeight.regular,
-    color: tokens.colors.text,
-    lineHeight: tokens.lineHeight.normal,
+    fontFamily: fontFamily.medium,
+    fontSize: 13,
+    lineHeight: 20,
+    letterSpacing: 0,
   },
-  bodyMedium: {
-    fontSize: tokens.fontSize.base,
-    fontWeight: tokens.fontWeight.semibold,
-    color: tokens.colors.text,
-    lineHeight: tokens.lineHeight.normal,
-  },
-  subheading: {
-    fontSize: tokens.fontSize.md,
-    fontWeight: tokens.fontWeight.bold,
-    color: tokens.colors.text,
-    lineHeight: tokens.lineHeight.tight,
-  },
-  heading: {
-    fontSize: tokens.fontSize.lg,
-    fontWeight: tokens.fontWeight.bold,
-    color: tokens.colors.text,
-    lineHeight: tokens.lineHeight.tight,
+  bodyLarge: {
+    fontFamily: fontFamily.medium,
+    fontSize: 15,
+    lineHeight: 23,
+    letterSpacing: 0,
   },
   title: {
-    fontSize: tokens.fontSize["2xl"],
-    fontWeight: tokens.fontWeight.extrabold,
-    color: tokens.colors.text,
-    lineHeight: 34,
+    fontFamily: fontFamily.extrabold,
+    fontSize: 18,
+    lineHeight: 24,
+    letterSpacing: 0,
   },
-});
+  pageTitle: {
+    fontFamily: fontFamily.extrabold,
+    fontSize: 30,
+    lineHeight: 36,
+    letterSpacing: 0,
+  },
+} as const;

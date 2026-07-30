@@ -7,10 +7,11 @@ import {
   Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { Icons } from "@/components/ui/Icon";
 import { useAuth } from "@/hooks/useAuth";
 import { tokens } from "@/theme/tokens";
+import { fontFamily } from "@/theme/typography";
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -46,7 +47,7 @@ export default function SettingsScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={8}>
-            <Feather name="arrow-left" size={20} color={tokens.colors.text} />
+            <Icons.ArrowLeft size={20} color={tokens.colors.text} />
           </Pressable>
           <View>
             <Text style={styles.headerTitle}>Settings</Text>
@@ -80,7 +81,7 @@ export default function SettingsScreen() {
           <View style={styles.settingsGroup}>
             <View style={styles.row}>
               <View style={styles.rowLeft}>
-                <Feather name="message-square" size={16} color="#4d5154" />
+                <Icons.MessageCircle size={16} color="#4d5154" />
                 <Text style={styles.rowTitle}>Answer style</Text>
               </View>
               <View style={styles.valueBadge}>
@@ -92,7 +93,7 @@ export default function SettingsScreen() {
 
             <View style={styles.row}>
               <View style={styles.rowLeft}>
-                <Feather name="shield" size={16} color="#4d5154" />
+                <Icons.Shield size={16} color="#4d5154" />
                 <Text style={styles.rowTitle}>Evidence strictness</Text>
               </View>
               <View style={styles.valueBadge}>
@@ -104,36 +105,12 @@ export default function SettingsScreen() {
 
             <View style={styles.row}>
               <View style={styles.rowLeft}>
-                <Feather name="help-circle" size={16} color="#4d5154" />
+                <Icons.HelpCircle size={16} color="#4d5154" />
                 <Text style={styles.rowTitle}>Challenge style</Text>
               </View>
               <View style={styles.valueBadge}>
                 <Text style={styles.valueText}>Direct</Text>
               </View>
-            </View>
-          </View>
-        </View>
-
-        {/* Security & Data */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>SECURITY & DATA</Text>
-          <View style={styles.settingsGroup}>
-            <View style={styles.row}>
-              <View style={styles.rowLeft}>
-                <Feather name="lock" size={16} color="#2d7058" />
-                <Text style={styles.rowTitle}>User data isolation</Text>
-              </View>
-              <Text style={styles.statusGreen}>Active</Text>
-            </View>
-
-            <View style={styles.divider} />
-
-            <View style={styles.row}>
-              <View style={styles.rowLeft}>
-                <Feather name="server" size={16} color="#4d5154" />
-                <Text style={styles.rowTitle}>Backend service</Text>
-              </View>
-              <Text style={styles.rowSubText}>api.crowscap.xyz</Text>
             </View>
           </View>
         </View>
@@ -146,15 +123,14 @@ export default function SettingsScreen() {
           ]}
           onPress={handleSignOut}
         >
-          <Feather name="log-out" size={16} color="#9b4c51" />
+          <Icons.LogOut size={16} color="#9b4c51" />
           <Text style={styles.signOutText}>Sign Out</Text>
         </Pressable>
-
-        <Text style={styles.versionText}>Crowscap Mobile v1.0.0 (Expo SDK 54)</Text>
       </ScrollView>
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   root: {
@@ -182,13 +158,13 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: "800",
+    fontFamily: fontFamily.extrabold,
     color: tokens.colors.text,
-    letterSpacing: -0.3,
+    letterSpacing: 0,
   },
   headerSub: {
     fontSize: 11,
-    fontWeight: "500",
+    fontFamily: fontFamily.medium,
     color: tokens.colors.textMuted,
     marginTop: 2,
   },
@@ -220,7 +196,7 @@ const styles = StyleSheet.create({
   },
   avatarText: {
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: fontFamily.extrabold,
     color: "#275d4b",
   },
   profileMeta: {
@@ -229,12 +205,12 @@ const styles = StyleSheet.create({
   },
   displayName: {
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: fontFamily.extrabold,
     color: tokens.colors.text,
   },
   emailText: {
     fontSize: 12,
-    fontWeight: "500",
+    fontFamily: fontFamily.medium,
     color: "#787c80",
   },
 
@@ -243,9 +219,9 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     fontSize: 10,
-    fontWeight: "800",
+    fontFamily: fontFamily.extrabold,
     color: "#8a8d90",
-    letterSpacing: 0.6,
+    letterSpacing: 0,
   },
   settingsGroup: {
     borderWidth: 1,
@@ -267,7 +243,7 @@ const styles = StyleSheet.create({
   },
   rowTitle: {
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: fontFamily.semibold,
     color: tokens.colors.text,
   },
   valueBadge: {
@@ -278,17 +254,17 @@ const styles = StyleSheet.create({
   },
   valueText: {
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: fontFamily.bold,
     color: "#4d5154",
   },
   statusGreen: {
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: fontFamily.extrabold,
     color: "#2d7058",
   },
   rowSubText: {
     fontSize: 11,
-    fontWeight: "500",
+    fontFamily: fontFamily.medium,
     color: "#8a8d90",
   },
   divider: {
@@ -310,12 +286,12 @@ const styles = StyleSheet.create({
   },
   signOutText: {
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: fontFamily.extrabold,
     color: "#9b4c51",
   },
   versionText: {
     fontSize: 11,
-    fontWeight: "500",
+    fontFamily: fontFamily.medium,
     color: "#b4b7b9",
     textAlign: "center",
     marginTop: 4,

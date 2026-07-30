@@ -2,6 +2,14 @@ import { Stack, useRouter, useSegments } from "expo-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
+import {
+  Manrope_400Regular,
+  Manrope_500Medium,
+  Manrope_600SemiBold,
+  Manrope_700Bold,
+  Manrope_800ExtraBold,
+  useFonts,
+} from "@expo-google-fonts/manrope";
 import { AuthProvider } from "@/auth/context";
 import { useAuth } from "@/hooks/useAuth";
 import { useNotifications } from "@/hooks/useNotifications";
@@ -41,6 +49,18 @@ function AuthGate() {
 }
 
 export default function RootLayout() {
+  const [fontsLoaded] = useFonts({
+    Manrope_400Regular,
+    Manrope_500Medium,
+    Manrope_600SemiBold,
+    Manrope_700Bold,
+    Manrope_800ExtraBold,
+  });
+
+  if (!fontsLoaded) {
+    return null;
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
@@ -48,7 +68,11 @@ export default function RootLayout() {
         <ShareIntentHandler />
         <StatusBar style="dark" />
         <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
-          <Stack.Screen name="sign-in" />
+          <Stack.Screen
+            name="sign-in"
+            options={{ contentStyle: { backgroundColor: "#0d0e11" } }}
+          />
+
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="settings" />
           <Stack.Screen

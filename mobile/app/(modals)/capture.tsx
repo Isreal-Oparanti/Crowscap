@@ -12,12 +12,13 @@ import {
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
 import { useState } from "react";
 import { captureText } from "@/api/captures";
 import type { CaptureResponse } from "@/types/api";
 import { validateCaptureText } from "@/utils/validation";
 import { tokens } from "@/theme/tokens";
+import { Icons } from "@/components/ui/Icon";
+import { fontFamily } from "@/theme/typography";
 
 const INTENTS = [
   { key: "learned", label: "Learned" },
@@ -91,7 +92,7 @@ export default function CaptureModal() {
           onPress={() => router.back()}
           hitSlop={8}
         >
-          <Feather name="x" size={18} color={tokens.colors.textMuted} />
+          <Icons.X size={18} color={tokens.colors.textMuted} />
         </Pressable>
       </View>
 
@@ -187,7 +188,7 @@ export default function CaptureModal() {
             <ActivityIndicator size="small" color="#ffffff" />
           ) : (
             <>
-              <Feather name="zap" size={15} color="#ffffff" />
+              <Icons.Zap size={15} color="#ffffff" />
               <Text style={styles.saveButtonText}>Save to memory</Text>
             </>
           )}
@@ -195,7 +196,7 @@ export default function CaptureModal() {
 
         {/* Info note */}
         <View style={styles.infoRow}>
-          <Feather name="lock" size={11} color="#9a9d9f" />
+          <Icons.Lock size={11} color="#9a9d9f" />
           <Text style={styles.infoText}>
             Crowscap extracts structured memories from this content and stores them privately.
           </Text>
@@ -235,13 +236,13 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 16,
-    fontWeight: "800",
+    fontFamily: fontFamily.extrabold,
     color: tokens.colors.text,
-    letterSpacing: -0.3,
+    letterSpacing: 0,
   },
   headerSub: {
     fontSize: 11,
-    fontWeight: "500",
+    fontFamily: fontFamily.medium,
     color: tokens.colors.textMuted,
     marginTop: 2,
   },
@@ -268,9 +269,9 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 10,
-    fontWeight: "800",
+    fontFamily: fontFamily.extrabold,
     color: "#8a8d90",
-    letterSpacing: 0.6,
+    letterSpacing: 0,
   },
 
   contentInput: {
@@ -279,7 +280,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: tokens.spacing[4],
     fontSize: 14,
-    fontWeight: "400",
+    fontFamily: fontFamily.regular,
     color: tokens.colors.text,
     lineHeight: 22,
     minHeight: 140,
@@ -288,14 +289,14 @@ const styles = StyleSheet.create({
   },
   charCount: {
     fontSize: 10,
-    fontWeight: "500",
+    fontFamily: fontFamily.medium,
     color: "#b4b7b9",
     alignSelf: "flex-end",
   },
 
   intentHint: {
     fontSize: 11,
-    fontWeight: "400",
+    fontFamily: fontFamily.regular,
     color: "#9a9d9f",
     marginBottom: 4,
   },
@@ -321,7 +322,7 @@ const styles = StyleSheet.create({
   },
   intentPillText: {
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: fontFamily.semibold,
     color: "#4d5154",
   },
   intentPillTextActive: {
@@ -334,7 +335,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: tokens.spacing[4],
     fontSize: 13,
-    fontWeight: "400",
+    fontFamily: fontFamily.regular,
     color: tokens.colors.text,
     lineHeight: 20,
     minHeight: 72,
@@ -363,9 +364,9 @@ const styles = StyleSheet.create({
   },
   saveButtonText: {
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: fontFamily.extrabold,
     color: "#ffffff",
-    letterSpacing: -0.2,
+    letterSpacing: 0,
   },
 
   infoRow: {
@@ -375,7 +376,7 @@ const styles = StyleSheet.create({
   },
   infoText: {
     fontSize: 11,
-    fontWeight: "400",
+    fontFamily: fontFamily.regular,
     color: "#9a9d9f",
     lineHeight: 16,
     flex: 1,

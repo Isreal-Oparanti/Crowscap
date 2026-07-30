@@ -1,9 +1,17 @@
+import { View } from "react-native";
 import { Tabs } from "expo-router";
-import { Feather } from "@expo/vector-icons";
-import { Platform } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Icons } from "@/components/ui/Icon";
+import { useRecalls } from "@/hooks/useRecalls";
 import { tokens } from "@/theme/tokens";
+import { fontFamily } from "@/theme/typography";
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom + 6, 18);
+  const { data: recallData } = useRecalls();
+  const hasUnreadRecalls = (recallData?.memories?.length ?? 0) > 0;
+
   return (
     <Tabs
       screenOptions={{
@@ -11,36 +19,41 @@ export default function TabLayout() {
         tabBarActiveTintColor: tokens.colors.text,
         tabBarInactiveTintColor: "#888b8e",
         tabBarStyle: {
-          backgroundColor: "rgba(255,255,255,0.97)",
-          borderTopColor: "#e2e4e5",
+          backgroundColor: "#ffffff",
+          borderTopColor: "#f0f1f3",
           borderTopWidth: 1,
-          height: Platform.OS === "ios" ? 84 : 64,
-          paddingBottom: Platform.OS === "ios" ? 28 : 10,
-          paddingTop: 10,
-          shadowColor: "#111111",
-          shadowOffset: { width: 0, height: -4 },
-          shadowOpacity: 0.04,
-          shadowRadius: 12,
-          elevation: 10,
+          height: 54 + bottomInset,
+          paddingBottom: bottomInset,
+          paddingTop: 6,
+          paddingHorizontal: 28,
+          shadowColor: "#000000",
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.03,
+          shadowRadius: 8,
+          elevation: 4,
+        },
+
+        tabBarItemStyle: {
+          paddingHorizontal: 8,
         },
         tabBarLabelStyle: {
           fontSize: 10,
-          fontWeight: "700",
-          letterSpacing: 0.1,
-          marginTop: 2,
+          fontFamily: fontFamily.bold,
+          letterSpacing: 0,
+          marginTop: 1,
         },
         tabBarIconStyle: {
-          marginTop: 2,
+          marginTop: 1,
         },
       }}
+
     >
       <Tabs.Screen
         name="index"
         options={{
           title: "Chat",
           tabBarIcon: ({ color, focused }) => (
-            <Feather
-              name="message-circle"
+            <Icons.MessageCircle
               size={20}
               color={color}
               style={{ opacity: focused ? 1 : 0.75 }}
@@ -53,22 +66,36 @@ export default function TabLayout() {
         options={{
           title: "Recall",
           tabBarIcon: ({ color, focused }) => (
-            <Feather
-              name="book-open"
-              size={20}
-              color={color}
-              style={{ opacity: focused ? 1 : 0.75 }}
-            />
+            <View>
+              <Icons.BookOpenCheck
+                size={20}
+                color={color}
+                style={{ opacity: focused ? 1 : 0.75 }}
+              />
+              {hasUnreadRecalls ? (
+                <View
+                  style={{
+                    position: "absolute",
+                    top: -2,
+                    right: -4,
+                    width: 6,
+                    height: 6,
+                    borderRadius: 3,
+                    backgroundColor: "#2d7058",
+                  }}
+                />
+              ) : null}
+            </View>
           ),
         }}
       />
+
       <Tabs.Screen
         name="search"
         options={{
           title: "Search",
           tabBarIcon: ({ color, focused }) => (
-            <Feather
-              name="search"
+            <Icons.Search
               size={20}
               color={color}
               style={{ opacity: focused ? 1 : 0.75 }}

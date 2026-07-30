@@ -9,7 +9,6 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import { apiRequest } from "@/api/client";
 import { archiveMemory } from "@/api/memories";
@@ -18,6 +17,8 @@ import { MemoryTypeBadge } from "@/components/memory/MemoryTypeBadge";
 import { ConfidencePill } from "@/components/memory/ConfidencePill";
 import { RelationRow } from "@/components/memory/RelationRow";
 import { tokens } from "@/theme/tokens";
+import { Icons } from "@/components/ui/Icon";
+import { fontFamily } from "@/theme/typography";
 
 export default function MemoryDetailModal() {
   const router = useRouter();
@@ -92,7 +93,7 @@ export default function MemoryDetailModal() {
           <Text style={styles.headerSub}>Source-aware atomic memory</Text>
         </View>
         <Pressable style={styles.closeBtn} onPress={() => router.back()} hitSlop={8}>
-          <Feather name="x" size={18} color="#777a7e" />
+          <Icons.X size={18} color="#777a7e" />
         </Pressable>
       </View>
 
@@ -153,7 +154,7 @@ export default function MemoryDetailModal() {
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>EVIDENCE CONFIDENCE REASON</Text>
               <View style={styles.reasonBox}>
-                <Feather name="info" size={12} color="#7b7e82" style={{ marginTop: 2 }} />
+                <Icons.Info size={12} color="#7b7e82" style={{ marginTop: 2 }} />
                 <Text style={styles.reasonText}>{memory.confidence_reason}</Text>
               </View>
             </View>
@@ -186,7 +187,7 @@ export default function MemoryDetailModal() {
               <ActivityIndicator size="small" color="#9b4c51" />
             ) : (
               <>
-                <Feather name="archive" size={15} color="#9b4c51" />
+                <Icons.Archive size={15} color="#9b4c51" />
                 <Text style={styles.archiveBtnText}>Archive memory</Text>
               </>
             )}
@@ -222,13 +223,13 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 16,
-    fontWeight: "800",
+    fontFamily: fontFamily.extrabold,
     color: tokens.colors.text,
-    letterSpacing: -0.3,
+    letterSpacing: 0,
   },
   headerSub: {
     fontSize: 11,
-    fontWeight: "500",
+    fontFamily: fontFamily.medium,
     color: tokens.colors.textMuted,
     marginTop: 1,
   },
@@ -250,6 +251,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 13,
+    fontFamily: fontFamily.medium,
     color: tokens.colors.danger,
     textAlign: "center",
   },
@@ -262,7 +264,7 @@ const styles = StyleSheet.create({
   },
   backBtnText: {
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: fontFamily.bold,
     color: tokens.colors.text,
   },
 
@@ -286,7 +288,7 @@ const styles = StyleSheet.create({
   },
   epistemicText: {
     fontSize: 10,
-    fontWeight: "700",
+    fontFamily: fontFamily.bold,
     color: "#555860",
     textTransform: "capitalize",
   },
@@ -300,7 +302,7 @@ const styles = StyleSheet.create({
   },
   contentText: {
     fontSize: 14,
-    fontWeight: "500",
+    fontFamily: fontFamily.medium,
     color: "#1d1e1f",
     lineHeight: 22,
   },
@@ -310,9 +312,9 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     fontSize: 10,
-    fontWeight: "800",
+    fontFamily: fontFamily.extrabold,
     color: "#8a8d90",
-    letterSpacing: 0.6,
+    letterSpacing: 0,
   },
 
   summaryBox: {
@@ -324,7 +326,7 @@ const styles = StyleSheet.create({
   },
   summaryText: {
     fontSize: 12,
-    fontWeight: "500",
+    fontFamily: fontFamily.medium,
     color: "#464a4d",
     lineHeight: 18,
   },
@@ -341,7 +343,7 @@ const styles = StyleSheet.create({
   },
   reasonText: {
     fontSize: 11,
-    fontWeight: "500",
+    fontFamily: fontFamily.medium,
     color: "#676a6d",
     lineHeight: 16,
     flex: 1,
@@ -365,7 +367,7 @@ const styles = StyleSheet.create({
   },
   archiveBtnText: {
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: fontFamily.extrabold,
     color: "#9b4c51",
   },
 });

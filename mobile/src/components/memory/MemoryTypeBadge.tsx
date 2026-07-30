@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet } from "react-native";
 import type { MemoryType } from "@/types/api";
+import { fontFamily } from "@/theme/typography";
 import { memoryTypeLabel } from "@/utils/format";
 
 const TYPE_STYLES: Record<string, { bg: string; text: string }> = {
@@ -36,7 +37,7 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.3,
+    fontFamily: fontFamily.extrabold,
+    letterSpacing: 0,
   },
 });

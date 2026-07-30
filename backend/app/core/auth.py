@@ -331,7 +331,6 @@ def _upsert_user(
         existing_by_email = db.scalar(select(User).where(User.email == email))
         if existing_by_email is not None:
             user = existing_by_email
-            user.id = user_id
         else:
             user = User(id=user_id, email=email, provider=provider)
             db.add(user)

@@ -7,10 +7,11 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
+import { Icons } from "@/components/ui/Icon";
 import type { CaptureResponse } from "@/types/api";
 import { memoryTypeLabel } from "@/utils/format";
 import { tokens } from "@/theme/tokens";
+import { fontFamily } from "@/theme/typography";
 
 export default function CaptureResultModal() {
   const router = useRouter();
@@ -48,7 +49,7 @@ export default function CaptureResultModal() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <View style={styles.checkCircle}>
-            <Feather name="check" size={16} color="#245e4b" />
+            <Icons.Check size={16} color="#245e4b" />
           </View>
           <View>
             <Text style={styles.headerTitle}>Memory saved</Text>
@@ -77,7 +78,7 @@ export default function CaptureResultModal() {
         {/* Source */}
         {data.source_title ? (
           <View style={styles.sourceRow}>
-            <Feather name="file-text" size={12} color="#8a8d90" />
+            <Icons.FileText size={12} color="#8a8d90" />
             <Text style={styles.sourceTitle} numberOfLines={2}>
               {data.source_title}
             </Text>
@@ -123,7 +124,7 @@ export default function CaptureResultModal() {
                 {/* Relations */}
                 {mem.relationships?.length > 0 ? (
                   <View style={styles.tensionRow}>
-                    <Feather name="git-merge" size={10} color="#7c8083" />
+                    <Icons.GitMerge size={10} color="#7c8083" />
                     <Text style={styles.tensionText}>
                       {mem.relationships.length} relation{mem.relationships.length > 1 ? "s" : ""} detected
                     </Text>
@@ -172,6 +173,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 14,
+    fontFamily: fontFamily.medium,
     color: tokens.colors.textMuted,
     textAlign: "center",
   },
@@ -200,13 +202,13 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: fontFamily.extrabold,
     color: tokens.colors.text,
-    letterSpacing: -0.2,
+    letterSpacing: 0,
   },
   headerSub: {
     fontSize: 11,
-    fontWeight: "500",
+    fontFamily: fontFamily.medium,
     color: tokens.colors.textMuted,
     marginTop: 1,
   },
@@ -219,7 +221,7 @@ const styles = StyleSheet.create({
   },
   doneButtonSmallText: {
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: fontFamily.bold,
     color: tokens.colors.text,
   },
 
@@ -241,7 +243,7 @@ const styles = StyleSheet.create({
   },
   sourceTitle: {
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: fontFamily.semibold,
     color: "#555860",
     flex: 1,
   },
@@ -261,17 +263,17 @@ const styles = StyleSheet.create({
   },
   intentBadgeText: {
     fontSize: 10,
-    fontWeight: "700",
+    fontFamily: fontFamily.bold,
     color: "#4d5154",
-    letterSpacing: 0.3,
+    letterSpacing: 0,
   },
 
   section: { gap: tokens.spacing[3] },
   sectionLabel: {
     fontSize: 10,
-    fontWeight: "800",
+    fontFamily: fontFamily.extrabold,
     color: "#8a8d90",
-    letterSpacing: 0.6,
+    letterSpacing: 0,
   },
 
   memoriesList: { gap: tokens.spacing[3] },
@@ -301,9 +303,9 @@ const styles = StyleSheet.create({
   },
   typeBadgeText: {
     fontSize: 10,
-    fontWeight: "800",
+    fontFamily: fontFamily.extrabold,
     color: "#4d5154",
-    letterSpacing: 0.3,
+    letterSpacing: 0,
   },
   confidenceDot: {
     width: 7,
@@ -317,18 +319,18 @@ const styles = StyleSheet.create({
   confidence_unknown: { backgroundColor: "#b4b7b9" },
   confidenceText: {
     fontSize: 10,
-    fontWeight: "600",
+    fontFamily: fontFamily.semibold,
     color: "#8a8d90",
   },
   memoryContent: {
     fontSize: 13,
-    fontWeight: "500",
+    fontFamily: fontFamily.medium,
     color: "#252627",
     lineHeight: 20,
   },
   memorySummary: {
     fontSize: 11,
-    fontWeight: "400",
+    fontFamily: fontFamily.regular,
     color: "#787c80",
     lineHeight: 16,
   },
@@ -340,7 +342,7 @@ const styles = StyleSheet.create({
   },
   tensionText: {
     fontSize: 10,
-    fontWeight: "600",
+    fontFamily: fontFamily.semibold,
     color: "#7c8083",
   },
 
@@ -353,8 +355,8 @@ const styles = StyleSheet.create({
   },
   doneButtonText: {
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: fontFamily.extrabold,
     color: "#ffffff",
-    letterSpacing: -0.2,
+    letterSpacing: 0,
   },
 });

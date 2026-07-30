@@ -17,6 +17,7 @@ from app.core.auth import issue_mobile_session_token, normalize_google_user_id, 
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.db.models import EmailLoginCode, utc_now
+from app.db.models import User
 from app.db.session import get_db
 
 router = APIRouter(tags=["auth"])
@@ -79,7 +80,11 @@ def create_mobile_session(
     if email_verified not in (True, "true", "True", "1", 1):
         raise HTTPException(status_code=401, detail="Google email is not verified.")
 
-    user_id = normalize_google_user_id(sub)
+    user_id = _resolve_user_id_for_email(
+        db=db,
+        email=email,
+        preferred_user_id=normalize_google_user_id(sub),
+    )
     return _create_session_response(
         db=db,
         user_id=user_id,
@@ -116,6 +121,20 @@ def start_email_session(
 ) -> EmailCodeStartResponse:
     email = _normalize_email(payload.email)
     settings = get_settings()
+    existing_user = _get_user_by_email(db, email)
+
+    if payload.mode == "signup" and existing_user is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="This email already has a Crowscap account. Log in instead.",
+        )
+
+    if payload.mode == "login" and existing_user is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No Crowscap account exists for this email yet. Sign up first.",
+        )
+
     code = f"{random.SystemRandom().randint(0, 999999):06d}"
     expires_at = utc_now() + timedelta(minutes=max(2, settings.crowscap_email_code_ttl_minutes))
 
@@ -149,6 +168,20 @@ def verify_email_session(
     db: Session = Depends(get_db),
 ) -> MobileSessionResponse:
     email = _normalize_email(payload.email)
+    existing_user = _get_user_by_email(db, email)
+
+    if payload.mode == "signup" and existing_user is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="This email already has a Crowscap account. Log in instead.",
+        )
+
+    if payload.mode == "login" and existing_user is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No Crowscap account exists for this email yet. Sign up first.",
+        )
+
     code = re.sub(r"\D", "", payload.code)
     if len(code) != 6:
         raise HTTPException(status_code=400, detail="Enter the 6-digit code from your inbox.")
@@ -185,7 +218,7 @@ def verify_email_session(
     db.commit()
     return _create_session_response(
         db=db,
-        user_id=_normalize_email_user_id(email),
+        user_id=existing_user.id if existing_user is not None else _normalize_email_user_id(email),
         email=email,
         name=email.split("@")[0],
         image_url=None,
@@ -239,6 +272,17 @@ def _normalize_email_user_id(email: str) -> str:
     return f"e_{digest}"
 
 
+def _get_user_by_email(db: Session, email: str) -> User | None:
+    return db.scalar(select(User).where(User.email == email))
+
+
+def _resolve_user_id_for_email(*, db: Session, email: str, preferred_user_id: str) -> str:
+    existing_user = _get_user_by_email(db, email)
+    if existing_user is not None:
+        return existing_user.id
+    return preferred_user_id
+
+
 def _hash_email_code(*, email: str, code: str) -> str:
     settings = get_settings()
     material = f"{email}:{code}".encode("utf-8")
@@ -275,7 +319,7 @@ def _send_login_code(*, email: str, code: str) -> None:
             "https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {api_key}"},
             json={
-                "from": settings.crowscap_email_from,
+                "from": _resend_from_header(settings.crowscap_email_from),
                 "to": [email],
                 "subject": "Your Crowscap sign in code",
                 "html": html,
@@ -286,18 +330,15 @@ def _send_login_code(*, email: str, code: str) -> None:
     except httpx.HTTPStatusError as exc:
         status_code = exc.response.status_code
         response_text = exc.response.text[:600]
+        provider_message = _resend_provider_message(exc.response)
         logger.warning(
-            "email.code.resend_rejected email=%s status=%s body=%s",
+            "email.code.resend_rejected email=%s status=%s message=%s body=%s",
             email,
             status_code,
+            provider_message,
             response_text,
         )
-        if status_code in {401, 403}:
-            detail = "Email sign in is not configured correctly yet. Check the Resend API key."
-        elif status_code in {400, 422}:
-            detail = "Email provider rejected the sender setup. Check that the Resend sender domain is verified."
-        else:
-            detail = "Crowscap could not send the email code right now. Try again shortly."
+        detail = _resend_user_error(status_code=status_code, provider_message=provider_message)
         raise HTTPException(status_code=503, detail=detail) from None
     except httpx.RequestError as exc:
         logger.warning("email.code.resend_network_failed email=%s error=%s", email, str(exc))
@@ -305,6 +346,62 @@ def _send_login_code(*, email: str, code: str) -> None:
             status_code=503,
             detail="Crowscap could not reach the email provider. Check the connection and try again shortly.",
         ) from None
+
+
+def _resend_from_header(value: str) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return "Crowscap <support@crowscap.xyz>"
+
+    match = re.search(r"<([^>]+)>", raw)
+    if match:
+        email_addr = match.group(1).strip()
+    elif "@" in raw:
+        email_addr = raw
+    else:
+        return "Crowscap <support@crowscap.xyz>"
+
+    return f"Crowscap <{email_addr}>"
+
+
+
+def _resend_provider_message(response: httpx.Response) -> str:
+    try:
+        body = response.json()
+    except ValueError:
+        return response.text[:240]
+
+    if isinstance(body, dict):
+        message = body.get("message") or body.get("error") or body.get("name")
+        if isinstance(message, str):
+            return message[:240]
+
+    return response.text[:240]
+
+
+def _resend_user_error(*, status_code: int, provider_message: str) -> str:
+    normalized = provider_message.lower()
+    if status_code == 401 or "api key is invalid" in normalized or "invalid api key" in normalized:
+        return "Email sign in is not configured correctly yet. The Resend API key on the backend is invalid."
+
+    if status_code == 403:
+        if "only send testing emails to your own email address" in normalized:
+            return "Resend is still in test mode. Verify crowscap.xyz in Resend before sending codes to this email."
+        if any(term in normalized for term in ("domain", "sender", "from", "verify")):
+            return "Email sender is not verified in Resend yet. Verify the sender domain, then try again."
+        return "Resend refused the email request. Check that the API key has send-email permission and the sender is verified."
+
+    if status_code in {400, 422}:
+        if any(term in normalized for term in ("domain", "sender", "from", "verify")):
+            return "Email sender is not verified in Resend yet. Verify the sender domain, then try again."
+        if "rate" in normalized:
+            return "The email provider is rate-limiting codes right now. Try again shortly."
+        return "The email provider rejected this sign-in email. Check the sender setup in Resend."
+
+    if status_code == 429:
+        return "The email provider is rate-limiting codes right now. Try again shortly."
+
+    return "Crowscap could not send the email code right now. Try again shortly."
 
 
 def _verify_google_id_token(id_token: str) -> dict[str, Any]:

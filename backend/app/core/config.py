@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     crowscap_mobile_demo_enabled: bool = True
     crowscap_mobile_demo_token: str = "crowscap-demo-workspace"
     resend_api_key: SecretStr | None = Field(default=None)
-    crowscap_email_from: str = "Crowscap <hello@crowscap.xyz>"
+    crowscap_email_from: str = "Crowscap <support@crowscap.xyz>"
     crowscap_email_code_ttl_minutes: int = 10
 
     crowscap_vapid_public_key: str | None = None

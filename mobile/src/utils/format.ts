@@ -10,7 +10,7 @@ export function formatDate(value: string): string {
 /** Truncate text to a max character count */
 export function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
-  return text.slice(0, max).trimEnd() + "…";
+  return text.slice(0, max).trimEnd() + "...";
 }
 
 /** Convert a memory type to a human-readable display label */

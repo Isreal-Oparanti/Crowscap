@@ -22,9 +22,10 @@ export async function apiRequest<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const token = _getToken ? await _getToken() : null;
+  const isMultipart = typeof FormData !== "undefined" && options.body instanceof FormData;
 
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    ...(isMultipart ? {} : { "Content-Type": "application/json" }),
     ...(options.headers as Record<string, string>),
   };
 

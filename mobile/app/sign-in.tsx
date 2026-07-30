@@ -1,6 +1,5 @@
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -11,19 +10,21 @@ import {
   View,
 } from "react-native";
 import { useCallback, useEffect, useState } from "react";
-import { Feather } from "@expo/vector-icons";
 import * as Google from "expo-auth-session/providers/google";
 import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as WebBrowser from "expo-web-browser";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Path } from "react-native-svg";
+import { StatusBar } from "expo-status-bar";
 
 import { createMobileSession, startEmailSession, verifyEmailSession } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { saveSession } from "@/auth/session";
 import { BrandMark } from "@/components/shell/BrandMark";
+import { Icons } from "@/components/ui/Icon";
 import { useAuth } from "@/hooks/useAuth";
-import { tokens } from "@/theme/tokens";
+import { fontFamily } from "@/theme/typography";
 import { makeId } from "@/utils/id";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -51,24 +52,23 @@ export default function SignInScreen() {
   const { setSession } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [mode, setMode] = useState<AuthMode>("signup");
+  const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [codeSent, setCodeSent] = useState(false);
   const [busy, setBusy] = useState<BusyState>(null);
   const [resendIn, setResendIn] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [handledGoogleKey, setHandledGoogleKey] = useState<string | null>(null);
 
-  const [, googleResponse, promptAsync] = Google.useIdTokenAuthRequest(
-    {
-      webClientId: WEB_CLIENT_ID || PLATFORM_CLIENT_ID,
-      iosClientId: IOS_CLIENT_ID || WEB_CLIENT_ID,
-      androidClientId: ANDROID_CLIENT_ID || WEB_CLIENT_ID,
-      scopes: ["openid", "email", "profile"],
-      selectAccount: true,
-    }
-  );
+  const [, googleResponse, promptAsync] = Google.useIdTokenAuthRequest({
+    webClientId: WEB_CLIENT_ID || PLATFORM_CLIENT_ID,
+    iosClientId: IOS_CLIENT_ID || WEB_CLIENT_ID,
+    androidClientId: ANDROID_CLIENT_ID || WEB_CLIENT_ID,
+    scopes: ["openid", "email", "profile"],
+    selectAccount: true,
+  });
 
   useEffect(() => {
     if (!resendIn) return;
@@ -84,11 +84,14 @@ export default function SignInScreen() {
     return () => clearTimeout(timer);
   }, [toast]);
 
-  const finishSignIn = useCallback(async (session: Awaited<ReturnType<typeof createMobileSession>>) => {
-    await saveSession(session);
-    setSession(session);
-    router.replace("/(tabs)" as never);
-  }, [router, setSession]);
+  const finishSignIn = useCallback(
+    async (session: Awaited<ReturnType<typeof createMobileSession>>) => {
+      await saveSession(session);
+      setSession(session);
+      router.replace("/(tabs)" as never);
+    },
+    [router, setSession]
+  );
 
   useEffect(() => {
     if (!googleResponse || googleResponse.type === "cancel" || googleResponse.type === "dismiss") {
@@ -98,7 +101,7 @@ export default function SignInScreen() {
 
     if (googleResponse.type === "error") {
       setBusy(null);
-      Alert.alert("Google sign in failed", "Google rejected this sign-in request. Check the mobile OAuth client IDs and try again.");
+      setErrorMessage("Google sign-in request was rejected. Check your account settings and try again.");
       return;
     }
 
@@ -112,36 +115,36 @@ export default function SignInScreen() {
       if (googleResponse.params.code) return;
       setHandledGoogleKey(responseKey);
       setBusy(null);
-      Alert.alert("Sign in failed", "Google did not return a valid identity token.");
+      setErrorMessage("Google did not return a valid identity token.");
       return;
     }
 
     setHandledGoogleKey(responseKey);
     setBusy("google");
+    setErrorMessage(null);
     createMobileSession({
       id_token: idToken,
       platform: Platform.OS === "ios" ? "ios" : "android",
     })
       .then(finishSignIn)
       .catch((err) => {
-        Alert.alert("Sign in failed", readableAuthError(err));
+        setErrorMessage(readableAuthError(err));
       })
       .finally(() => setBusy(null));
   }, [busy, finishSignIn, googleResponse, handledGoogleKey]);
 
   async function handleGoogleSignIn() {
+    setErrorMessage(null);
     if (IS_EXPO_GO) {
-      Alert.alert(
-        "Use a development build for Google",
-        "Expo Go cannot complete this Google sign-in flow securely. Use the email code while testing in Expo Go, or run a Crowscap development build for Google sign in."
+      setErrorMessage(
+        "Expo Go cannot complete Google sign-in securely. Please use email code in Expo Go, or use a development build."
       );
       return;
     }
 
     if (!WEB_CLIENT_ID || !PLATFORM_CLIENT_ID) {
-      Alert.alert(
-        "Google sign in is not configured",
-        "Add the Web and mobile Google OAuth client IDs to the app environment, then restart Expo."
+      setErrorMessage(
+        "Google sign-in is not configured. Add Web and Mobile OAuth client IDs to environment."
       );
       return;
     }
@@ -153,15 +156,16 @@ export default function SignInScreen() {
         setBusy(null);
       }
     } catch (err) {
-      Alert.alert("Sign in failed", readableAuthError(err));
+      setErrorMessage(readableAuthError(err));
       setBusy(null);
     }
   }
 
   async function requestEmailCode(kind: BusyState = "email-start") {
+    setErrorMessage(null);
     const normalized = email.trim().toLowerCase();
     if (!normalized || !normalized.includes("@")) {
-      Alert.alert("Email required", "Enter the email you want to use for Crowscap.");
+      setErrorMessage("Please enter a valid email address.");
       return;
     }
 
@@ -174,16 +178,17 @@ export default function SignInScreen() {
       setResendIn(result.resend_after_seconds);
       setToast(`We sent a code to ${result.email}.`);
     } catch (err) {
-      Alert.alert("Code could not send", readableAuthError(err));
+      setErrorMessage(readableAuthError(err));
     } finally {
       setBusy(null);
     }
   }
 
   async function verifyEmailCode() {
+    setErrorMessage(null);
     const cleanCode = code.replace(/\D/g, "");
     if (cleanCode.length !== 6) {
-      Alert.alert("Enter the code", "Use the 6-digit code we sent to your inbox.");
+      setErrorMessage("Invalid verification code. Please try again.");
       return;
     }
 
@@ -196,7 +201,7 @@ export default function SignInScreen() {
       });
       await finishSignIn(session);
     } catch (err) {
-      Alert.alert("Code did not work", readableAuthError(err));
+      setErrorMessage(readableAuthError(err));
     } finally {
       setBusy(null);
     }
@@ -207,44 +212,53 @@ export default function SignInScreen() {
     setCode("");
     setCodeSent(false);
     setToast(null);
+    setErrorMessage(null);
   }
 
   const isSignup = mode === "signup";
-  const headline = isSignup ? "Sign Up" : "Log in";
+  const headline = isSignup ? "Register" : "Log in";
   const busyNow = busy !== null;
 
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <ScrollView
+    <View style={styles.outerRoot}>
+      <StatusBar style="light" />
+      <KeyboardAvoidingView
         style={styles.root}
-        contentContainerStyle={[
-          styles.content,
-          { paddingTop: insets.top + 46, paddingBottom: insets.bottom + 28 },
-        ]}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
       >
+
+        <ScrollView
+          style={styles.root}
+          contentContainerStyle={[
+            styles.content,
+            { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 40 },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+
         <View style={styles.logoWrap}>
-          <BrandMark size={58} imageSize={44} />
+          <BrandMark size={44} imageSize={34} />
         </View>
 
         <Text style={styles.heading}>{headline}</Text>
-        <Text style={styles.tagline}>Turn your knowledge into your edge</Text>
+        <Text style={styles.tagline}>Your Personal Intelligent Memory</Text>
 
         <Pressable
-          style={({ pressed }) => [styles.googleButton, pressed && !busyNow ? styles.pressed : null]}
+          style={({ pressed }) => [
+            styles.googleButton,
+            pressed && !busyNow ? styles.pressed : null,
+          ]}
           onPress={handleGoogleSignIn}
           disabled={busyNow}
         >
-          <GoogleMark />
+          <GoogleLogoSvg size={18} />
           <Text style={styles.googleText}>
             {busy === "google" ? "Opening Google..." : "Continue with Google"}
           </Text>
           {busy === "google" ? (
-            <ActivityIndicator size="small" color={tokens.colors.text} />
+            <ActivityIndicator size="small" color="#ffffff" />
           ) : (
             <View style={styles.googleSpacer} />
           )}
@@ -258,19 +272,25 @@ export default function SignInScreen() {
 
         <View style={styles.fieldGroup}>
           <Text style={styles.label}>Email</Text>
-          <View style={styles.inputWrap}>
+          <View
+            style={[
+              styles.inputWrap,
+              errorMessage && !codeSent ? styles.inputErrorBorder : null,
+            ]}
+          >
             <TextInput
               style={styles.input}
               value={email}
               onChangeText={(value) => {
                 setEmail(value);
+                setErrorMessage(null);
                 if (codeSent) {
                   setCode("");
                   setCodeSent(false);
                 }
               }}
-              placeholder="Enter your email address..."
-              placeholderTextColor="#a9abae"
+              placeholder="isrealopa@gmail.com"
+              placeholderTextColor="#5a5e66"
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
@@ -286,25 +306,37 @@ export default function SignInScreen() {
                   setEmail("");
                   setCode("");
                   setCodeSent(false);
+                  setErrorMessage(null);
                 }}
                 hitSlop={8}
               >
-                <Feather name="x" size={20} color="#696d70" />
+                <Icons.X size={16} color="#8a8e94" />
               </Pressable>
             ) : null}
           </View>
+          {errorMessage && !codeSent ? (
+            <Text style={styles.errorText}>{errorMessage}</Text>
+          ) : null}
         </View>
 
         {codeSent ? (
           <View style={styles.fieldGroup}>
             <Text style={styles.label}>Verification code</Text>
-            <View style={styles.inputWrap}>
+            <View
+              style={[
+                styles.inputWrap,
+                errorMessage ? styles.inputErrorBorder : null,
+              ]}
+            >
               <TextInput
                 style={styles.input}
                 value={code}
-                onChangeText={(value) => setCode(value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="Enter code"
-                placeholderTextColor="#a9abae"
+                onChangeText={(value) => {
+                  setCode(value.replace(/\D/g, "").slice(0, 6));
+                  setErrorMessage(null);
+                }}
+                placeholder="676767"
+                placeholderTextColor="#5a5e66"
                 keyboardType="number-pad"
                 editable={!busyNow}
                 maxLength={6}
@@ -312,20 +344,28 @@ export default function SignInScreen() {
                 onSubmitEditing={verifyEmailCode}
               />
             </View>
-            <Text style={styles.helper}>We sent a code to your inbox</Text>
+            {errorMessage ? (
+              <Text style={styles.errorText}>{errorMessage}</Text>
+            ) : (
+              <Text style={styles.helper}>We sent a 6-digit code to your inbox</Text>
+            )}
           </View>
         ) : null}
 
         <Pressable
-          style={({ pressed }) => [styles.continueButton, pressed && !busyNow ? styles.pressed : null]}
+          style={({ pressed }) => [
+            styles.continueButton,
+            pressed && !busyNow ? styles.pressed : null,
+          ]}
           onPress={() => (codeSent ? verifyEmailCode() : requestEmailCode())}
           disabled={busyNow}
         >
           {busy === "email-start" || busy === "email-verify" ? (
-            <ActivityIndicator size="small" color="#ffffff" />
+            <ActivityIndicator size="small" color="#0d0e11" />
           ) : (
             <Text style={styles.continueText}>Continue</Text>
           )}
+
         </Pressable>
 
         {codeSent ? (
@@ -335,7 +375,7 @@ export default function SignInScreen() {
             style={styles.resendButton}
           >
             <Text style={styles.resendText}>
-              {resendIn > 0 ? `Resend in ${resendIn}s` : "Resend code"}
+              {resendIn > 0 ? `Resend in ${resendIn}s` : "Resend verification code"}
             </Text>
           </Pressable>
         ) : null}
@@ -350,22 +390,23 @@ export default function SignInScreen() {
         </View>
 
         <Text style={styles.terms}>
-          By continuing, you acknowledge that you understand and agree to the Terms & Conditions and Privacy Policy.
+          By continuing, you acknowledge that you understand and agree to the Terms & Conditions and Privacy Policy
         </Text>
       </ScrollView>
 
       {toast ? (
-        <View style={[styles.toast, { bottom: insets.bottom + 18 }]}>
+        <View style={[styles.toast, { top: insets.top + 12 }]}>
           <View style={styles.toastIcon}>
-            <Feather name="check" size={20} color="#2d7058" />
+            <Icons.Check size={16} color="#34d399" />
           </View>
           <Text style={styles.toastText}>{toast}</Text>
           <Pressable onPress={() => setToast(null)} hitSlop={8}>
-            <Feather name="x" size={20} color="#4b4f52" />
+            <Icons.X size={16} color="#8a8e94" />
           </Pressable>
         </View>
       ) : null}
     </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -375,225 +416,239 @@ function readableAuthError(error: unknown) {
   }
 
   if (error instanceof TypeError) {
-    return "Crowscap could not reach the backend. Check your internet connection and try again.";
+    return "Crowscap could not reach the server. Please check your internet connection.";
   }
 
-  return error instanceof Error ? error.message : "Something went wrong. Try again.";
+  return error instanceof Error ? error.message : "Something went wrong. Please try again.";
 }
 
-function GoogleMark() {
+function GoogleLogoSvg({ size = 18 }: { size?: number }) {
   return (
-    <View style={styles.googleMark}>
-      <Text style={styles.googleG}>G</Text>
-    </View>
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path
+        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+        fill="#4285F4"
+      />
+      <Path
+        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+        fill="#34A853"
+      />
+      <Path
+        d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.62z"
+        fill="#FBBC05"
+      />
+      <Path
+        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+        fill="#EA4335"
+      />
+    </Svg>
   );
 }
 
 const styles = StyleSheet.create({
+  outerRoot: {
+    flex: 1,
+    backgroundColor: "#0d0e11",
+  },
   root: {
     flex: 1,
-    backgroundColor: "#ffffff",
+    backgroundColor: "#0d0e11",
   },
+
   content: {
-    minHeight: "100%",
-    paddingHorizontal: 28,
+    flexGrow: 1,
+    paddingHorizontal: 22,
   },
+
   logoWrap: {
     alignItems: "center",
-    marginBottom: 30,
+    marginBottom: 20,
+    marginTop: 10,
   },
   heading: {
     textAlign: "center",
-    fontSize: 35,
-    lineHeight: 40,
-    fontWeight: "900",
-    color: tokens.colors.text,
-    letterSpacing: -0.7,
+    fontSize: 28,
+    lineHeight: 34,
+    fontFamily: fontFamily.bold,
+    color: "#ffffff",
+    letterSpacing: -0.3,
   },
   tagline: {
-    marginTop: 24,
+    marginTop: 6,
     textAlign: "center",
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: "500",
-    color: "#777b7e",
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: fontFamily.medium,
+    color: "#8e9196",
   },
   googleButton: {
-    marginTop: 76,
-    minHeight: 58,
+    marginTop: 32,
+    height: 48,
     borderWidth: 1,
-    borderColor: "#dfe1e2",
-    borderRadius: 999,
-    backgroundColor: "#ffffff",
-    paddingHorizontal: 18,
+    borderColor: "#2a2d34",
+    borderRadius: 8,
+    backgroundColor: "#16181c",
+    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    shadowColor: "#111111",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.05,
-    shadowRadius: 18,
-    elevation: 2,
   },
   googleText: {
     flex: 1,
     textAlign: "center",
-    fontSize: 16,
-    fontWeight: "800",
-    color: tokens.colors.text,
+    fontSize: 14,
+    fontFamily: fontFamily.semibold,
+    color: "#ffffff",
   },
   googleSpacer: {
-    width: 28,
-  },
-  googleMark: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#ffffff",
-  },
-  googleG: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#4285f4",
+    width: 18,
   },
   pressed: {
-    opacity: 0.75,
-    transform: [{ scale: 0.995 }],
+    opacity: 0.8,
   },
   dividerRow: {
-    marginTop: 54,
-    marginBottom: 46,
+    marginTop: 26,
+    marginBottom: 24,
     flexDirection: "row",
     alignItems: "center",
-    gap: 18,
+    gap: 14,
   },
   divider: {
     flex: 1,
     height: 1,
-    backgroundColor: "#e5e6e7",
+    backgroundColor: "#22242a",
   },
   dividerText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#777b7e",
+    fontSize: 11,
+    fontFamily: fontFamily.bold,
+    color: "#5b5e64",
+    letterSpacing: 0.5,
   },
   fieldGroup: {
-    gap: 12,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   label: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#676b6f",
+    fontSize: 13,
+    fontFamily: fontFamily.semibold,
+    color: "#ffffff",
+    marginBottom: 8,
   },
   inputWrap: {
-    minHeight: 66,
+    height: 48,
     borderWidth: 1,
-    borderColor: "#cfd2d4",
-    borderRadius: 14,
-    backgroundColor: "#ffffff",
-    paddingHorizontal: 20,
+    borderColor: "#2a2d34",
+    borderRadius: 8,
+    backgroundColor: "#16181c",
+    paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
+  },
+  inputErrorBorder: {
+    borderColor: "#ef5350",
   },
   input: {
     flex: 1,
-    fontSize: 19,
-    lineHeight: 24,
-    fontWeight: "600",
-    color: tokens.colors.text,
-    paddingVertical: Platform.OS === "ios" ? 18 : 12,
+    fontSize: 15,
+    fontFamily: fontFamily.medium,
+    color: "#ffffff",
+    paddingVertical: Platform.OS === "ios" ? 12 : 8,
+  },
+  errorText: {
+    marginTop: 6,
+    fontSize: 13,
+    fontFamily: fontFamily.medium,
+    color: "#ef5350",
   },
   helper: {
-    marginTop: -6,
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#777b7e",
+    marginTop: 6,
+    fontSize: 13,
+    fontFamily: fontFamily.medium,
+    color: "#777b80",
   },
   continueButton: {
-    minHeight: 60,
-    borderRadius: 999,
-    backgroundColor: tokens.colors.text,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 4,
+    marginTop: 8,
   },
   continueText: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#ffffff",
+    fontSize: 15,
+    fontFamily: fontFamily.bold,
+    color: "#0d0e11",
   },
   resendButton: {
     alignItems: "center",
-    paddingVertical: 28,
+    paddingVertical: 14,
   },
   resendText: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#6e7275",
+    fontSize: 14,
+    fontFamily: fontFamily.medium,
+    color: "#ffffff",
+    textDecorationLine: "underline",
   },
   modeRow: {
-    marginTop: 30,
+    marginTop: 18,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 14,
+    gap: 6,
   },
   modeText: {
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: "700",
-    color: "#6e7275",
+    fontSize: 14,
+    fontFamily: fontFamily.medium,
+    color: "#8e9196",
   },
   modeLink: {
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: "900",
-    color: tokens.colors.text,
+    fontSize: 14,
+    fontFamily: fontFamily.bold,
+    color: "#ffffff",
   },
   terms: {
-    marginTop: 90,
+    marginTop: 42,
     textAlign: "center",
-    fontSize: 13,
-    lineHeight: 24,
-    fontWeight: "500",
-    color: "#a0a3a6",
+    fontSize: 12,
+    lineHeight: 18,
+    fontFamily: fontFamily.regular,
+    color: "#60646a",
+    paddingHorizontal: 12,
   },
   toast: {
     position: "absolute",
-    left: 24,
-    right: 24,
-    minHeight: 72,
-    borderRadius: 22,
-    backgroundColor: "#ffffff",
+    left: 20,
+    right: 20,
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: "#1c1e24",
     borderWidth: 1,
-    borderColor: "#eceeef",
+    borderColor: "#2c2f38",
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 20,
-    shadowColor: "#111111",
-    shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.15,
-    shadowRadius: 30,
-    elevation: 8,
+    gap: 10,
+    paddingHorizontal: 16,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 6,
+    zIndex: 100,
   },
+
   toastIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 2,
-    borderColor: "#85caa8",
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1.5,
+    borderColor: "#34d399",
     alignItems: "center",
     justifyContent: "center",
   },
   toastText: {
     flex: 1,
-    fontSize: 15,
-    lineHeight: 21,
-    fontWeight: "600",
-    color: "#4b4f52",
+    fontSize: 13.5,
+    fontFamily: fontFamily.medium,
+    color: "#d1d5db",
   },
 });
+

@@ -5,6 +5,7 @@ import { MemoryTypeBadge } from "./MemoryTypeBadge";
 import { ConfidencePill } from "./ConfidencePill";
 import { SourceLink } from "./SourceLink";
 import { RelationRow } from "./RelationRow";
+import { fontFamily } from "@/theme/typography";
 
 type DisplayMemory = MemoryAtom | RecentMemory | SearchResult;
 
@@ -83,13 +84,13 @@ const styles = StyleSheet.create({
   },
   scoreText: {
     fontSize: 10,
-    fontWeight: "800",
+    fontFamily: fontFamily.extrabold,
     color: "#2d7058",
     marginLeft: "auto",
   },
   content: {
     fontSize: 13,
-    fontWeight: "500",
+    fontFamily: fontFamily.medium,
     color: "#252627",
     lineHeight: 20,
   },

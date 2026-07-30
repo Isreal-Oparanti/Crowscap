@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet } from "react-native";
-import { Feather } from "@expo/vector-icons";
 import type { MemoryRelation } from "@/types/api";
+import { Icons } from "@/components/ui/Icon";
+import { fontFamily } from "@/theme/typography";
 
 const RELATION_LABELS: Record<string, string> = {
   confirms: "Agrees with something you saved",
@@ -15,7 +16,7 @@ export function RelationRow({ relation }: { relation: MemoryRelation }) {
 
   return (
     <View style={styles.container}>
-      <Feather name="git-merge" size={13} color="#8b5a1e" style={styles.icon} />
+      <Icons.GitMerge size={13} color="#8b5a1e" style={styles.icon} />
       <View style={styles.content}>
         <Text style={styles.label}>{label.toUpperCase()}</Text>
         {relation.explanation ? (
@@ -46,13 +47,13 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 9,
-    fontWeight: "800",
+    fontFamily: fontFamily.extrabold,
     color: "#8b5a1e",
-    letterSpacing: 0.5,
+    letterSpacing: 0,
   },
   explanation: {
     fontSize: 11,
-    fontWeight: "600",
+    fontFamily: fontFamily.semibold,
     color: "#6b4515",
     lineHeight: 16,
   },

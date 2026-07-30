@@ -1,302 +1,458 @@
+import { useMemo, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TextInput,
-  Pressable,
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { completeReminder, snoozeReminder } from "@/api/recalls";
+import { BrandMark } from "@/components/shell/BrandMark";
+import { Icons } from "@/components/ui/Icon";
+import { MarkdownText } from "@/components/ui/MarkdownText";
 import { useRecalls } from "@/hooks/useRecalls";
-import { memoryTypeLabel, formatOverdue } from "@/utils/format";
 import { tokens } from "@/theme/tokens";
+import { fontFamily } from "@/theme/typography";
+import type { DueReminder, RecallMemory } from "@/types/api";
+import { formatOverdue, memoryTypeLabel, truncate } from "@/utils/format";
+
+type ReadyItem =
+  | { kind: "reminder"; id: string; reminder: DueReminder }
+  | { kind: "memory"; id: string; memory: RecallMemory };
+
+function formatDue(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Due now";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function itemKey(item: ReadyItem) {
+  return `${item.kind}:${item.id}`;
+}
+
+function itemTitle(item: ReadyItem) {
+  if (item.kind === "reminder") return item.reminder.content;
+  return item.memory.summary || item.memory.content;
+}
+
+function itemSubtitle(item: ReadyItem) {
+  if (item.kind === "reminder") return formatDue(item.reminder.due_at);
+  return item.memory.source_title || "Saved memory";
+}
 
 export default function RecallScreen() {
-  const insets = useSafeAreaInsets();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const {
     data,
     loading,
     error,
-    selectedMemory,
-    selectedId,
-    setSelectedId,
     answering,
     evaluation,
-    submitAnswer,
-    nextRecall,
+    submitAnswerFor,
     refresh,
   } = useRecalls();
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [writtenAnswer, setWrittenAnswer] = useState("");
+  const [reminderWorking, setReminderWorking] = useState(false);
 
-  const [answerText, setAnswerText] = useState("");
-  const [rating, setRating] = useState(3);
+  const readyItems = useMemo<ReadyItem[]>(() => {
+    const reminders = (data?.reminders ?? []).map((reminder) => ({
+      kind: "reminder" as const,
+      id: reminder.reminder_id,
+      reminder,
+    }));
+    const memories = (data?.memories ?? []).map((memory) => ({
+      kind: "memory" as const,
+      id: memory.memory_id,
+      memory,
+    }));
+    return [...reminders, ...memories];
+  }, [data]);
 
-  const handleSubmit = async () => {
-    if (!answerText.trim() || answering) return;
-    await submitAnswer(answerText.trim(), rating);
-    setAnswerText("");
+  const activeItem = readyItems.find((item) => itemKey(item) === activeKey) ?? null;
+
+  const closeDetail = () => {
+    setActiveKey(null);
+    setWrittenAnswer("");
   };
 
-  const dueCount = data?.due_count ?? 0;
+  const completeActiveReminder = async (reminderId: string) => {
+    if (reminderWorking) return;
+    setReminderWorking(true);
+    try {
+      await completeReminder(reminderId);
+      closeDetail();
+      await refresh();
+    } catch (err) {
+      Alert.alert(
+        "Could not finish reminder",
+        err instanceof Error ? err.message : "Please try again."
+      );
+    } finally {
+      setReminderWorking(false);
+    }
+  };
 
-  return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <View style={styles.headerTitleRow}>
-          <Text style={styles.headerTitle}>Recall</Text>
-          {dueCount > 0 ? (
-            <View style={styles.readyBadge}>
-              <View style={styles.readyDot} />
-              <Text style={styles.readyText}>{dueCount} Ready</Text>
-            </View>
-          ) : (
-            <Text style={styles.headerSub}>Active review queue</Text>
-          )}
+  const snoozeActiveReminder = async (reminderId: string) => {
+    if (reminderWorking) return;
+    setReminderWorking(true);
+    try {
+      await snoozeReminder(reminderId, 60);
+      closeDetail();
+      await refresh();
+    } catch (err) {
+      Alert.alert(
+        "Could not snooze reminder",
+        err instanceof Error ? err.message : "Please try again."
+      );
+    } finally {
+      setReminderWorking(false);
+    }
+  };
+
+  const submitQuickRecall = async (memory: RecallMemory, answer: string, rating: number) => {
+    await submitAnswerFor(memory.memory_id, answer, rating);
+    setWrittenAnswer("");
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.root}>
+        <Header onSettings={() => router.push("/settings" as never)} />
+        <View style={styles.centered}>
+          <ActivityIndicator size="small" color={tokens.colors.text} />
+          <Text style={styles.mutedText}>Checking what is ready.</Text>
         </View>
-        <View style={styles.headerActions}>
-          <Pressable onPress={refresh} style={styles.refreshBtn} hitSlop={8}>
-            <Feather name="refresh-cw" size={16} color="#777a7e" />
-          </Pressable>
-          <Pressable onPress={() => router.push("/settings" as never)} style={styles.refreshBtn} hitSlop={8}>
-            <Feather name="settings" size={18} color={tokens.colors.text} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.root}>
+        <Header onSettings={() => router.push("/settings" as never)} />
+        <View style={styles.centered}>
+          <Text style={styles.errorTitle}>Recall could not load</Text>
+          <Text style={styles.errorBody}>{error}</Text>
+          <Pressable style={styles.primaryButton} onPress={refresh}>
+            <Text style={styles.primaryButtonText}>Try again</Text>
           </Pressable>
         </View>
       </View>
+    );
+  }
 
-      {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="small" color={tokens.colors.text} />
-        </View>
-      ) : error ? (
-        <View style={styles.centered}>
-          <Text style={styles.errorText}>{error}</Text>
-          <Pressable onPress={refresh} style={styles.retryBtn}>
-            <Text style={styles.retryBtnText}>Retry</Text>
+  return (
+    <View style={styles.root}>
+      <Header onSettings={() => router.push("/settings" as never)} />
+      {activeItem ? (
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={[styles.detailContent, { paddingBottom: insets.bottom + 108 }]}
+          showsVerticalScrollIndicator={false}
+        >
+          <Pressable style={styles.backRow} onPress={closeDetail}>
+            <Icons.ArrowLeft size={18} color={tokens.colors.text} />
+            <Text style={styles.backText}>All ready items</Text>
           </Pressable>
-        </View>
-      ) : !selectedMemory || dueCount === 0 ? (
-        <View style={styles.centered}>
-          <View style={styles.emptyIcon}>
-            <Feather name="check-circle" size={32} color="#2d7058" />
-          </View>
-          <Text style={styles.emptyTitle}>All caught up!</Text>
-          <Text style={styles.emptySub}>
-            No due recall prompts right now. Crowscap will notify you when your next memory is ready for review.
-          </Text>
-        </View>
+
+          {activeItem.kind === "reminder" ? (
+            <ReminderDetail
+              reminder={activeItem.reminder}
+              working={reminderWorking}
+              onDone={() => completeActiveReminder(activeItem.reminder.reminder_id)}
+              onSnooze={() => snoozeActiveReminder(activeItem.reminder.reminder_id)}
+            />
+          ) : (
+            <MemoryDetail
+              memory={activeItem.memory}
+              answering={answering}
+              evaluation={evaluation}
+              answer={writtenAnswer}
+              onChangeAnswer={setWrittenAnswer}
+              onQuickAnswer={(answer, rating) =>
+                submitQuickRecall(activeItem.memory, answer, rating)
+              }
+              onSubmit={() =>
+                submitQuickRecall(
+                  activeItem.memory,
+                  writtenAnswer.trim() || "I reviewed this memory.",
+                  4
+                )
+              }
+            />
+          )}
+        </ScrollView>
       ) : (
         <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingBottom: insets.bottom + 32 },
-          ]}
+          style={styles.content}
+          contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 96 }]}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
         >
-          {/* Queue selector */}
-          {data && data.memories.length > 1 ? (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.queueBar}
-            >
-              {data.memories.map((m, idx) => {
-                const active = m.memory_id === selectedId;
-                return (
-                  <Pressable
-                    key={m.memory_id}
-                    style={[styles.queueChip, active && styles.queueChipActive]}
-                    onPress={() => setSelectedId(m.memory_id)}
-                  >
-                    <Text
-                      style={[
-                        styles.queueChipText,
-                        active && styles.queueChipTextActive,
-                      ]}
-                    >
-                      Prompt {idx + 1}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          ) : null}
-
-          {/* Active Recall Card */}
-          <View style={styles.recallCard}>
-            <View style={styles.cardHeader}>
-              <View style={styles.badgeRow}>
-                <View style={styles.typeBadge}>
-                  <Text style={styles.typeBadgeText}>
-                    {memoryTypeLabel(selectedMemory.memory_type)}
-                  </Text>
-                </View>
-                <View
-                  style={[
-                    styles.confidenceDot,
-                    styles[`conf_${selectedMemory.confidence}`],
-                  ]}
-                />
-                <Text style={styles.confidenceLabel}>
-                  {selectedMemory.confidence}
-                </Text>
-              </View>
-
-              {selectedMemory.overdue_seconds > 0 ? (
-                <View style={styles.overdueBadge}>
-                  <Feather name="clock" size={10} color="#b07030" />
-                  <Text style={styles.overdueText}>
-                    {formatOverdue(selectedMemory.overdue_seconds)}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-
-            {/* Prompt Question */}
-            <Text style={styles.questionPrompt}>
-              How would you explain or apply this memory in your own words?
-            </Text>
-
-            {/* Memory Content Box */}
-            <View style={styles.memoryBox}>
-              <Text style={styles.memoryContentText}>
-                {selectedMemory.content}
-              </Text>
-              {selectedMemory.source_title ? (
-                <Text style={styles.sourceTitle}>
-                  Source: {selectedMemory.source_title}
-                </Text>
-              ) : null}
-            </View>
+          <View style={styles.hero}>
+            <Text style={styles.eyebrow}>READY NOW</Text>
+            <Text style={styles.heroTitle}>Choose what to revisit.</Text>
           </View>
 
-          {/* Evaluation result if completed */}
-          {evaluation ? (
-            <View style={styles.evalCard}>
-              <View style={styles.evalHeader}>
-                <View style={styles.evalScoreBadge}>
-                  <Text style={styles.evalScoreText}>
-                    Score: {Math.round(evaluation.score * 100)}%
-                  </Text>
-                </View>
-                <Text style={styles.evalRatingLabel}>
-                  {evaluation.rating.toUpperCase()}
-                </Text>
-              </View>
-
-              <Text style={styles.evalFeedback}>{evaluation.feedback}</Text>
-
-              {evaluation.understanding_summary ? (
-                <View style={styles.evalSummaryBox}>
-                  <Text style={styles.evalSectionTitle}>UNDERSTANDING</Text>
-                  <Text style={styles.evalSummaryText}>
-                    {evaluation.understanding_summary}
-                  </Text>
-                </View>
-              ) : null}
-
-              {evaluation.knowledge_gaps.length > 0 ? (
-                <View style={styles.evalGapBox}>
-                  <Text style={styles.evalGapTitle}>KNOWLEDGE GAPS</Text>
-                  {evaluation.knowledge_gaps.map((gap, i) => (
-                    <Text key={i} style={styles.evalGapText}>
-                      • {gap}
-                    </Text>
-                  ))}
-                </View>
-              ) : null}
-
-              {evaluation.next_question ? (
-                <View style={styles.nextQuestionBox}>
-                  <Text style={styles.evalSectionTitle}>DEEPER QUESTION</Text>
-                  <Text style={styles.nextQuestionText}>
-                    {evaluation.next_question}
-                  </Text>
-                </View>
-              ) : null}
-
-              <Pressable style={styles.nextBtn} onPress={nextRecall}>
-                <Text style={styles.nextBtnText}>Next prompt</Text>
-                <Feather name="arrow-right" size={16} color="#ffffff" />
-              </Pressable>
+          {readyItems.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Icons.Clock3 size={20} color={tokens.colors.textMuted} />
+              <Text style={styles.emptyTitle}>Nothing ready right now.</Text>
+              <Text style={styles.emptyBody}>
+                Crowscap will bring back a memory when it is useful again.
+              </Text>
             </View>
           ) : (
-            /* Answer Form */
-            <View style={styles.formCard}>
-              <Text style={styles.formLabel}>YOUR ANSWER</Text>
-              <TextInput
-                style={styles.answerInput}
-                value={answerText}
-                onChangeText={setAnswerText}
-                placeholder="Explain the key idea, or how you would use it..."
-                placeholderTextColor="#b4b7b9"
-                multiline
-                numberOfLines={4}
-                textAlignVertical="top"
-              />
-
-              {/* Rating 1 - 5 */}
-              <Text style={styles.formLabel}>HOW WELL DID YOU REMEMBER THIS?</Text>
-              <View style={styles.ratingRow}>
-                {[1, 2, 3, 4, 5].map((val) => (
-                  <Pressable
-                    key={val}
-                    style={[
-                      styles.ratingBtn,
-                      rating === val && styles.ratingBtnActive,
-                    ]}
-                    onPress={() => setRating(val)}
-                  >
-                    <Text
-                      style={[
-                        styles.ratingBtnText,
-                        rating === val && styles.ratingBtnTextActive,
-                      ]}
-                    >
-                      {val}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-              <View style={styles.ratingScaleLabels}>
-                <Text style={styles.scaleText}>1 (Vague)</Text>
-                <Text style={styles.scaleText}>5 (Perfect)</Text>
-              </View>
-
-              <Pressable
-                style={({ pressed }) => [
-                  styles.submitBtn,
-                  (!answerText.trim() || answering) && styles.submitBtnDisabled,
-                  pressed && answerText.trim() && { opacity: 0.85 },
-                ]}
-                onPress={handleSubmit}
-                disabled={!answerText.trim() || answering}
-              >
-                {answering ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
-                ) : (
-                  <>
-                    <Text style={styles.submitBtnText}>Evaluate answer</Text>
-                    <Feather name="send" size={14} color="#ffffff" />
-                  </>
-                )}
-              </Pressable>
+            <View style={styles.readyList}>
+              {readyItems.map((item, index) => (
+                <ReadyRow
+                  key={itemKey(item)}
+                  item={item}
+                  index={index}
+                  onPress={() => setActiveKey(itemKey(item))}
+                />
+              ))}
             </View>
           )}
         </ScrollView>
       )}
-    </KeyboardAvoidingView>
+    </View>
+  );
+
+}
+
+function Header({ onSettings }: { onSettings: () => void }) {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { data: recallData } = useRecalls();
+  const hasUnreadRecalls = (recallData?.memories?.length ?? 0) > 0;
+
+  return (
+    <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+      <View style={styles.headerBrand}>
+        <BrandMark size={38} imageSize={29} />
+        <View>
+          <Text style={styles.headerTitle}>Recall</Text>
+          <Text style={styles.headerSub}>Ready items</Text>
+        </View>
+      </View>
+      <View style={styles.headerActions}>
+        <Pressable onPress={() => router.push("/(tabs)/recall" as never)} hitSlop={8} style={styles.iconButton}>
+          <Icons.Bell size={19} color={tokens.colors.text} />
+          {hasUnreadRecalls ? <View style={styles.bellDot} /> : null}
+        </Pressable>
+        <Pressable onPress={onSettings} hitSlop={8} style={styles.iconButton}>
+          <Icons.Settings size={19} color={tokens.colors.text} />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+
+function ReadyRow({ item, index, onPress }: { item: ReadyItem; index: number; onPress: () => void }) {
+  const isReminder = item.kind === "reminder";
+  const label = isReminder ? "REMINDER" : memoryTypeLabel(item.memory.memory_type).toUpperCase();
+  const title = itemTitle(item);
+  const subtitle = itemSubtitle(item);
+  const isFirst = index === 0;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.readyRow,
+        isFirst && styles.firstReadyRow,
+        pressed && styles.readyRowPressed,
+      ]}
+    >
+      <View style={[styles.rowIcon, isReminder && styles.reminderIcon]}>
+        {isReminder ? (
+          <Icons.Bell size={17} color="#2d7058" />
+        ) : (
+          <Icons.BookOpenCheck size={17} color="#2d7058" />
+        )}
+      </View>
+      <View style={styles.rowBody}>
+        <Text style={styles.rowLabel}>{label}</Text>
+        <Text style={styles.rowTitle} numberOfLines={2}>
+          {title}
+        </Text>
+        <Text style={styles.rowSubtitle} numberOfLines={1}>
+          {subtitle}
+        </Text>
+      </View>
+      <Icons.ChevronRight size={16} color="#9fa3a7" />
+    </Pressable>
+  );
+}
+
+
+function ReminderDetail({
+  reminder,
+  working,
+  onDone,
+  onSnooze,
+}: {
+  reminder: DueReminder;
+  working: boolean;
+  onDone: () => void;
+  onSnooze: () => void;
+}) {
+  return (
+    <View style={styles.detailBlock}>
+      <View style={styles.detailLabelRow}>
+        <Icons.Bell size={17} color="#2f7b60" />
+        <Text style={styles.detailLabel}>REMINDER READY</Text>
+      </View>
+      <Text style={styles.detailTitle}>{reminder.content}</Text>
+      <Text style={styles.detailMeta}>
+        Due {formatDue(reminder.due_at)} - {formatOverdue(reminder.overdue_seconds)}
+      </Text>
+
+      <View style={styles.noticeBox}>
+        <Text style={styles.noticeTitle}>ONE-TIME REMINDER</Text>
+        <Text style={styles.noticeText}>
+          Mark it done and it leaves the active recall surface.
+        </Text>
+      </View>
+
+      <View style={styles.actionRow}>
+        <Pressable style={styles.outlineButton} onPress={onDone} disabled={working}>
+          {working ? (
+            <ActivityIndicator size="small" color="#2f7b60" />
+          ) : (
+            <>
+              <Icons.CheckCircle size={17} color="#2f7b60" />
+              <Text style={styles.outlineButtonText}>Done</Text>
+            </>
+          )}
+        </Pressable>
+        <Pressable style={styles.outlineButton} onPress={onSnooze} disabled={working}>
+          <Icons.Clock3 size={17} color="#596066" />
+          <Text style={styles.outlineButtonText}>Snooze 1h</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function MemoryDetail({
+  memory,
+  answering,
+  evaluation,
+  answer,
+  onChangeAnswer,
+  onQuickAnswer,
+  onSubmit,
+}: {
+  memory: RecallMemory;
+  answering: boolean;
+  evaluation: ReturnType<typeof useRecalls>["evaluation"];
+  answer: string;
+  onChangeAnswer: (value: string) => void;
+  onQuickAnswer: (answer: string, rating: number) => void;
+  onSubmit: () => void;
+}) {
+  const title = memory.summary || memory.content;
+
+  return (
+      <View style={styles.detailBlock}>
+        <View style={styles.detailLabelRow}>
+        <Icons.BookOpenCheck size={17} color="#2f7b60" />
+        <Text style={styles.detailLabel}>A THOUGHT IS READY</Text>
+      </View>
+      <Text style={styles.detailTitle}>{title}</Text>
+      <Text style={styles.detailMeta}>
+        {memory.source_title || "Saved memory"} - {formatOverdue(memory.overdue_seconds)}
+      </Text>
+
+      <View style={styles.ideaBox}>
+        <Text style={styles.ideaLabel}>THE IDEA</Text>
+        <MarkdownText text={memory.content} compact />
+      </View>
+
+      {memory.epistemic_label ? (
+        <View style={styles.warningBox}>
+          <Icons.CircleAlert size={14} color="#9b6a24" />
+          <Text style={styles.warningText}>
+            Saved as {memory.epistemic_label.replace("_", " ")}, not as verified fact.
+          </Text>
+        </View>
+      ) : null}
+
+      <View style={styles.checkBox}>
+        <Text style={styles.checkLabel}>QUICK CHECK</Text>
+        <Text style={styles.checkQuestion}>
+          Does this still feel useful for what you are doing now?
+        </Text>
+        <View style={styles.quickGrid}>
+          <Pressable
+            style={styles.quickButton}
+            disabled={answering}
+            onPress={() => onQuickAnswer("This is still useful.", 5)}
+          >
+            <Text style={styles.quickButtonText}>Still useful</Text>
+          </Pressable>
+          <Pressable
+            style={styles.quickButton}
+            disabled={answering}
+            onPress={() => onQuickAnswer("I used this memory.", 5)}
+          >
+            <Text style={styles.quickButtonText}>I used it</Text>
+          </Pressable>
+          <Pressable
+            style={styles.quickButton}
+            disabled={answering}
+            onPress={() => onQuickAnswer("Not now.", 2)}
+          >
+            <Text style={styles.quickButtonText}>Not now</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      <View style={styles.answerBox}>
+        <Text style={styles.checkLabel}>REVIEW DEEPER</Text>
+        <TextInput
+          value={answer}
+          onChangeText={onChangeAnswer}
+          multiline
+          placeholder="Write what changed, what you used, or what still feels unclear."
+          placeholderTextColor="#9b9fa4"
+          style={styles.answerInput}
+          textAlignVertical="top"
+        />
+        <Pressable
+          style={[styles.primaryButton, (!answer.trim() || answering) && styles.disabledButton]}
+          disabled={!answer.trim() || answering}
+          onPress={onSubmit}
+        >
+          {answering ? (
+            <ActivityIndicator size="small" color="#ffffff" />
+          ) : (
+            <Text style={styles.primaryButtonText}>Save review</Text>
+          )}
+        </Pressable>
+      </View>
+
+      {evaluation ? (
+        <View style={styles.evaluationBox}>
+          <Text style={styles.evaluationTitle}>Review saved</Text>
+          <MarkdownText text={evaluation.feedback} compact />
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -309,399 +465,359 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: tokens.spacing[5],
+    paddingHorizontal: tokens.spacing[4],
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#e7e8e9",
+    borderBottomColor: "#f0f1f3",
     backgroundColor: "#ffffff",
   },
-  headerTitleRow: {
+  headerBrand: {
     flexDirection: "row",
     alignItems: "center",
-    gap: tokens.spacing[3],
+    gap: 12,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: "800",
+    fontSize: 19,
+    fontFamily: fontFamily.extrabold,
     color: tokens.colors.text,
-    letterSpacing: -0.3,
   },
   headerSub: {
-    fontSize: 11,
-    fontWeight: "500",
+    marginTop: 2,
+    fontSize: 13,
     color: tokens.colors.textMuted,
-  },
-  readyBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "#eaf3ee",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-  },
-  readyDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#2d7058",
-  },
-  readyText: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#2d7058",
-    letterSpacing: 0.3,
+    fontFamily: fontFamily.medium,
   },
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 4,
   },
-  refreshBtn: {
-    padding: 6,
+  bellDot: {
+    position: "absolute",
+    top: 7,
+    right: 7,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#2d7058",
+  },
+  iconButton: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  content: {
+    flex: 1,
+    backgroundColor: "#ffffff",
+  },
+  listContent: {
+    paddingTop: 0,
+  },
+  detailContent: {
+    paddingHorizontal: 24,
+    paddingTop: 24,
+  },
+  hero: {
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f1f3",
+  },
+  eyebrow: {
+    fontSize: 11,
+    fontFamily: fontFamily.extrabold,
+    color: "#787c80",
+    marginBottom: 6,
+    letterSpacing: 0.5,
+  },
+  heroTitle: {
+    fontSize: 24,
+    lineHeight: 30,
+    fontFamily: fontFamily.bold,
+    color: "#111418",
+  },
+  readyList: {
+    backgroundColor: "#ffffff",
+  },
+  readyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f1f3",
+    backgroundColor: "#ffffff",
+  },
+  firstReadyRow: {
+    backgroundColor: "#f1f7f4",
+  },
+  readyRowPressed: {
+    backgroundColor: "#eaf5ef",
+  },
+  rowIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#e8f4ed",
+  },
+  reminderIcon: {
+    backgroundColor: "#fff7df",
+  },
+  rowBody: {
+    flex: 1,
+    gap: 3,
+  },
+  rowLabel: {
+    fontSize: 10.5,
+    fontFamily: fontFamily.extrabold,
+    color: "#787c80",
+    letterSpacing: 0.5,
+  },
+  rowTitle: {
+    fontSize: 14.5,
+    lineHeight: 20,
+    color: "#111418",
+    fontFamily: fontFamily.bold,
+  },
+  rowSubtitle: {
+    fontSize: 12,
+    color: "#8a8e94",
+    fontFamily: fontFamily.medium,
   },
 
+  backRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    alignSelf: "flex-start",
+    marginBottom: 26,
+  },
+  backText: {
+    fontSize: 14,
+    color: tokens.colors.text,
+    fontFamily: fontFamily.extrabold,
+  },
+  detailBlock: {
+    gap: 18,
+  },
+  detailLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+  },
+  detailLabel: {
+    fontSize: 11,
+    fontFamily: fontFamily.extrabold,
+    color: "#2f7b60",
+  },
+  detailTitle: {
+    fontSize: 30,
+    lineHeight: 36,
+    fontFamily: fontFamily.extrabold,
+    color: tokens.colors.text,
+  },
+  detailMeta: {
+    marginTop: -8,
+    fontSize: 13,
+    lineHeight: 18,
+    color: tokens.colors.textMuted,
+    fontFamily: fontFamily.semibold,
+  },
+  noticeBox: {
+    borderWidth: 1,
+    borderColor: "#c9e0d3",
+    borderRadius: 10,
+    backgroundColor: "#f1faf5",
+    padding: 18,
+    gap: 8,
+  },
+  noticeTitle: {
+    fontSize: 11,
+    fontFamily: fontFamily.extrabold,
+    color: "#2f7b60",
+  },
+  noticeText: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: "#355447",
+    fontFamily: fontFamily.medium,
+  },
+  actionRow: {
+    flexDirection: "row",
+    gap: 10,
+    flexWrap: "wrap",
+  },
+  outlineButton: {
+    minHeight: 52,
+    minWidth: 118,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "#d5dadd",
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    backgroundColor: "#ffffff",
+  },
+  outlineButtonText: {
+    fontSize: 16,
+    color: "#373b3f",
+    fontFamily: fontFamily.bold,
+  },
+  ideaBox: {
+    borderWidth: 1,
+    borderColor: "#dfe3e5",
+    borderRadius: 12,
+    backgroundColor: "#ffffff",
+    padding: 18,
+    gap: 10,
+  },
+  ideaLabel: {
+    fontSize: 11,
+    fontFamily: fontFamily.extrabold,
+    color: "#7a7d82",
+  },
+  warningBox: {
+    flexDirection: "row",
+    gap: 9,
+    borderWidth: 1,
+    borderColor: "#eed8ae",
+    borderRadius: 10,
+    backgroundColor: "#fff8eb",
+    padding: 14,
+  },
+  warningText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+    color: "#8a641f",
+    fontFamily: fontFamily.semibold,
+  },
+  checkBox: {
+    borderWidth: 1,
+    borderColor: "#c9e0d3",
+    borderRadius: 12,
+    backgroundColor: "#f1faf5",
+    padding: 18,
+    gap: 12,
+  },
+  checkLabel: {
+    fontSize: 11,
+    fontFamily: fontFamily.extrabold,
+    color: "#2f7b60",
+  },
+  checkQuestion: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: "#355447",
+    fontFamily: fontFamily.semibold,
+  },
+  quickGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  quickButton: {
+    borderWidth: 1,
+    borderColor: "#d5dadd",
+    borderRadius: 8,
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+  },
+  quickButtonText: {
+    fontSize: 14,
+    color: "#3f4347",
+    fontFamily: fontFamily.bold,
+  },
+  answerBox: {
+    gap: 10,
+  },
+  answerInput: {
+    minHeight: 110,
+    borderWidth: 1,
+    borderColor: "#d8dcdf",
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 15,
+    lineHeight: 21,
+    fontFamily: fontFamily.medium,
+    color: tokens.colors.text,
+    backgroundColor: "#ffffff",
+  },
+  primaryButton: {
+    minHeight: 48,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#111111",
+    paddingHorizontal: 18,
+  },
+  primaryButtonText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontFamily: fontFamily.extrabold,
+  },
+  disabledButton: {
+    backgroundColor: "#c9cccf",
+  },
+  evaluationBox: {
+    borderWidth: 1,
+    borderColor: "#dbe7df",
+    borderRadius: 12,
+    backgroundColor: "#f8fcfa",
+    padding: 16,
+    gap: 10,
+  },
+  evaluationTitle: {
+    fontSize: 13,
+    color: "#2f7b60",
+    fontFamily: fontFamily.extrabold,
+  },
   centered: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: tokens.spacing[6],
-    gap: tokens.spacing[3],
+    paddingHorizontal: 32,
+    gap: 12,
   },
-  errorText: {
+  mutedText: {
     fontSize: 13,
-    color: tokens.colors.danger,
-    textAlign: "center",
+    color: tokens.colors.textMuted,
+    fontFamily: fontFamily.semibold,
   },
-  retryBtn: {
-    borderWidth: 1,
-    borderColor: tokens.colors.border,
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  retryBtnText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: tokens.colors.text,
-  },
-  emptyIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#edf5f1",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyTitle: {
+  errorTitle: {
     fontSize: 18,
-    fontWeight: "800",
     color: tokens.colors.text,
+    fontFamily: fontFamily.extrabold,
   },
-  emptySub: {
+  errorBody: {
     fontSize: 13,
-    fontWeight: "400",
     color: tokens.colors.textMuted,
     textAlign: "center",
-    lineHeight: 20,
+    lineHeight: 19,
   },
-
-  scroll: { flex: 1 },
-  scrollContent: {
-    paddingHorizontal: tokens.spacing[5],
-    paddingTop: tokens.spacing[4],
-    gap: tokens.spacing[5],
-  },
-
-  queueBar: {
-    gap: 8,
-    paddingBottom: 4,
-  },
-  queueChip: {
-    borderWidth: 1,
-    borderColor: "#e1e3e4",
-    borderRadius: tokens.radius.full,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: "#fafafa",
-  },
-  queueChipActive: {
-    backgroundColor: tokens.colors.text,
-    borderColor: tokens.colors.text,
-  },
-  queueChipText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#555860",
-  },
-  queueChipTextActive: {
-    color: "#ffffff",
-  },
-
-  recallCard: {
-    borderWidth: 1,
-    borderColor: "#e2e4e5",
-    borderRadius: 16,
-    padding: tokens.spacing[4],
-    backgroundColor: "#ffffff",
-    gap: tokens.spacing[3],
-    shadowColor: "#111111",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  cardHeader: {
-    flexDirection: "row",
+  emptyState: {
+    paddingHorizontal: 24,
+    paddingTop: 52,
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 10,
   },
-  badgeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  typeBadge: {
-    backgroundColor: "#f2f3f4",
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  typeBadgeText: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#4d5154",
-    letterSpacing: 0.3,
-  },
-  confidenceDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginLeft: 2,
-  },
-  conf_high: { backgroundColor: "#2d7058" },
-  conf_medium: { backgroundColor: "#b07030" },
-  conf_low: { backgroundColor: "#9b4c51" },
-  conf_unknown: { backgroundColor: "#b4b7b9" },
-  confidenceLabel: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: "#8a8d90",
-  },
-  overdueBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#fff6eb",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  overdueText: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#b07030",
-  },
-  questionPrompt: {
-    fontSize: 15,
-    fontWeight: "800",
+  emptyTitle: {
+    fontSize: 19,
+    fontFamily: fontFamily.extrabold,
     color: tokens.colors.text,
-    lineHeight: 22,
-    letterSpacing: -0.2,
   },
-  memoryBox: {
-    backgroundColor: "#fafafa",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#e8eaec",
-    padding: tokens.spacing[3],
-    gap: 6,
-  },
-  memoryContentText: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#252627",
-    lineHeight: 20,
-  },
-  sourceTitle: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: "#8a8d90",
-  },
-
-  formCard: {
-    borderWidth: 1,
-    borderColor: "#e2e4e5",
-    borderRadius: 16,
-    padding: tokens.spacing[4],
-    backgroundColor: "#ffffff",
-    gap: tokens.spacing[3],
-  },
-  formLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#8a8d90",
-    letterSpacing: 0.6,
-  },
-  answerInput: {
-    borderWidth: 1,
-    borderColor: "#e1e3e4",
-    borderRadius: 12,
-    padding: tokens.spacing[3],
-    fontSize: 13,
-    fontWeight: "400",
-    color: tokens.colors.text,
-    lineHeight: 20,
-    minHeight: 96,
-    backgroundColor: "#fafafa",
-    textAlignVertical: "top",
-  },
-  ratingRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  ratingBtn: {
-    flex: 1,
-    height: 40,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#e1e3e4",
-    backgroundColor: "#fafafa",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ratingBtnActive: {
-    backgroundColor: tokens.colors.text,
-    borderColor: tokens.colors.text,
-  },
-  ratingBtnText: {
+  emptyBody: {
     fontSize: 14,
-    fontWeight: "800",
-    color: "#4d5154",
-  },
-  ratingBtnTextActive: {
-    color: "#ffffff",
-  },
-  ratingScaleLabels: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: -4,
-  },
-  scaleText: {
-    fontSize: 10,
-    fontWeight: "500",
-    color: "#9a9d9f",
-  },
-  submitBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: tokens.colors.text,
-    marginTop: 4,
-  },
-  submitBtnDisabled: {
-    backgroundColor: "#c4c7c9",
-  },
-  submitBtnText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#ffffff",
-  },
-
-  evalCard: {
-    borderWidth: 1,
-    borderColor: "#d7e9df",
-    borderRadius: 16,
-    padding: tokens.spacing[4],
-    backgroundColor: "#f4fdf8",
-    gap: tokens.spacing[3],
-  },
-  evalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  evalScoreBadge: {
-    backgroundColor: "#2d7058",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  evalScoreText: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#ffffff",
-  },
-  evalRatingLabel: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#2d7058",
-    letterSpacing: 0.5,
-  },
-  evalFeedback: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#1c3d31",
+    color: tokens.colors.textMuted,
     lineHeight: 20,
-  },
-  evalSectionTitle: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#2d7058",
-    letterSpacing: 0.6,
-  },
-  evalSummaryBox: {
-    gap: 4,
-  },
-  evalSummaryText: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: "#285b48",
-    lineHeight: 18,
-  },
-  evalGapBox: {
-    gap: 4,
-  },
-  evalGapTitle: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#b07030",
-    letterSpacing: 0.6,
-  },
-  evalGapText: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: "#754b20",
-    lineHeight: 18,
-  },
-  nextQuestionBox: {
-    gap: 4,
-    borderTopWidth: 1,
-    borderTopColor: "#d7e9df",
-    paddingTop: 8,
-  },
-  nextQuestionText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#1c3d31",
-    lineHeight: 20,
-  },
-  nextBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    height: 46,
-    borderRadius: 10,
-    backgroundColor: "#2d7058",
-    marginTop: 4,
-  },
-  nextBtnText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#ffffff",
+    textAlign: "center",
   },
 });
