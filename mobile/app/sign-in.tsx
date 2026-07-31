@@ -172,6 +172,10 @@ export default function SignInScreen() {
     setBusy(kind);
     try {
       const result = await startEmailSession({ email: normalized, mode });
+      if (result.status === "logged_in" && result.session) {
+        await finishSignIn(result.session);
+        return;
+      }
       setEmail(result.email);
       setCode("");
       setCodeSent(true);
@@ -182,6 +186,7 @@ export default function SignInScreen() {
     } finally {
       setBusy(null);
     }
+
   }
 
   async function verifyEmailCode() {

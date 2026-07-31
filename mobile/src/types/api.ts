@@ -40,7 +40,6 @@ export type ChatAction =
   | "self"
   | "recent";
 
-// Auth
 export interface MobileSessionResponse {
   token: string;
   user_id: string;
@@ -49,6 +48,15 @@ export interface MobileSessionResponse {
   image_url: string | null;
   expires_at: string;
 }
+
+export interface EmailCodeStartResponse {
+  status: "code_sent" | "logged_in";
+  email: string;
+  expires_in_seconds: number;
+  resend_after_seconds: number;
+  session?: MobileSessionResponse | null;
+}
+
 
 // Chat
 export interface ChatMessage {

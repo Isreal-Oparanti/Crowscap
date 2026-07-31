@@ -1,5 +1,5 @@
 import { apiRequest } from "./client";
-import type { MobileSessionResponse } from "@/types/api";
+import type { MobileSessionResponse, EmailCodeStartResponse } from "@/types/api";
 
 export async function createMobileSession(payload: {
   id_token: string;
@@ -14,17 +14,13 @@ export async function createMobileSession(payload: {
 export async function startEmailSession(payload: {
   email: string;
   mode: "signup" | "login";
-}): Promise<{
-  status: "code_sent";
-  email: string;
-  expires_in_seconds: number;
-  resend_after_seconds: number;
-}> {
-  return apiRequest("/auth/email/start", {
+}): Promise<EmailCodeStartResponse> {
+  return apiRequest<EmailCodeStartResponse>("/auth/email/start", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
+
 
 export async function verifyEmailSession(payload: {
   email: string;

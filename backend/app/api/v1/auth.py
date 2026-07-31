@@ -41,10 +41,11 @@ class EmailCodeStartRequest(BaseModel):
 
 
 class EmailCodeStartResponse(BaseModel):
-    status: Literal["code_sent"]
+    status: Literal["code_sent", "logged_in"]
     email: str
-    expires_in_seconds: int
-    resend_after_seconds: int
+    expires_in_seconds: int = 0
+    resend_after_seconds: int = 0
+    session: MobileSessionResponse | None = None
 
 
 class EmailCodeVerifyRequest(BaseModel):
@@ -135,6 +136,26 @@ def start_email_session(
             detail="No Crowscap account exists for this email yet. Sign up first.",
         )
 
+    # 1. If user already exists in DB and logging in, log in directly without requiring verification code!
+    if existing_user is not None:
+        session = _create_session_response(
+            db=db,
+            user_id=existing_user.id,
+            email=email,
+            name=existing_user.name or email.split("@")[0],
+            image_url=existing_user.image_url,
+            provider="email",
+        )
+        return EmailCodeStartResponse(
+            status="logged_in",
+            email=email,
+            expires_in_seconds=0,
+            resend_after_seconds=0,
+            session=session,
+        )
+
+
+    # 2. For new user registration, send 6-digit verification code to email
     code = f"{random.SystemRandom().randint(0, 999999):06d}"
     expires_at = utc_now() + timedelta(minutes=max(2, settings.crowscap_email_code_ttl_minutes))
 
@@ -160,6 +181,7 @@ def start_email_session(
         expires_in_seconds=int((expires_at - utc_now()).total_seconds()),
         resend_after_seconds=60,
     )
+
 
 
 @router.post("/email/verify", response_model=MobileSessionResponse)
