@@ -45,7 +45,10 @@ class NotificationEvent(BaseModel):
     url: str
     reminder_id: str | None = None
     memory_id: str | None = None
+    notification_title: str | None = None
+    notification_body: str | None = None
     created_at: datetime
+
 
 
 class NotificationEventResponse(BaseModel):

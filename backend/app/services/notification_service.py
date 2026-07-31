@@ -279,19 +279,41 @@ def _deliver_due_notifications_for_all_users() -> None:
             send_due_pushes_once(db=db, user_id=user_id)
 
 
+def generate_notification_copy(*, content: str, default_title: str) -> tuple[str, str]:
+    """Generates a short, punchy attention-grabbing title & body pair via Qwen-turbo."""
+    fallback_title = default_title
+    fallback_body = _clip(content, 140)
+    try:
+        from app.ai.qwen_client import QwenClient
+        qwen = QwenClient()
+        system_prompt = (
+            "You generate short, engaging push notification title and body pairs for a memory recall app.\n"
+            "Return JSON format: {\"title\": \"...\", \"body\": \"...\"}"
+        )
+        res = qwen.chat_json(system_prompt=system_prompt, user_prompt=content)
+        title = str(res.get("title") or fallback_title).strip()
+        body = str(res.get("body") or fallback_body).strip()
+        return title, body
+    except Exception:
+        return fallback_title, fallback_body
+
+
 def _reminder_event(
     *,
     reminder: Reminder,
     due_count: int,
     now: datetime,
 ) -> NotificationEvent:
+    title, body = generate_notification_copy(content=reminder.content, default_title="Reminder ready")
     return NotificationEvent(
         event_id=str(uuid.uuid4()),
         event_key=f"reminder_due:{reminder.id}:{reminder.due_at.isoformat()}",
         event_type="reminder_due",
         due_count=due_count,
-        title="Reminder ready",
-        body=_clip(reminder.content, 140),
+        title=title,
+        body=body,
+        notification_title=title,
+        notification_body=body,
         url="/recall",
         reminder_id=reminder.id,
         created_at=now,
@@ -304,17 +326,23 @@ def _recall_event(
     due_count: int,
     now: datetime,
 ) -> NotificationEvent:
+    content = memory.summary or memory.content
+    title, body = generate_notification_copy(content=content, default_title="A thought is ready")
     return NotificationEvent(
         event_id=str(uuid.uuid4()),
         event_key=f"recall_due:{memory.id}:{memory.next_review_at.isoformat() if memory.next_review_at else 'due'}",
         event_type="recall_due",
         due_count=due_count,
-        title="A thought is ready",
-        body=_clip(memory.summary or memory.content, 140),
+        title=title,
+        body=body,
+        notification_title=title,
+        notification_body=body,
         url=f"/recall/{memory.id}",
         memory_id=memory.id,
         created_at=now,
     )
+
+
 
 
 def _send_web_push(*, subscription: PushSubscription, event: NotificationEvent) -> None:

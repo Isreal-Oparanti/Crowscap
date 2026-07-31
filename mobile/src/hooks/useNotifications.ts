@@ -1,12 +1,13 @@
 import { useEffect, useRef } from "react";
 import { useRouter } from "expo-router";
 import { backendUrl, getAuthToken } from "@/api/client";
+import { completeReminder } from "@/api/recalls";
 import {
-  canUseNativeNotifications,
   getNotificationsModule,
   requestPushPermissions,
+  setupNotificationChannels,
   getCurrentNotificationEvent,
-  triggerLocalPushNotification,
+  scheduleLocalNotification,
   type CurrentNotificationEvent,
 } from "@/utils/notifications";
 
@@ -16,26 +17,40 @@ export function useNotifications(enabled = true) {
 
   useEffect(() => {
     if (!enabled) return;
-    if (!canUseNativeNotifications()) return;
 
     const Notifications = getNotificationsModule();
-    if (!Notifications) return;
 
+    // 1. Setup high-priority Android channel & request permission
     requestPushPermissions().catch(() => null);
+    setupNotificationChannels().catch(() => null);
 
     let responseSubscription: { remove: () => void } | null = null;
-    try {
-      responseSubscription = Notifications.addNotificationResponseReceivedListener(
-        (response) => {
-          const data = response.notification.request.content.data;
-          const url = typeof data?.url === "string" ? data.url : "";
-          if (url === "/recall" || url.startsWith("/recall")) {
-            router.push("/(tabs)/recall");
+
+    if (Notifications) {
+      try {
+        responseSubscription = Notifications.addNotificationResponseReceivedListener(
+          async (response) => {
+            const actionId = response.actionIdentifier;
+            const data = response.notification.request.content.data;
+            const reminderId = typeof data?.reminderId === "string" ? data.reminderId : null;
+            const url = typeof data?.url === "string" ? data.url : "";
+
+            if (actionId === "MARK_DONE" && reminderId) {
+              try {
+                await completeReminder(reminderId);
+              } catch {}
+            } else if (actionId === "READ_MORE" || actionId === Notifications.DEFAULT_ACTION_IDENTIFIER) {
+              if (url === "/recall" || url.startsWith("/recall") || url.includes("recall")) {
+                router.push("/(tabs)/recall");
+              } else {
+                router.push("/(tabs)/recall");
+              }
+            }
           }
-        }
-      );
-    } catch {
-      // Ignore if native listener initialization is unavailable.
+        );
+      } catch {
+        // Ignore if native listener initialization is unavailable.
+      }
     }
 
     const handleEvent = async (event: CurrentNotificationEvent) => {
@@ -46,9 +61,19 @@ export function useNotifications(enabled = true) {
         event.event_key !== lastEventKey.current
       ) {
         lastEventKey.current = event.event_key;
-        await triggerLocalPushNotification(event.title, event.body);
+
+        // Directive 4: Read dynamic notification_title and notification_body returned by backend
+        const dynamicTitle = event.notification_title || event.title || "Crowscap Recall";
+        const dynamicBody = event.notification_body || event.body || "You have a memory ready for recall.";
+
+        await scheduleLocalNotification({
+          title: dynamicTitle,
+          body: dynamicBody,
+          url: event.url || "/(tabs)/recall",
+        });
       }
     };
+
 
     // Initial event check on app mount (single call, non-polling)
     getCurrentNotificationEvent().then((evt) => {
@@ -113,4 +138,5 @@ export function useNotifications(enabled = true) {
     };
   }, [enabled, router]);
 }
+
 

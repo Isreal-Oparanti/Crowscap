@@ -20,6 +20,8 @@ import { tokens } from "@/theme/tokens";
 import { fontFamily } from "@/theme/typography";
 import type { DueReminder, RecallMemory } from "@/types/api";
 import { formatOverdue, memoryTypeLabel, truncate } from "@/utils/format";
+import { scheduleLocalNotification } from "@/utils/notifications";
+
 
 type ReadyItem =
   | { kind: "reminder"; id: string; reminder: DueReminder }
@@ -212,6 +214,25 @@ export default function RecallScreen() {
               <Text style={styles.emptyBody}>
                 Crowscap will bring back a memory when it is useful again.
               </Text>
+              <Pressable
+                style={styles.testNotifButton}
+                onPress={async () => {
+                  const scheduled = await scheduleLocalNotification({
+                    title: "Crowscap Reminder",
+                    body: "Time to revisit your saved memory about distribution strategy!",
+                    url: "/(tabs)/recall",
+                    seconds: 5,
+                  });
+                  if (scheduled) {
+                    Alert.alert("Reminder Scheduled!", "Minimize or lock your screen—you will get a notification in 5 seconds.");
+                  } else {
+                    Alert.alert("Permission Required", "Please grant notification permissions in system settings.");
+                  }
+                }}
+              >
+                <Icons.Bell size={14} color="#2d7058" />
+                <Text style={styles.testNotifText}>Test 5s Local Reminder Notification</Text>
+              </Pressable>
             </View>
           ) : (
             <View style={styles.readyList}>
@@ -225,6 +246,7 @@ export default function RecallScreen() {
               ))}
             </View>
           )}
+
         </ScrollView>
       )}
     </View>
@@ -820,4 +842,22 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign: "center",
   },
+  testNotifButton: {
+    marginTop: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: "#e8f4ed",
+    borderWidth: 1,
+    borderColor: "#cbe5d5",
+  },
+  testNotifText: {
+    fontSize: 13,
+    fontFamily: fontFamily.bold,
+    color: "#2d7058",
+  },
 });
+

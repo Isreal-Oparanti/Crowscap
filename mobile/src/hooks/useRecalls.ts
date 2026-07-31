@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getDueRecalls, answerRecall } from "@/api/recalls";
 import type { RecallDueResponse, RecallMemory, RecallAnswerResponse } from "@/types/api";
+import { scheduleLocalNotification } from "@/utils/notifications";
 
 export function useRecalls() {
   const [data, setData] = useState<RecallDueResponse | null>(null);
@@ -21,6 +22,8 @@ export function useRecalls() {
       setLoading(false);
     }
   }, []);
+
+
 
   useEffect(() => {
     fetchDue();
