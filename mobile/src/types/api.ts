@@ -61,11 +61,43 @@ export interface ChatRequest {
   history: ChatMessage[];
 }
 
+export interface ChatMessageResponse {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant";
+  content: string;
+  action?: ChatAction | null;
+  metadata_json?: Record<string, any> | null;
+  created_at: string;
+}
+
+export interface ConversationResponse {
+  id: string;
+  title: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  messages: ChatMessageResponse[];
+}
+
+export interface ReminderResponse {
+
+  id: string;
+  content: string;
+  due_at: string;
+  status: string;
+  save_as_memory: boolean;
+  memory_id: string | null;
+  conversation_id: string | null;
+  created_at: string;
+}
+
 export interface ChatResponse {
   action: ChatAction;
   message: string;
   saved: boolean;
   capture: CaptureResponse | null;
+  reminder?: ReminderResponse | null;
   evidence: SearchResult[];
   knowledge_gaps: string[];
   tensions: string[];
@@ -73,6 +105,7 @@ export interface ChatResponse {
   preference_updates: string[];
   preferences: Record<string, unknown> | null;
 }
+
 
 // Captures
 export interface CaptureResponse {

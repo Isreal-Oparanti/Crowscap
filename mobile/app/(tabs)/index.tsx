@@ -14,11 +14,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
-import { useCallback, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { useRouter } from "expo-router";
 
-import { sendChatMessage } from "@/api/chat";
+import { sendChatMessage, getCurrentConversation } from "@/api/chat";
 import { capturePdf } from "@/api/captures";
+
 import { BrandMark } from "@/components/shell/BrandMark";
 import { Icons } from "@/components/ui/Icon";
 import { MarkdownText } from "@/components/ui/MarkdownText";
@@ -26,8 +27,10 @@ import { useRecalls } from "@/hooks/useRecalls";
 import { useAuth } from "@/hooks/useAuth";
 import { tokens } from "@/theme/tokens";
 import { fontFamily } from "@/theme/typography";
-import type { CaptureResponse, ChatAction, ChatResponse } from "@/types/api";
+import type { CaptureResponse, ChatAction, ChatResponse, ReminderResponse } from "@/types/api";
 import { makeId } from "@/utils/id";
+import { scheduleOrUpdateLocalReminder } from "@/utils/notifications";
+
 
 type UserMessage = { id: string; role: "user"; text: string };
 
@@ -112,6 +115,69 @@ export default function ChatScreen() {
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
   }, []);
 
+  // Fetch active conversation messages from backend on mount (persists across sign in/out)
+  useEffect(() => {
+    (async () => {
+      try {
+        const conv = await getCurrentConversation();
+        if (conv && conv.messages && conv.messages.length > 0) {
+          const loaded: ChatMessage[] = conv.messages.map((m) => {
+            if (m.role === "user") {
+              return { id: m.id, role: "user", text: m.content };
+            }
+            const meta = m.metadata_json || {};
+            if (m.action === "capture" && meta.capture) {
+              return {
+                id: m.id,
+                role: "assistant",
+                kind: "capture",
+                text: m.content,
+                data: meta.capture as any,
+              };
+            }
+            if (
+              m.action === "reminder" ||
+              m.action === "answer" ||
+              m.action === "self" ||
+              meta.reminder ||
+              meta.evidence
+            ) {
+              const dataObj: ChatResponse = {
+                action: (m.action as any) || "conversation",
+                message: m.content,
+                saved: false,
+                capture: (meta.capture as any) || null,
+                reminder: (meta.reminder as any) || null,
+                evidence: (meta.evidence as any) || [],
+                knowledge_gaps: (meta.knowledge_gaps as any) || [],
+                tensions: (meta.tensions as any) || [],
+                next_step: (meta.next_step as any) || null,
+                preference_updates: (meta.preference_updates as any) || [],
+                preferences: (meta.preferences as any) || null,
+              };
+              return {
+                id: m.id,
+                role: "assistant",
+                kind: "answer",
+                text: m.content,
+                data: dataObj,
+              };
+            }
+            return {
+              id: m.id,
+              role: "assistant",
+              kind: "text",
+              text: m.content,
+            };
+          });
+          setMessages(loaded);
+          scrollToEnd();
+        }
+      } catch {}
+    })();
+  }, [scrollToEnd]);
+
+
   const sendText = useCallback(
     async (input: string) => {
       const text = input.trim();
@@ -143,8 +209,10 @@ export default function ChatScreen() {
                 data: raw.capture,
               }
             : action === "answer" ||
+                action === "reminder" ||
                 action === "forget" ||
                 action === "self" ||
+                Boolean(raw.reminder) ||
                 (raw.preference_updates && raw.preference_updates.length > 0)
               ? {
                   id: makeId("msg"),
@@ -160,7 +228,27 @@ export default function ChatScreen() {
                   text: raw.message,
                 };
 
+        if ((action === "reminder" || raw.reminder) && raw.reminder) {
+          const rawDueAt = raw.reminder.due_at;
+          const nowIso = new Date().toISOString();
+          console.log("\n==========================================");
+          console.log("🔔 [CHAT REMINDER CREATED DIAGNOSTICS]");
+          console.log(`1. Backend raw due_at: ${rawDueAt}`);
+          console.log(`2. Local device time:  ${nowIso}`);
+          console.log(`3. Reminder ID:        ${raw.reminder.id}`);
+          console.log(`4. Reminder Content:   ${raw.reminder.content}`);
+          console.log("==========================================\n");
+
+          scheduleOrUpdateLocalReminder({
+            reminderId: raw.reminder.id,
+            title: "Reminder due",
+            body: raw.reminder.content,
+            dueAt: rawDueAt,
+          }).catch(() => null);
+        }
+
         setMessages((current) => [...current, assistantMsg]);
+
       } catch (err) {
         setMessages((current) => [
           ...current,
@@ -296,9 +384,9 @@ export default function ChatScreen() {
           <View>
             <Text style={styles.headerTitle}>New thought</Text>
             <View style={styles.headerStatusRow}>
-              <View style={styles.statusDot} />
               <Text style={styles.headerSub}>Crowscap is listening</Text>
             </View>
+
           </View>
         </View>
         <View style={styles.headerRight}>
@@ -530,11 +618,61 @@ function CaptureReceipt({ data }: { data: CaptureResponse }) {
 
 
 
+function extractReminderContent(text?: string): string | null {
+  if (!text) return null;
+  const match = text.match(/scheduled the reminder (?:for|to|about)?\s*["']?([^"'\n\.]+)["']?/i);
+  return match ? match[1].trim() : null;
+}
+
+function formatReminderDueTime(dueAtIso?: string): string {
+  if (!dueAtIso) return "Due soon";
+  const date = new Date(dueAtIso);
+  if (Number.isNaN(date.getTime())) return "Due soon";
+
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  const hours = date.getHours().toString().padStart(2, "0");
+  const minutes = date.getMinutes().toString().padStart(2, "0");
+  const timeStr = `${hours}:${minutes}`;
+
+  if (isToday) {
+    return `Due today at ${timeStr}`;
+  }
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const dateStr = `${monthNames[date.getMonth()]} ${date.getDate()}`;
+  return `Due ${dateStr} at ${timeStr}`;
+}
+
+function ReminderCard({ reminder, fallbackText }: { reminder?: ReminderResponse | null; fallbackText?: string }) {
+  const content = reminder?.content || extractReminderContent(fallbackText) || "Reminder";
+  const dueAt = reminder?.due_at;
+  const saveAsMemory = reminder?.save_as_memory ?? false;
+
+  return (
+    <View style={styles.reminderCard}>
+      <View style={styles.reminderCardHeader}>
+        <Icons.Clock3 size={15} color="#2d7058" />
+        <Text style={styles.reminderCardEyebrow}>REMINDER SCHEDULED</Text>
+      </View>
+
+      <Text style={styles.reminderCardBody}>{content}</Text>
+
+      <Text style={styles.reminderCardMeta}>
+        {formatReminderDueTime(dueAt)} - {saveAsMemory ? "saved to memory" : "not saved to memory"}
+      </Text>
+    </View>
+  );
+}
+
 function AnswerFooter({ data }: { data: ChatResponse }) {
-  if (!data.preference_updates?.length && !data.evidence?.length && !data.next_step) return null;
+  const isReminder = data.action === "reminder" || Boolean(data.reminder);
+  if (!data.preference_updates?.length && !data.evidence?.length && !data.next_step && !isReminder) return null;
 
   return (
     <View style={styles.answerFooter}>
+      {isReminder ? (
+        <ReminderCard reminder={data.reminder} fallbackText={data.message} />
+      ) : null}
       {data.preference_updates?.length ? (
         <InsightBlock label="Preference learned" items={data.preference_updates} tone="green" />
       ) : null}
@@ -555,6 +693,7 @@ function AnswerFooter({ data }: { data: ChatResponse }) {
     </View>
   );
 }
+
 
 function InsightBlock({
   label,
@@ -995,9 +1134,42 @@ const styles = StyleSheet.create({
 
 
 
+  reminderCard: {
+    backgroundColor: "#edf6f1",
+    borderWidth: 1,
+    borderColor: "#d2e8dc",
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 6,
+    gap: 6,
+  },
+  reminderCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  reminderCardEyebrow: {
+    fontSize: 11,
+    fontFamily: fontFamily.extrabold,
+    color: "#2d7058",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  reminderCardBody: {
+    fontSize: 14,
+    fontFamily: fontFamily.medium,
+    color: "#1c1e20",
+  },
+  reminderCardMeta: {
+    fontSize: 12,
+    fontFamily: fontFamily.medium,
+    color: "#5f7e6e",
+  },
+
   answerFooter: {
     gap: tokens.spacing[3],
   },
+
   insightBlock: {
     borderWidth: 1,
     borderRadius: 14,

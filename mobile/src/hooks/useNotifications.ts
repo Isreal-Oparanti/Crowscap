@@ -1,8 +1,10 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useRef } from "react";
 import { useRouter } from "expo-router";
 import { backendUrl, getAuthToken } from "@/api/client";
 import { completeReminder } from "@/api/recalls";
 import {
+  canUseNativeNotifications,
   getNotificationsModule,
   requestPushPermissions,
   setupNotificationChannels,
@@ -23,6 +25,21 @@ export function useNotifications(enabled = true) {
     // 1. Setup high-priority Android channel & request permission
     requestPushPermissions().catch(() => null);
     setupNotificationChannels().catch(() => null);
+
+    // Auto-prompt permission 1 minute (60s) after user enters app if system permission is not granted
+    const autoPromptTimer = setTimeout(async () => {
+      try {
+        const notif = getNotificationsModule();
+        if (notif) {
+          const { status } = await notif.getPermissionsAsync();
+          if (status !== "granted") {
+            await requestPushPermissions();
+          }
+        }
+      } catch {}
+    }, 60_000);
+
+
 
     let responseSubscription: { remove: () => void } | null = null;
 
@@ -133,9 +150,11 @@ export function useNotifications(enabled = true) {
     connectSSE();
 
     return () => {
+      clearTimeout(autoPromptTimer);
       controller.abort();
       responseSubscription?.remove();
     };
+
   }, [enabled, router]);
 }
 

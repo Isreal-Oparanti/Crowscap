@@ -27,10 +27,13 @@ import {
   Server,
   Settings,
   Shield,
+  Sparkles,
+  Volume2,
   Zap,
   X,
   type LucideIcon,
 } from "lucide-react-native";
+
 
 export const Icons = {
   Archive,
@@ -61,8 +64,11 @@ export const Icons = {
   Server,
   Settings,
   Shield,
+  Sparkles,
+  Volume2,
   Zap,
   X,
 } satisfies Record<string, LucideIcon>;
+
 
 

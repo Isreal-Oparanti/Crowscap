@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getDueRecalls, answerRecall } from "@/api/recalls";
 import type { RecallDueResponse, RecallMemory, RecallAnswerResponse } from "@/types/api";
-import { scheduleLocalNotification } from "@/utils/notifications";
+import { scheduleOrUpdateLocalReminder } from "@/utils/notifications";
 
 export function useRecalls() {
   const [data, setData] = useState<RecallDueResponse | null>(null);
@@ -16,6 +16,17 @@ export function useRecalls() {
       setError(null);
       const res = await getDueRecalls(50);
       setData(res);
+
+      if (res.reminders && res.reminders.length > 0) {
+        for (const r of res.reminders) {
+          scheduleOrUpdateLocalReminder({
+            reminderId: r.reminder_id,
+            title: "Reminder due",
+            body: r.content,
+            dueAt: r.due_at,
+          }).catch(() => null);
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not fetch due recalls.");
     } finally {

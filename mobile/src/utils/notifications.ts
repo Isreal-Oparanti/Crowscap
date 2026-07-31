@@ -9,6 +9,10 @@ declare const require: (moduleName: string) => NotificationsModule;
 let notificationsModule: NotificationsModule | null | undefined;
 let isHandlerSet = false;
 
+export function canUseNativeNotifications() {
+  return Constants.appOwnership !== "expo";
+}
+
 /** Check if running inside Expo Go */
 export function isExpoGo() {
   return Constants.appOwnership === "expo";
@@ -32,6 +36,7 @@ export function getNotificationsModule(): NotificationsModule | null {
   return notificationsModule;
 }
 
+
 export const REMINDER_CATEGORY_ID = "REMINDER_CATEGORY";
 
 /** Build Android MAX importance notification channel, register categories & set foreground handler */
@@ -43,13 +48,13 @@ export async function setupNotificationChannels(): Promise<boolean> {
   try {
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
-        shouldShowAlert: true,
         shouldShowBanner: true,
         shouldShowList: true,
         shouldPlaySound: true,
         shouldSetBadge: true,
       }),
     });
+
 
     // Register Category with Mark Done and Read More actions
     await Notifications.setNotificationCategoryAsync(REMINDER_CATEGORY_ID, [
@@ -182,9 +187,6 @@ export async function scheduleOrUpdateLocalReminder({
   const now = Date.now();
   const diffSeconds = Math.round((dueMs - now) / 1000);
 
-  // If reminder is in the past, don't schedule on-device future trigger
-  if (diffSeconds <= 0) return null;
-
   const map = await getScheduledReminderMap();
   const existing = map[reminderId];
 
@@ -200,22 +202,41 @@ export async function scheduleOrUpdateLocalReminder({
     } catch {}
   }
 
+  const triggerInput =
+    diffSeconds > 0
+      ? ({
+          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+          seconds: Math.max(1, diffSeconds),
+          repeats: false,
+        } as any)
+      : null;
+
+  let useSound = true;
+  try {
+    const rawPrefs = await AsyncStorage.getItem("@crowscap_notification_preferences_v1");
+    if (rawPrefs) {
+      const prefs = JSON.parse(rawPrefs);
+      if (prefs.pushNotifications === false || prefs.dueReminders === false) {
+        return null;
+      }
+      useSound = prefs.soundVibration !== false;
+    }
+  } catch {}
+
   // 3. Schedule new notification and capture the returned identifier!
   try {
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
         title,
         body,
-        sound: "default",
+        sound: useSound ? "default" : undefined,
         categoryIdentifier: REMINDER_CATEGORY_ID,
         data: { url, reminderId, memoryId: memoryId || null },
       },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-        seconds: diffSeconds,
-        repeats: false,
-      } as any,
+
+      trigger: triggerInput,
     });
+
 
     map[reminderId] = { notificationId, dueAt };
     await saveScheduledReminderMap(map);

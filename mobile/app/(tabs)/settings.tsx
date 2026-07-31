@@ -75,6 +75,23 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* Notifications */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>NOTIFICATIONS & PREFERENCES</Text>
+          <View style={styles.settingsGroup}>
+            <Pressable
+              style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
+              onPress={() => router.push("/notifications-settings")}
+            >
+              <View style={styles.rowLeft}>
+                <Icons.Bell size={16} color="#4d5154" />
+                <Text style={styles.rowTitle}>Notification preferences</Text>
+              </View>
+              <Icons.ChevronRight size={16} color="#8a8d90" />
+            </Pressable>
+          </View>
+        </View>
+
         {/* Intelligence Settings */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>MEMORY AGENT ADAPTATION</Text>
@@ -114,6 +131,7 @@ export default function SettingsScreen() {
             </View>
           </View>
         </View>
+
 
         {/* Sign Out Button */}
         <Pressable

@@ -13,7 +13,9 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { completeReminder, snoozeReminder } from "@/api/recalls";
 import { BrandMark } from "@/components/shell/BrandMark";
+import { StayUpToDateBanner } from "@/components/shell/StayUpToDateBanner";
 import { Icons } from "@/components/ui/Icon";
+
 import { MarkdownText } from "@/components/ui/MarkdownText";
 import { useRecalls } from "@/hooks/useRecalls";
 import { tokens } from "@/theme/tokens";
@@ -214,26 +216,8 @@ export default function RecallScreen() {
               <Text style={styles.emptyBody}>
                 Crowscap will bring back a memory when it is useful again.
               </Text>
-              <Pressable
-                style={styles.testNotifButton}
-                onPress={async () => {
-                  const scheduled = await scheduleLocalNotification({
-                    title: "Crowscap Reminder",
-                    body: "Time to revisit your saved memory about distribution strategy!",
-                    url: "/(tabs)/recall",
-                    seconds: 5,
-                  });
-                  if (scheduled) {
-                    Alert.alert("Reminder Scheduled!", "Minimize or lock your screen—you will get a notification in 5 seconds.");
-                  } else {
-                    Alert.alert("Permission Required", "Please grant notification permissions in system settings.");
-                  }
-                }}
-              >
-                <Icons.Bell size={14} color="#2d7058" />
-                <Text style={styles.testNotifText}>Test 5s Local Reminder Notification</Text>
-              </Pressable>
             </View>
+
           ) : (
             <View style={styles.readyList}>
               {readyItems.map((item, index) => (
@@ -247,7 +231,9 @@ export default function RecallScreen() {
             </View>
           )}
 
+          <StayUpToDateBanner />
         </ScrollView>
+
       )}
     </View>
   );
