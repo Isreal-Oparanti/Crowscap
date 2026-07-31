@@ -88,7 +88,7 @@ def require_current_user(
         logger.warning("🔒 auth.rejected reason=invalid_identity user_id=%r email=%r", user_id, user_email)
         raise HTTPException(status_code=401, detail="Authentication required.")
 
-    _upsert_user(
+    user = _upsert_user(
         db=db,
         user_id=user_id,
         email=user_email,
@@ -97,7 +97,8 @@ def require_current_user(
         provider=user_provider or "google",
     )
 
-    return CurrentUser(id=user_id, email=user_email, name=user_name, image_url=user_image)
+    return CurrentUser(id=user.id, email=user.email, name=user.name, image_url=user.image_url)
+
 
 
 def normalize_google_user_id(value: str | None) -> str:
@@ -324,7 +325,7 @@ def _upsert_user(
     name: str | None,
     image_url: str | None,
     provider: str = "google",
-) -> None:
+) -> User:
     user = db.get(User, user_id)
     is_new = False
     if user is None:
@@ -344,6 +345,8 @@ def _upsert_user(
     user.last_seen_at = utc_now()
     db.commit()
 
-
     if provider in {"demo", "mobile_demo"}:
-        _seed_demo_user_data(db, user_id)
+        _seed_demo_user_data(db, user.id)
+
+    return user
+

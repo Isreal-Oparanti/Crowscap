@@ -265,7 +265,7 @@ def _create_session_response(
     image_url: str | None,
     provider: str,
 ) -> MobileSessionResponse:
-    _upsert_user(
+    user = _upsert_user(
         db=db,
         user_id=user_id,
         email=email,
@@ -274,20 +274,21 @@ def _create_session_response(
         provider=provider,
     )
     token, expires_at = issue_mobile_session_token(
-        user_id=user_id,
-        email=email,
-        name=name,
-        image_url=image_url,
+        user_id=user.id,
+        email=user.email,
+        name=user.name,
+        image_url=user.image_url,
         provider=provider,
     )
     return MobileSessionResponse(
         token=token,
-        user_id=user_id,
-        email=email,
-        name=name,
-        image_url=image_url,
+        user_id=user.id,
+        email=user.email,
+        name=user.name,
+        image_url=user.image_url,
         expires_at=expires_at.isoformat(),
     )
+
 
 
 def _normalize_email(email: str) -> str:
