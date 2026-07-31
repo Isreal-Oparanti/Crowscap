@@ -944,6 +944,14 @@ def _get_or_create_conversation(
                 "💬 chat.conversation.missing requested_id=%s action=create_new",
                 conversation_id,
             )
+    if user_id is not None:
+        active_conversation = db.scalars(
+            select(Conversation)
+            .where(Conversation.status == "active", Conversation.user_id == user_id)
+            .order_by(Conversation.updated_at.desc(), Conversation.created_at.desc())
+        ).first()
+        if active_conversation is not None:
+            return active_conversation
 
     conversation = Conversation(
         user_id=user_id,
@@ -952,7 +960,7 @@ def _get_or_create_conversation(
     )
     db.add(conversation)
     db.flush()
-    logger.info("\U0001f4ac chat.conversation.created conversation_id=%s", conversation.id)
+    logger.info("💬 chat.conversation.created conversation_id=%s", conversation.id)
     return conversation
 
 
@@ -1219,7 +1227,11 @@ def _message_belongs_to_conversation_owner(
     conversation: Conversation,
     message: ChatMessage,
 ) -> bool:
-    return conversation.user_id is None or message.user_id == conversation.user_id
+    return (
+        conversation.user_id is None
+        or message.user_id is None
+        or message.user_id == conversation.user_id
+    )
 
 
 def _persist_assistant_response(

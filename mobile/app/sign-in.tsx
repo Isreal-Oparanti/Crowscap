@@ -294,7 +294,8 @@ export default function SignInScreen() {
                   setCodeSent(false);
                 }
               }}
-              placeholder="isrealopa@gmail.com"
+              placeholder="Enter your email address"
+
               placeholderTextColor="#5a5e66"
               keyboardType="email-address"
               autoCapitalize="none"

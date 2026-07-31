@@ -752,7 +752,8 @@ function Composer({
   const canSend = (draft.trim().length > 0 || pendingFile !== null) && !working;
 
   return (
-    <View style={[styles.composerWrap, { paddingBottom: Math.max(bottomInset, 10) }]}>
+    <View style={[styles.composerWrap, { paddingBottom: 4 }]}>
+
       {pendingFile ? (
         <View style={styles.attachedPillRow}>
           <View style={styles.attachedPill}>
@@ -1334,11 +1335,11 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14.5,
     fontFamily: fontFamily.regular,
-    color: "#111418",
-    lineHeight: 20,
-    maxHeight: 120,
-    paddingHorizontal: 4,
-    paddingVertical: Platform.OS === "ios" ? 8 : 4,
+    color: "#fff",
+    // lineHeight: 20,
+    // maxHeight: 120,
+    // paddingHorizontal: 4,
+    paddingVertical: Platform.OS === "ios" ? 8 : 0,
   },
   sendButton: {
     width: 34,
