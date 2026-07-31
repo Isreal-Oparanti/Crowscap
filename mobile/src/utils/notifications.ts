@@ -26,6 +26,8 @@ export function getNotificationsModule() {
   return notificationsModule;
 }
 
+
+
 function ensureNotificationHandler() {
   if (isHandlerSet) return;
   const Notifications = getNotificationsModule();

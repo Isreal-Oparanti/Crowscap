@@ -1,6 +1,6 @@
 import Constants from "expo-constants";
 
-const backendUrl =
+export const backendUrl =
   Constants.expoConfig?.extra?.backendUrl ??
   process.env.EXPO_PUBLIC_BACKEND_URL ??
   "https://api.crowscap.xyz";
@@ -8,9 +8,14 @@ const backendUrl =
 /** Retrieve the stored auth token. Injected by session.ts at runtime. */
 let _getToken: (() => Promise<string | null>) | null = null;
 
+export async function getAuthToken(): Promise<string | null> {
+  return _getToken ? await _getToken() : null;
+}
+
 export function setTokenProvider(fn: () => Promise<string | null>) {
   _getToken = fn;
 }
+
 
 /**
  * Base API client for the Crowscap mobile app.
