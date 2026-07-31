@@ -216,14 +216,22 @@ def verify_email_session(
 
     row.consumed_at = now
     db.commit()
+    resolved_name = (
+        existing_user.name
+        if existing_user is not None and existing_user.name
+        else email.split("@")[0]
+    )
+    resolved_image = existing_user.image_url if existing_user is not None else None
+
     return _create_session_response(
         db=db,
         user_id=existing_user.id if existing_user is not None else _normalize_email_user_id(email),
         email=email,
-        name=email.split("@")[0],
-        image_url=None,
+        name=resolved_name,
+        image_url=resolved_image,
         provider="email",
     )
+
 
 
 def _create_session_response(

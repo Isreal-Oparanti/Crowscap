@@ -88,8 +88,20 @@ const chatActions: ChatAction[] = [
   "recent",
 ];
 
+function getCleanFirstName(fullName?: string | null): string {
+  if (!fullName) return "there";
+  const trimmed = fullName.trim();
+  if (!trimmed) return "there";
+
+  const firstWord = trimmed.split(/\s+/)[0];
+  if (!firstWord) return "there";
+
+  const cleanPart = firstWord.split(/[._@\d]+/)[0] || firstWord;
+  return cleanPart.charAt(0).toUpperCase() + cleanPart.slice(1);
+}
+
 function openingMessage(name: string | null | undefined): AssistantTextMessage {
-  const first = name?.split(/\s+/)[0] ?? "there";
+  const first = getCleanFirstName(name);
   return {
     id: "opening",
     role: "assistant",
@@ -97,6 +109,7 @@ function openingMessage(name: string | null | undefined): AssistantTextMessage {
     text: `Welcome back, ${first}. What has your attention today?`,
   };
 }
+
 
 export default function ChatScreen() {
   const { session } = useAuth();

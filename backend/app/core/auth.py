@@ -337,10 +337,13 @@ def _upsert_user(
             is_new = True
 
     user.email = email
-    user.name = name
-    user.image_url = image_url
+    if name and (not user.name or name != email.split("@")[0]):
+        user.name = name
+    if image_url:
+        user.image_url = image_url
     user.last_seen_at = utc_now()
     db.commit()
+
 
     if provider in {"demo", "mobile_demo"}:
         _seed_demo_user_data(db, user_id)
