@@ -188,7 +188,7 @@ def _current_user_from_mobile_token(
         logger.warning("🔒 auth.rejected reason=invalid_mobile_identity")
         raise HTTPException(status_code=401, detail="Authentication required.")
 
-    _upsert_user(
+    user = _upsert_user(
         db=db,
         user_id=user_id,
         email=user_email,
@@ -196,7 +196,8 @@ def _current_user_from_mobile_token(
         image_url=user_image,
         provider=provider,
     )
-    return CurrentUser(id=user_id, email=user_email, name=user_name, image_url=user_image)
+    return CurrentUser(id=user.id, email=user.email, name=user.name, image_url=user.image_url)
+
 
 
 def _seed_demo_user_data(db: Session, user_id: str) -> None:
