@@ -34,7 +34,6 @@
         "backgroundColor": "#ffffff"
       },
       "package": "xyz.crowscap.app",
-      "versionCode": 1,
 
       "intentFilters": [
         {
