@@ -66,7 +66,7 @@ export default function TabLayout() {
         options={{
           title: "Recall",
           tabBarIcon: ({ color, focused }) => (
-            <View>
+            <View style={{ position: "relative" }}>
               <Icons.BookOpenCheck
                 size={20}
                 color={color}
@@ -76,16 +76,22 @@ export default function TabLayout() {
                 <View
                   style={{
                     position: "absolute",
-                    top: -2,
-                    right: -4,
-                    width: 6,
-                    height: 6,
-                    borderRadius: 3,
+                    top: 4.3,
+                    right: -7,
+                    width: 9,
+                    height: 9,
+                    borderRadius: 5,
+                    borderWidth: 1.5,
+                    borderColor: "#ffffff",
                     backgroundColor: "#2d7058",
                   }}
                 />
               ) : null}
             </View>
+
+
+
+
           ),
         }}
       />

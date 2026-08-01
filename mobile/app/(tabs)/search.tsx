@@ -45,26 +45,26 @@ export default function SearchScreen() {
     recentHasMore,
     loadingRecent,
     error,
-    archivingId,
+    deletingId,
     executeSearch,
     clearSearch,
     loadMoreRecent,
-    handleArchive,
+    handleDelete,
   } = useSearch();
 
   const visibleMemories = searchResult ? searchResult.results : recent;
   const showingResults = Boolean(searchResult);
 
-  const archiveWithConfirm = (memory: MemoryRowItem) => {
+  const deleteWithConfirm = (memory: MemoryRowItem) => {
     Alert.alert(
-      "Archive memory?",
-      "This removes it from active search, recall, audits, and nearby context.",
+      "Delete memory?",
+      "This permanently removes it from Crowscap.",
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Archive",
+          text: "Delete",
           style: "destructive",
-          onPress: () => handleArchive(memory.memory_id),
+          onPress: () => handleDelete(memory.memory_id),
         },
       ]
     );
@@ -191,8 +191,9 @@ export default function SearchScreen() {
               <MemoryRow
                 key={memory.memory_id}
                 item={memory}
-                archiving={archivingId === memory.memory_id}
-                onArchive={() => archiveWithConfirm(memory)}
+                deleting={deletingId === memory.memory_id}
+                onOpen={() => openMemory(memory.memory_id)}
+                onDelete={() => deleteWithConfirm(memory)}
               />
             ))}
 
@@ -224,12 +225,14 @@ function cleanSourceTitle(raw: string | null | undefined): string {
 
 function MemoryRow({
   item,
-  archiving,
-  onArchive,
+  deleting,
+  onOpen,
+  onDelete,
 }: {
   item: MemoryRowItem;
-  archiving: boolean;
-  onArchive: () => void;
+  deleting: boolean;
+  onOpen: () => void;
+  onDelete: () => void;
 }) {
   const sourceType = isRecentMemory(item) ? item.source_type : null;
   const date = isRecentMemory(item) ? formatDate(item.created_at) : null;
@@ -237,7 +240,10 @@ function MemoryRow({
 
   return (
     <View style={styles.memoryRow}>
-      <View style={styles.memoryOpenArea}>
+      <Pressable
+        onPress={onOpen}
+        style={({ pressed }) => [styles.memoryOpenArea, pressed && styles.memoryOpenAreaPressed]}
+      >
         <View style={styles.memoryIcon}>
           {sourceType === "pdf" ? (
             <Icons.FileText size={15} color="#2d7058" />
@@ -264,12 +270,12 @@ function MemoryRow({
             {sourceTitle}
           </Text>
         </View>
-      </View>
-      <Pressable onPress={onArchive} hitSlop={8} style={styles.archiveButton} disabled={archiving}>
-        {archiving ? (
+      </Pressable>
+      <Pressable onPress={onDelete} hitSlop={8} style={styles.deleteButton} disabled={deleting}>
+        {deleting ? (
           <ActivityIndicator size="small" color="#9b4c51" />
         ) : (
-          <Icons.Archive size={16} color="#9aa0a6" />
+          <Icons.Trash2 size={16} color="#9b4c51" />
         )}
       </Pressable>
     </View>
@@ -491,6 +497,9 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingVertical: 13,
   },
+  memoryOpenAreaPressed: {
+    opacity: 0.72,
+  },
   memoryIcon: {
     width: 34,
     height: 34,
@@ -541,7 +550,7 @@ const styles = StyleSheet.create({
     color: "#8a8e94",
     fontFamily: fontFamily.medium,
   },
-  archiveButton: {
+  deleteButton: {
     width: 34,
     height: 34,
     alignItems: "center",
@@ -565,5 +574,3 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.bold,
   },
 });
-
-

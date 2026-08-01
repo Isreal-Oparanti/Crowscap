@@ -11,6 +11,8 @@ import {
   TextInput,
   View,
   type ListRenderItem,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
@@ -117,6 +119,8 @@ export default function ChatScreen() {
   const router = useRouter();
   const inputRef = useRef<TextInput>(null);
   const listRef = useRef<FlatList<ChatMessage>>(null);
+  const shouldStickToBottomRef = useRef(true);
+  const initialScrollDoneRef = useRef(false);
 
   const [messages, setMessages] = useState<ChatMessage[]>([openingMessage(session?.name)]);
   const [draft, setDraft] = useState("");
@@ -124,9 +128,22 @@ export default function ChatScreen() {
   const [uploadingFile, setUploadingFile] = useState(false);
   const [workMode, setWorkMode] = useState<WorkMode>("chat");
 
-  const scrollToEnd = useCallback(() => {
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
+  const scrollToEnd = useCallback((animated = true) => {
+    setTimeout(() => listRef.current?.scrollToEnd({ animated }), 80);
   }, []);
+
+  const handleListScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+    shouldStickToBottomRef.current = distanceFromBottom < 96;
+  }, []);
+
+  const handleContentSizeChange = useCallback(() => {
+    if (!initialScrollDoneRef.current || shouldStickToBottomRef.current) {
+      scrollToEnd(initialScrollDoneRef.current);
+      initialScrollDoneRef.current = true;
+    }
+  }, [scrollToEnd]);
 
   // Fetch active conversation messages from backend on mount (persists across sign in/out)
   useEffect(() => {
@@ -183,8 +200,10 @@ export default function ChatScreen() {
               text: m.content,
             };
           });
+          shouldStickToBottomRef.current = true;
+          initialScrollDoneRef.current = false;
           setMessages(loaded);
-          scrollToEnd();
+          scrollToEnd(false);
         }
       } catch {}
     })();
@@ -197,6 +216,7 @@ export default function ChatScreen() {
       if (!text || working) return;
 
       const userMsg: UserMessage = { id: makeId("msg"), role: "user", text };
+      shouldStickToBottomRef.current = true;
       setMessages((current) => [...current, userMsg]);
       setDraft("");
       setWorkMode(inferWorkMode(text));
@@ -278,7 +298,9 @@ export default function ChatScreen() {
         ]);
       } finally {
         setWorking(false);
-        scrollToEnd();
+        if (shouldStickToBottomRef.current) {
+          scrollToEnd();
+        }
       }
     },
     [messages, scrollToEnd, working],
@@ -325,6 +347,7 @@ export default function ChatScreen() {
         role: "user",
         text: userMsgText,
       };
+      shouldStickToBottomRef.current = true;
       setMessages((current) => [...current, userMsg]);
       setWorkMode("save");
       setUploadingFile(true);
@@ -366,7 +389,9 @@ export default function ChatScreen() {
         ]);
       } finally {
         setUploadingFile(false);
-        scrollToEnd();
+        if (shouldStickToBottomRef.current) {
+          scrollToEnd();
+        }
       }
     } else if (draft.trim()) {
       const textToSend = draft;
@@ -432,7 +457,9 @@ export default function ChatScreen() {
         showsVerticalScrollIndicator={false}
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
-        onContentSizeChange={scrollToEnd}
+        onScroll={handleListScroll}
+        scrollEventThrottle={16}
+        onContentSizeChange={handleContentSizeChange}
         ListFooterComponent={working || uploadingFile ? <ThinkingTurn mode={workMode} /> : null}
       />
 
@@ -1285,8 +1312,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#f0f1f3",
     paddingHorizontal: 12,
-    paddingTop: 8,
+    paddingTop: 4,
   },
+
   attachedPillRow: {
     flexDirection: "row",
     marginBottom: 8,
@@ -1335,7 +1363,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14.5,
     fontFamily: fontFamily.regular,
-    color: "#fff",
+    color: "#000",
     lineHeight: 20,
     maxHeight: 120,
     paddingHorizontal: 4,
@@ -1353,4 +1381,3 @@ const styles = StyleSheet.create({
     backgroundColor: tokens.colors.text,
   },
 });
-

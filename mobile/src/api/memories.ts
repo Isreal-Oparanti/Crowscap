@@ -11,5 +11,12 @@ export async function getRecentMemories(
 }
 
 export async function archiveMemory(memoryId: string): Promise<void> {
-  await apiRequest(`/memories/${memoryId}/archive`, { method: "POST", body: JSON.stringify({ reason: "user_dismissed" }) });
+  await apiRequest(`/memories/${memoryId}/archive`, {
+    method: "POST",
+    body: JSON.stringify({ reason: "user_dismissed" }),
+  });
+}
+
+export async function deleteMemory(memoryId: string): Promise<void> {
+  await apiRequest(`/memories/${memoryId}`, { method: "DELETE" });
 }

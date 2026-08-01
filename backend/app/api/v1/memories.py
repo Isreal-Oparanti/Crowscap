@@ -1,9 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.auth import CurrentUser, require_current_user
-from app.db.models import Memory, Source
+from app.db.models import (
+    ActionItem,
+    Memory,
+    MemoryArchiveEvent,
+    MemoryPerspectiveNote,
+    MemoryRelation,
+    RecallReview,
+    Reminder,
+    Source,
+)
 from app.db.session import get_db
 from app.schemas.memory import (
     ArchiveCandidateListResponse,
@@ -139,6 +148,36 @@ def restore(
         return restore_memory(db=db, memory_id=memory_id, user_id=current_user.id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.delete("/{memory_id}", status_code=204)
+def delete_memory(
+    memory_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_current_user),
+) -> Response:
+    memory = db.scalar(
+        select(Memory).where(Memory.id == memory_id, Memory.user_id == current_user.id)
+    )
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Memory not found.")
+
+    db.execute(delete(RecallReview).where(RecallReview.memory_id == memory_id))
+    db.execute(delete(MemoryArchiveEvent).where(MemoryArchiveEvent.memory_id == memory_id))
+    db.execute(delete(MemoryPerspectiveNote).where(MemoryPerspectiveNote.memory_id == memory_id))
+    db.execute(
+        delete(MemoryRelation).where(
+            or_(
+                MemoryRelation.source_memory_id == memory_id,
+                MemoryRelation.target_memory_id == memory_id,
+            )
+        )
+    )
+    db.execute(update(Reminder).where(Reminder.memory_id == memory_id).values(memory_id=None))
+    db.execute(update(ActionItem).where(ActionItem.memory_id == memory_id).values(memory_id=None))
+    db.delete(memory)
+    db.commit()
+    return Response(status_code=204)
 
 
 @router.get("/archive-candidates", response_model=ArchiveCandidateListResponse)

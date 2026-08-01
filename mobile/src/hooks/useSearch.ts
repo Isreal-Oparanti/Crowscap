@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { searchMemories } from "@/api/search";
-import { getRecentMemories, archiveMemory } from "@/api/memories";
+import { deleteMemory, getRecentMemories } from "@/api/memories";
 import type { SearchResponse, RecentMemory } from "@/types/api";
 
 export function useSearch() {
@@ -12,7 +12,7 @@ export function useSearch() {
   const [recentHasMore, setRecentHasMore] = useState(false);
   const [loadingRecent, setLoadingRecent] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchRecent = useCallback(async (offset: number) => {
     setLoadingRecent(true);
@@ -53,11 +53,11 @@ export function useSearch() {
     setSearchResult(null);
   };
 
-  const handleArchive = async (memoryId: string) => {
-    if (archivingId) return;
-    setArchivingId(memoryId);
+  const handleDelete = async (memoryId: string) => {
+    if (deletingId) return;
+    setDeletingId(memoryId);
     try {
-      await archiveMemory(memoryId);
+      await deleteMemory(memoryId);
       setRecent((prev) => prev.filter((m) => m.memory_id !== memoryId));
       if (searchResult) {
         setSearchResult((prev) =>
@@ -71,9 +71,9 @@ export function useSearch() {
         );
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not archive memory.");
+      setError(err instanceof Error ? err.message : "Could not delete memory.");
     } finally {
-      setArchivingId(null);
+      setDeletingId(null);
     }
   };
 
@@ -86,10 +86,10 @@ export function useSearch() {
     recentHasMore,
     loadingRecent,
     error,
-    archivingId,
+    deletingId,
     executeSearch,
     clearSearch,
     loadMoreRecent: () => fetchRecent(recentOffset),
-    handleArchive,
+    handleDelete,
   };
 }

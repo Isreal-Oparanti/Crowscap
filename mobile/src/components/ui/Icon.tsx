@@ -28,6 +28,7 @@ import {
   Settings,
   Shield,
   Sparkles,
+  Trash2,
   Volume2,
   Zap,
   X,
@@ -65,10 +66,10 @@ export const Icons = {
   Settings,
   Shield,
   Sparkles,
+  Trash2,
   Volume2,
   Zap,
   X,
 } satisfies Record<string, LucideIcon>;
-
 
 

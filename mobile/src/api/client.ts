@@ -43,10 +43,12 @@ export async function apiRequest<T>(
     headers,
   });
 
+  const responseText = await response.text();
+
   if (!response.ok) {
     let detail = `HTTP ${response.status}`;
     try {
-      const body = await response.json();
+      const body = responseText ? JSON.parse(responseText) : null;
       detail = body?.detail ?? detail;
     } catch {
       // Non-JSON error body: keep status string.
@@ -54,7 +56,11 @@ export async function apiRequest<T>(
     throw new ApiError(response.status, detail);
   }
 
-  return response.json() as Promise<T>;
+  if (!responseText) {
+    return undefined as T;
+  }
+
+  return JSON.parse(responseText) as T;
 }
 
 export class ApiError extends Error {
