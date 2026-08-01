@@ -30,6 +30,10 @@ pnpm-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+google-services.json
+mobile/google-services.json
+*.jks
+*.keystore
 
 # Generated/runtime files
 *.log

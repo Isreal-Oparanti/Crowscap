@@ -26,6 +26,12 @@ class PushSubscriptionRequest(BaseModel):
     user_agent: str | None = Field(default=None, max_length=1000)
 
 
+class NativePushTokenRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=300)
+    platform: Literal["android", "ios"]
+    device_name: str | None = Field(default=None, max_length=160)
+
+
 class PushUnsubscribeRequest(BaseModel):
     endpoint: str = Field(min_length=20)
 

@@ -258,6 +258,205 @@ react-native-gesture-handler
 react-native-reanimated
 ```
 
+---
+
+## Direct Android Distribution And Updates
+
+Crowscap is not using the Play Store yet. The short-term distribution path is:
+
+1. Build an Android APK with EAS internal distribution.
+2. Host the APK on the existing Alibaba ECS backend domain.
+3. Host a small version manifest beside the APK.
+4. Let the app check that manifest on launch and foreground.
+5. Use EAS Update for JavaScript and UI changes that do not require a native rebuild.
+
+### Hosted Files
+
+Use the existing ECS/Nginx backend:
+
+```text
+https://api.crowscap.xyz/downloads/version.json
+https://api.crowscap.xyz/downloads/crowscap-latest.apk
+```
+
+The repository contains the manifest template at:
+
+```text
+deploy/downloads/version.json
+```
+
+Manifest shape:
+
+```json
+{
+  "android": {
+    "latestVersionCode": 1,
+    "minimumVersionCode": 1,
+    "versionName": "1.0.0",
+    "apkUrl": "https://api.crowscap.xyz/downloads/crowscap-latest.apk",
+    "notes": "Initial Android build.",
+    "publishedAt": "2026-08-01T00:00:00Z"
+  }
+}
+```
+
+### Native Version Check
+
+The mobile app must not show an update banner on every launch. It should:
+
+1. Read the installed Android build number with `expo-application`.
+2. Fetch `https://api.crowscap.xyz/downloads/version.json`.
+3. Compare installed `versionCode` with `android.latestVersionCode`.
+4. Show the native update banner only when `latestVersionCode` is greater.
+5. Open `android.apkUrl` when the user taps Download.
+
+This is implemented in:
+
+```text
+mobile/src/utils/updates.ts
+mobile/src/components/shell/AppUpdatePrompt.tsx
+mobile/app/_layout.tsx
+```
+
+The check fails quietly if the user is offline or the manifest cannot be reached. It should not block login, capture, recall, or search.
+
+### EAS Update
+
+EAS Update is for JavaScript, styling, copy, and API-flow fixes. It cannot change native capabilities such as permissions, native modules, package identifiers, notification configuration, or SDK-level changes.
+
+Current channels:
+
+```text
+development -> development builds
+preview     -> internal APKs shared with testers
+production  -> future production builds
+```
+
+For a UI/API-only update after an APK is installed:
+
+```bash
+cd mobile
+npx eas update --channel preview --message "Short description of the fix"
+```
+
+The app checks for OTA updates when launched or foregrounded. If a bundle is available, it downloads it and shows a restart prompt. It should not silently reload while a user is in the middle of chat, recall, or capture.
+
+`mobile/app.json` sets `updates.checkAutomatically` to `NEVER` because Crowscap owns the update UX. The app calls `checkForUpdateAsync()` manually, fetches the bundle, then asks the user to restart.
+
+## Notification And Resurfacing Rules
+
+Notifications have two different jobs, and the backend treats them differently.
+
+### Time-Critical Reminders
+
+Reminders and deadlines are time-driven. If a reminder is due, it wins over a normal recall. Deadline language must include the actual urgency phrase when possible:
+
+- `today`
+- `tomorrow`
+- `in 2 days`
+- `on Aug 12`
+
+Good example:
+
+```text
+Deadline tomorrow
+You saved this grant link for tomorrow. Submit the application before the window closes.
+```
+
+Weak example:
+
+```text
+You saved this grant link for later. The page appears to close soon.
+```
+
+The second version is too soft because it hides the time pressure. The user should feel why this matters now.
+
+### Normal Memory Recalls
+
+Regular saved memories must not surface only because they are old. The backend creates an eligible pool from active memories whose `next_review_at` is due, then ranks them before choosing what to push.
+
+The ranking combines:
+
+- Recent context match from the user's latest chat and saved memories.
+- Memory confidence.
+- Source strength and source type.
+- Whether the user saved it with an intent such as YC, launch, customer, grant, deadline, or build.
+- Recall score, so weakly remembered ideas get refreshed.
+- Overdue age, with a cap so very old memories do not dominate forever.
+- Memory type, with actions, warnings, principles, and intentions weighted above plain references.
+
+The delivery table is also part of resurfacing. A memory or reminder with a previously sent `web_push` event is skipped for that exact due cycle, so Crowscap does not keep pushing the same item while other due items wait.
+
+### Copy Quality
+
+Push copy must be grounded in saved facts. The model receives a small JSON context containing the reminder text, due phrase, source title, source type, saved intent, and memory content. It must not invent details, deadlines, or source claims.
+
+Avoid generic marketing openers such as:
+
+- `Discover how`
+- `Explore`
+- `Dive into`
+- `Unlock`
+
+Use the user's saved context instead:
+
+```text
+Your YC video is ready
+You saved this video yesterday for your YC application. It explains the interview mistakes founders make when they cannot describe the product clearly.
+```
+
+### Expo Go Limitation
+
+Expo Go does not support Android remote push notifications through `expo-notifications` after SDK 53. The app skips native notification initialization in Expo Go to avoid warning/error overlays. Native push should be tested in a Crowscap development build or preview APK.
+
+### Native Push Registration
+
+The installed Android app registers an Expo push token with the backend:
+
+```text
+POST /api/v1/notifications/push/native-token
+```
+
+The existing `push_subscriptions` table stores both subscription types:
+
+- Browser/PWA Web Push subscriptions use a normal endpoint plus VAPID keys.
+- Native Expo tokens use `provider=expo` in `metadata_json`.
+
+The worker sends through the correct channel for each subscription. This lets the same reminder and recall selection logic power web, PWA, and the Android APK.
+
+To build native Android push, Firebase/FCM must be configured in EAS:
+
+1. Create a Firebase project.
+2. Add an Android app with package `xyz.crowscap.app`.
+3. Download `google-services.json`.
+4. Place it at `mobile/google-services.json`.
+5. Run `npx eas credentials`.
+6. Select Android, then upload/configure the FCM V1 service account key.
+
+Do not commit Firebase service account private keys. `google-services.json` is app config and may be present for Android builds, but private service account JSON belongs in EAS credentials.
+
+### APK Build
+
+For a shareable Android APK:
+
+```bash
+cd mobile
+npx eas build -p android --profile preview
+```
+
+After the build finishes:
+
+1. Download the APK from EAS.
+2. Upload it to `/var/www/crowscap-downloads/crowscap-latest.apk` on ECS.
+3. Bump `mobile/app.json` `expo.android.versionCode` for the next native build.
+4. Update `/var/www/crowscap-downloads/version.json` with the same `latestVersionCode`.
+
+Android users who install outside the Play Store must approve the installation. Future native APK updates also require user confirmation. EAS Update reduces how often that is needed by shipping most JS/UI fixes over the air.
+
+### iOS Reality
+
+Without an Apple Developer account, native iOS distribution is not practical. Until then, iOS users should use the web app. The native iOS path later is TestFlight or the App Store.
+
 ### Dev
 ```
 @types/react

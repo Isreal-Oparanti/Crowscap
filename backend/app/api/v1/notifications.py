@@ -11,6 +11,7 @@ from app.core.auth import CurrentUser, require_current_user
 from app.core.config import get_settings
 from app.db.session import SessionLocal, get_db
 from app.schemas.notifications import (
+    NativePushTokenRequest,
     NotificationEventResponse,
     PushPublicKeyResponse,
     PushSubscriptionRequest,
@@ -21,6 +22,7 @@ from app.services.notification_service import (
     deactivate_push_subscription,
     get_current_notification_event,
     get_push_public_key,
+    upsert_native_push_token,
     upsert_push_subscription,
 )
 
@@ -49,6 +51,24 @@ def subscribe_push(
         user_agent=payload.user_agent,
     )
     return PushSubscriptionResponse(status="active", configured=configured)
+
+
+@router.post("/push/native-token", response_model=PushSubscriptionResponse)
+def subscribe_native_push(
+    payload: NativePushTokenRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_current_user),
+) -> PushSubscriptionResponse:
+    upsert_native_push_token(
+        db=db,
+        user_id=current_user.id,
+        token=payload.token,
+        platform=payload.platform,
+        device_name=payload.device_name,
+        user_agent=request.headers.get("user-agent"),
+    )
+    return PushSubscriptionResponse(status="active", configured=True)
 
 
 @router.post("/push/unsubscribe", response_model=PushSubscriptionResponse)

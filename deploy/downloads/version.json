@@ -1,0 +1,10 @@
+{
+  "android": {
+    "latestVersionCode": 1,
+    "minimumVersionCode": 1,
+    "versionName": "1.0.0",
+    "apkUrl": "https://api.crowscap.xyz/downloads/crowscap-latest.apk",
+    "notes": "Initial Android build.",
+    "publishedAt": "2026-08-01T00:00:00Z"
+  }
+}

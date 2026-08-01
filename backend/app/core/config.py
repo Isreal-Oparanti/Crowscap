@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     crowscap_vapid_public_key: str | None = None
     crowscap_vapid_private_key: SecretStr | None = Field(default=None)
     crowscap_vapid_subject: str = "mailto:hello@crowscap.xyz"
+    expo_push_access_token: SecretStr | None = Field(default=None)
     crowscap_notification_stream_interval_seconds: float = 30.0
     crowscap_notification_worker_enabled: bool = False
     crowscap_notification_worker_interval_seconds: float = 45.0
@@ -109,6 +110,13 @@ class Settings(BaseSettings):
         if self.crowscap_vapid_private_key is None:
             return None
         value = self.crowscap_vapid_private_key.get_secret_value().strip()
+        return value or None
+
+    @property
+    def expo_push_access_token_value(self) -> str | None:
+        if self.expo_push_access_token is None:
+            return None
+        value = self.expo_push_access_token.get_secret_value().strip()
         return value or None
 
     @property

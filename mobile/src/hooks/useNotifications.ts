@@ -9,6 +9,7 @@ import {
   requestPushPermissions,
   setupNotificationChannels,
   getCurrentNotificationEvent,
+  registerNativePushToken,
   scheduleLocalNotification,
   type CurrentNotificationEvent,
 } from "@/utils/notifications";
@@ -19,11 +20,14 @@ export function useNotifications(enabled = true) {
 
   useEffect(() => {
     if (!enabled) return;
+    if (!canUseNativeNotifications()) return;
 
     const Notifications = getNotificationsModule();
+    if (!Notifications) return;
 
     // 1. Setup high-priority Android channel & request permission
     requestPushPermissions().catch(() => null);
+    registerNativePushToken().catch(() => null);
     setupNotificationChannels().catch(() => null);
 
     // Auto-prompt permission 1 minute (60s) after user enters app if system permission is not granted
@@ -34,6 +38,7 @@ export function useNotifications(enabled = true) {
           const { status } = await notif.getPermissionsAsync();
           if (status !== "granted") {
             await requestPushPermissions();
+            await registerNativePushToken();
           }
         }
       } catch {}
@@ -157,5 +162,3 @@ export function useNotifications(enabled = true) {
 
   }, [enabled, router]);
 }
-
-

@@ -3,6 +3,13 @@
     "name": "Crowscap",
     "slug": "crowscap",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/e608ef6e-7ad3-47d8-b80e-eb4e592b7870",
+      "checkAutomatically": "NEVER"
+    },
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "crowscap",
@@ -22,6 +29,7 @@
     },
     "android": {
       "softwareKeyboardLayoutMode": "resize",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -63,6 +71,7 @@
       "expo-router",
       "expo-font",
       "expo-secure-store",
+      "expo-updates",
       [
         "expo-notifications",
         {
@@ -79,6 +88,9 @@
     "extra": {
       "eas": {
         "projectId": "e608ef6e-7ad3-47d8-b80e-eb4e592b7870"
+      },
+      "downloads": {
+        "versionManifestUrl": "https://api.crowscap.xyz/downloads/version.json"
       },
       "router": {}
     },

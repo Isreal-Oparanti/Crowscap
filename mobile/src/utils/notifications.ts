@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
 import { Platform } from "react-native";
@@ -25,6 +26,7 @@ export function isPhysicalDevice() {
 
 /** Retrieve expo-notifications module safely */
 export function getNotificationsModule(): NotificationsModule | null {
+  if (!canUseNativeNotifications()) return null;
   if (notificationsModule !== undefined) return notificationsModule;
 
   try {
@@ -136,7 +138,39 @@ export async function requestPushPermissions(): Promise<boolean> {
   }
 }
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
+export async function registerNativePushToken(): Promise<boolean> {
+  if (!canUseNativeNotifications() || !isPhysicalDevice()) return false;
+
+  const Notifications = getNotificationsModule();
+  if (!Notifications) return false;
+
+  const projectId =
+    Constants.expoConfig?.extra?.eas?.projectId ??
+    (Constants as { easConfig?: { projectId?: string } }).easConfig?.projectId ??
+    null;
+  if (!projectId) return false;
+
+  const granted = await requestPushPermissions();
+  if (!granted) return false;
+
+  try {
+    const tokenResult = await Notifications.getExpoPushTokenAsync({ projectId });
+    const token = tokenResult.data;
+    if (!token) return false;
+
+    await apiRequest("/notifications/push/native-token", {
+      method: "POST",
+      body: JSON.stringify({
+        token,
+        platform: Platform.OS === "ios" ? "ios" : "android",
+        device_name: Device.deviceName ?? null,
+      }),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const REMINDER_STORAGE_KEY = "@crowscap_scheduled_reminders_v1";
 
@@ -290,6 +324,3 @@ export async function getCurrentNotificationEvent(): Promise<CurrentNotification
     return null;
   }
 }
-
-
-

@@ -105,12 +105,23 @@ Optional notification delivery values:
 CROWSCAP_VAPID_PUBLIC_KEY=browser_push_public_key
 CROWSCAP_VAPID_PRIVATE_KEY=browser_push_private_key
 CROWSCAP_VAPID_SUBJECT=mailto:hello@crowscap.xyz
+EXPO_PUSH_ACCESS_TOKEN=optional_expo_access_token
 CROWSCAP_NOTIFICATION_WORKER_ENABLED=true
 ```
 
 SSE works without VAPID keys and is used for live in-app reminders or recalls.
-Web Push requires VAPID keys and a subscribed browser. The worker is opt-in so
-local development never starts sending native notifications by surprise.
+Web Push requires VAPID keys and a subscribed browser or native shell. The worker
+is opt-in so local development never starts sending notifications by surprise.
+Native Android push uses Expo push tokens registered by the app at
+`POST /api/v1/notifications/push/native-token`. Android FCM credentials are
+managed in EAS/Firebase, not stored in this backend env file.
+
+Notification selection is intentionally ranked. Due reminders and deadlines win
+first, and deadline copy should say `today`, `tomorrow`, or `in N days` when that
+is the real urgency. Normal memory recalls are chosen from due memories using
+recent user context, confidence, source strength, saved intent, recall score,
+overdue age, and memory type. Sent push events are recorded so one memory cannot
+keep blocking the queue.
 
 ## Qwen Cloud Integration
 

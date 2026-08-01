@@ -14,6 +14,7 @@ import { AuthProvider } from "@/auth/context";
 import { useAuth } from "@/hooks/useAuth";
 import { useNotifications } from "@/hooks/useNotifications";
 import { ShareIntentHandler } from "@/components/capture/ShareIntentHandler";
+import { AppUpdatePrompt } from "@/components/shell/AppUpdatePrompt";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -66,6 +67,7 @@ export default function RootLayout() {
       <AuthProvider>
         <AuthGate />
         <ShareIntentHandler />
+        <AppUpdatePrompt />
         <StatusBar style="dark" />
         <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
           <Stack.Screen
