@@ -5,6 +5,16 @@ module.exports = () => {
 
   return {
     ...config,
+    extra: {
+      ...config.extra,
+      backendUrl:
+        process.env.EXPO_PUBLIC_BACKEND_URL ||
+        config.extra?.backendUrl ||
+        "https://api.crowscap.xyz",
+      googleClientIdWeb: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB || "",
+      googleClientIdAndroid: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID || "",
+      googleClientIdIos: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS || "",
+    },
     android: {
       ...config.android,
       googleServicesFile:
