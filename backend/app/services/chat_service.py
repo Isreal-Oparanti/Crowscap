@@ -10,7 +10,8 @@ from urllib.parse import urlparse
 
 from fastapi import BackgroundTasks
 from pydantic import ValidationError
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, text
+
 from sqlalchemy.orm import Session
 
 from app.ai.qwen_client import QwenClient
@@ -214,6 +215,150 @@ class QwenChatConversationResponder:
         return reply.reply
 
 
+logger = get_logger("services.chat")
+
+MEMORY_QUERY_MIN_SCORE = 0.25
+CONVERSATION_MEMORY_MIN_SCORE = 0.55
+MIN_DIRECT_TEXT_CAPTURE_CHARS = 20
+PROMPT_HISTORY_RECENT_TURNS = 6
+PROMPT_HISTORY_SUMMARY_TRIGGER_TURNS = 10
+MEMORY_CONTEXT_TOKEN_BUDGET = 2000
+MEMORY_NEAR_DUPLICATE_RATIO = 0.82
+SESSION_CONVERSATION_MARKERS = (
+    "in this chat",
+    "this chat",
+    "this conversation",
+    "current chat",
+    "this session",
+    "beginning of our chat",
+    "beginning of this chat",
+    "start of our chat",
+    "start of this chat",
+    "earlier here",
+    "earlier in chat",
+    "earlier in this chat",
+    "have i thanked",
+    "did i thank",
+    "first thing i said",
+    "very first thing",
+    "first message",
+    "first thing",
+    "what did i just say",
+    "what was my last message",
+    "last message",
+)
+
+
+# Types, error classes, and Protocol interfaces live in chat_types for clarity.
+# Qwen implementations remain here as they depend on private helpers in this module.
+from app.services.chat_types import (
+    ReminderIntent,
+    RecentCaptureContext,
+    SelfKnowledgeChunk,
+    CROWSCAP_SELF_KNOWLEDGE,
+    ChatRoutingError,
+    ChatSynthesisError,
+    ChatIntentRouter,
+    ChatSynthesizer,
+    ChatConversationResponder,
+)
+
+
+class QwenChatIntentRouter:
+    def __init__(self, client: QwenClient | None = None) -> None:
+        self.client = client or QwenClient()
+        self.settings = get_settings()
+
+    def route(self, *, message: str, history: list[ConversationTurn]) -> ChatRoute:
+        deterministic = _deterministic_route(message, history=history)
+        if deterministic is not None:
+            logger.info(
+                "\U0001f9ed chat.route.deterministic action=%s chars=%s",
+                deterministic.action,
+                len(message),
+            )
+            return deterministic
+
+        payload = self.client.chat_json(
+            system_prompt=CHAT_ROUTER_SYSTEM_PROMPT,
+            user_prompt=_build_router_prompt(message=message, history=history, pending_url=_pending_url_from_history(history)),
+            model=self.settings.qwen_fast_model,
+            temperature=0.0,
+            timeout_seconds=15.0,
+            max_retries=1,
+        )
+        try:
+            route = ChatRoute.model_validate(payload)
+        except ValidationError as exc:
+            raise ChatRoutingError(f"Chat routing failed schema validation: {exc}") from exc
+
+        logger.info("\U0001f9ed chat.route.model action=%s chars=%s", route.action, len(message))
+        return route
+
+
+class QwenChatSynthesizer:
+    def __init__(self, client: QwenClient | None = None) -> None:
+        self.client = client or QwenClient()
+        self.settings = get_settings()
+
+    def synthesize(
+        self,
+        *,
+        question: str,
+        history: list[ConversationTurn],
+        search: SearchResponse,
+        relation_context: list[str],
+        preferences: UserPreference | None = None,
+    ) -> GroundedChatSynthesis:
+        payload = self.client.chat_json(
+            system_prompt=CHAT_SYNTHESIS_SYSTEM_PROMPT,
+            user_prompt=_build_synthesis_prompt(
+                question=question,
+                history=history,
+                search=search,
+                relation_context=relation_context,
+                preference_context=format_preference_context(preferences),
+            ),
+            model=self.settings.qwen_chat_model,
+            temperature=0.2,
+        )
+        try:
+            return GroundedChatSynthesis.model_validate(payload)
+        except ValidationError as exc:
+            raise ChatSynthesisError(f"Chat synthesis failed schema validation: {exc}") from exc
+
+
+class QwenChatConversationResponder:
+    def __init__(self, client: QwenClient | None = None) -> None:
+        self.client = client or QwenClient()
+        self.settings = get_settings()
+
+    def respond(
+        self,
+        *,
+        message: str,
+        history: list[ConversationTurn],
+        preferences: UserPreference | None = None,
+    ) -> str:
+        payload = self.client.chat_json(
+            system_prompt=CHAT_CONVERSATION_SYSTEM_PROMPT,
+            user_prompt=_build_conversation_prompt(
+                message=message,
+                history=history,
+                preference_context=format_preference_context(preferences),
+            ),
+            model=self.settings.qwen_chat_model,
+            temperature=0.35,
+            timeout_seconds=30.0,
+            max_retries=1,
+        )
+        try:
+            reply = ConversationalChatReply.model_validate(payload)
+        except ValidationError as exc:
+            raise ChatSynthesisError(f"Conversation reply failed schema validation: {exc}") from exc
+        return reply.reply
+
+
 def get_chat_router() -> ChatIntentRouter:
     return QwenChatIntentRouter()
 
@@ -235,10 +380,28 @@ def get_current_conversation(
         select(Conversation)
         .where(Conversation.status == "active")
         .where(Conversation.user_id.is_(None) if user_id is None else Conversation.user_id == user_id)
-        .order_by(Conversation.updated_at.desc(), Conversation.created_at.desc())
+        .order_by(Conversation.created_at.asc())
     )
-    conversation = db.scalars(query).first()
-    return _conversation_response(conversation) if conversation is not None else None
+    conversations = list(db.scalars(query).all())
+    if not conversations:
+        return None
+
+    primary_conv = conversations[0]
+    if len(conversations) > 1:
+        for secondary in conversations[1:]:
+            db.execute(
+                text("UPDATE chat_messages SET conversation_id = :p_id WHERE conversation_id = :s_id"),
+                {"p_id": primary_conv.id, "s_id": secondary.id},
+            )
+            db.execute(
+                text("UPDATE reminders SET conversation_id = :p_id WHERE conversation_id = :s_id"),
+                {"p_id": primary_conv.id, "s_id": secondary.id},
+            )
+            secondary.status = "archived"
+        db.commit()
+        db.refresh(primary_conv)
+
+    return _conversation_response(primary_conv)
 
 
 def get_conversation(
@@ -270,11 +433,13 @@ def process_chat_message(
     user_id: str | None = None,
 ) -> ChatResponse:
     conversation = _get_or_create_conversation(
+
         db=db,
         conversation_id=payload.conversation_id,
         first_message=payload.message,
         user_id=user_id,
     )
+
     persisted_history = _conversation_turns(conversation, limit=None)
     effective_history = persisted_history or payload.history
     pending_url = _pending_url_from_history(effective_history)

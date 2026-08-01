@@ -1336,9 +1336,9 @@ const styles = StyleSheet.create({
     fontSize: 14.5,
     fontFamily: fontFamily.regular,
     color: "#fff",
-    // lineHeight: 20,
-    // maxHeight: 120,
-    // paddingHorizontal: 4,
+    lineHeight: 20,
+    maxHeight: 120,
+    paddingHorizontal: 4,
     paddingVertical: Platform.OS === "ios" ? 8 : 0,
   },
   sendButton: {
