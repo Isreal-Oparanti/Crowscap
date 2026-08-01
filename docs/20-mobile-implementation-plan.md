@@ -387,6 +387,13 @@ The ranking combines:
 
 The delivery table is also part of resurfacing. A memory or reminder with a previously sent `web_push` event is skipped for that exact due cycle, so Crowscap does not keep pushing the same item while other due items wait.
 
+Normal memory recall notifications are paced. The worker may wake up frequently,
+but a user should not receive a new non-urgent recall every worker tick. The
+backend applies `CROWSCAP_RECALL_PUSH_COOLDOWN_MINUTES` and
+`CROWSCAP_RECALL_PUSH_DAILY_LIMIT` before choosing a due memory. Reminders and
+deadline nudges are not blocked by this recall cooldown because they are
+time-critical.
+
 ### Copy Quality
 
 Push copy must be grounded in saved facts. The model receives a small JSON context containing the reminder text, due phrase, source title, source type, saved intent, and memory content. It must not invent details, deadlines, or source claims.

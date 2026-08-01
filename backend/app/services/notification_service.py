@@ -4,7 +4,7 @@ import asyncio
 import json
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -507,6 +507,9 @@ def _select_due_memory_for_notification(
     user_id: str,
     now: datetime,
 ) -> tuple[Memory, Source, str] | None:
+    if _recall_push_is_throttled(db=db, user_id=user_id, now=now):
+        return None
+
     rows = list(
         db.execute(
             select(Memory, Source)
@@ -545,6 +548,40 @@ def _select_due_memory_for_notification(
     scored.sort(key=lambda item: (-item[0], _aware(item[1].next_review_at).timestamp()))
     _score, memory, source, reason = scored[0]
     return memory, source, reason
+
+
+def _recall_push_is_throttled(*, db: Session, user_id: str, now: datetime) -> bool:
+    settings = get_settings()
+    cooldown_minutes = max(0, settings.crowscap_recall_push_cooldown_minutes)
+    daily_limit = max(1, settings.crowscap_recall_push_daily_limit)
+
+    if cooldown_minutes:
+        cooldown_start = now - timedelta(minutes=cooldown_minutes)
+        recent_delivery = db.scalar(
+            select(NotificationDelivery.id)
+            .where(
+                NotificationDelivery.user_id == user_id,
+                NotificationDelivery.event_type == "recall_due",
+                NotificationDelivery.status == "sent",
+                NotificationDelivery.sent_at.is_not(None),
+                NotificationDelivery.sent_at >= cooldown_start,
+            )
+            .limit(1)
+        )
+        if recent_delivery is not None:
+            return True
+
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    sent_today = db.scalar(
+        select(func.count(NotificationDelivery.id)).where(
+            NotificationDelivery.user_id == user_id,
+            NotificationDelivery.event_type == "recall_due",
+            NotificationDelivery.status == "sent",
+            NotificationDelivery.sent_at.is_not(None),
+            NotificationDelivery.sent_at >= day_start,
+        )
+    ) or 0
+    return int(sent_today) >= daily_limit
 
 
 def _score_notification_memory(

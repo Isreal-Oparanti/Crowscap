@@ -337,6 +337,120 @@ def test_recall_selection_skips_already_sent_memory(monkeypatch: MonkeyPatch) ->
     db.close()
 
 
+def test_recent_recall_push_throttles_non_urgent_memory(monkeypatch: MonkeyPatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "crowscap_recall_push_cooldown_minutes", 360)
+    monkeypatch.setattr(settings, "crowscap_recall_push_daily_limit", 3)
+    monkeypatch.setattr(
+        "app.services.notification_service.generate_notification_copy",
+        lambda *, context, default_title, default_body: (default_title, default_body),
+    )
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    testing_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    db = testing_session()
+    source = Source(
+        user_id=TEST_USER_ID,
+        source_type="text",
+        title="Agent notes",
+    )
+    db.add(source)
+    db.flush()
+    capture = Capture(
+        user_id=TEST_USER_ID,
+        source_id=source.id,
+        status="completed",
+    )
+    db.add(capture)
+    db.flush()
+    db.add(
+        Memory(
+            user_id=TEST_USER_ID,
+            source_id=source.id,
+            capture_id=capture.id,
+            memory_type="definition",
+            content="An agent can act toward goals under constraints.",
+            confidence="high",
+            source_strength="moderate",
+            next_review_at=utc_now() - timedelta(days=1),
+        )
+    )
+    db.add(
+        NotificationDelivery(
+            user_id=TEST_USER_ID,
+            event_key="recall_due:previous",
+            event_type="recall_due",
+            channel="web_push",
+            status="sent",
+            title="Previous recall",
+            body="Previous recall",
+            url="/recall",
+            sent_at=utc_now() - timedelta(minutes=5),
+        )
+    )
+    db.commit()
+
+    from app.services.notification_service import get_current_notification_event
+
+    event = get_current_notification_event(db=db, user_id=TEST_USER_ID)
+
+    assert event.event_type == "heartbeat"
+    db.close()
+
+
+def test_due_reminder_bypasses_recent_recall_push_cooldown(monkeypatch: MonkeyPatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "crowscap_recall_push_cooldown_minutes", 360)
+    monkeypatch.setattr(settings, "crowscap_recall_push_daily_limit", 3)
+    monkeypatch.setattr(
+        "app.services.notification_service.generate_notification_copy",
+        lambda *, context, default_title, default_body: (default_title, default_body),
+    )
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    testing_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    db = testing_session()
+    db.add(
+        NotificationDelivery(
+            user_id=TEST_USER_ID,
+            event_key="recall_due:previous",
+            event_type="recall_due",
+            channel="web_push",
+            status="sent",
+            title="Previous recall",
+            body="Previous recall",
+            url="/recall",
+            sent_at=utc_now() - timedelta(minutes=5),
+        )
+    )
+    db.add(
+        Reminder(
+            user_id=TEST_USER_ID,
+            content="Submit the YC application",
+            due_at=utc_now() - timedelta(minutes=1),
+            status="scheduled",
+            save_as_memory=False,
+        )
+    )
+    db.commit()
+
+    from app.services.notification_service import get_current_notification_event
+
+    event = get_current_notification_event(db=db, user_id=TEST_USER_ID)
+
+    assert event.event_type == "reminder_due"
+    assert "YC" in event.body or "application" in event.body
+    db.close()
+
+
 def test_send_push_event_uses_expo_sender_for_native_token(monkeypatch: MonkeyPatch) -> None:
     engine = create_engine(
         "sqlite://",

@@ -79,6 +79,8 @@ class Settings(BaseSettings):
     crowscap_notification_stream_interval_seconds: float = 30.0
     crowscap_notification_worker_enabled: bool = False
     crowscap_notification_worker_interval_seconds: float = 45.0
+    crowscap_recall_push_cooldown_minutes: int = 360
+    crowscap_recall_push_daily_limit: int = 3
 
     @property
     def has_qwen_key(self) -> bool:

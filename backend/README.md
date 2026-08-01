@@ -107,6 +107,8 @@ CROWSCAP_VAPID_PRIVATE_KEY=browser_push_private_key
 CROWSCAP_VAPID_SUBJECT=mailto:hello@crowscap.xyz
 EXPO_PUSH_ACCESS_TOKEN=optional_expo_access_token
 CROWSCAP_NOTIFICATION_WORKER_ENABLED=true
+CROWSCAP_RECALL_PUSH_COOLDOWN_MINUTES=360
+CROWSCAP_RECALL_PUSH_DAILY_LIMIT=3
 ```
 
 SSE works without VAPID keys and is used for live in-app reminders or recalls.
@@ -121,7 +123,9 @@ first, and deadline copy should say `today`, `tomorrow`, or `in N days` when tha
 is the real urgency. Normal memory recalls are chosen from due memories using
 recent user context, confidence, source strength, saved intent, recall score,
 overdue age, and memory type. Sent push events are recorded so one memory cannot
-keep blocking the queue.
+keep blocking the queue. Normal memory recall push is also paced per user with a
+cooldown and daily cap. This keeps Crowscap from dumping an overdue backlog into
+the notification tray while still allowing reminders to arrive on time.
 
 ## Qwen Cloud Integration
 
