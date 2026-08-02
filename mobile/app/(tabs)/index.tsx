@@ -114,7 +114,7 @@ function openingMessage(name: string | null | undefined): AssistantTextMessage {
 
 
 export default function ChatScreen() {
-  const { session } = useAuth();
+  const { session, isLoading: authLoading } = useAuth();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const inputRef = useRef<TextInput>(null);
@@ -123,6 +123,8 @@ export default function ChatScreen() {
   const initialScrollDoneRef = useRef(false);
 
   const [messages, setMessages] = useState<ChatMessage[]>([openingMessage(session?.name)]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [working, setWorking] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
@@ -145,69 +147,106 @@ export default function ChatScreen() {
     }
   }, [scrollToEnd]);
 
-  // Fetch active conversation messages from backend on mount (persists across sign in/out)
-  useEffect(() => {
-    (async () => {
-      try {
-        const conv = await getCurrentConversation();
-        if (conv && conv.messages && conv.messages.length > 0) {
-          const loaded: ChatMessage[] = conv.messages.map((m) => {
-            if (m.role === "user") {
-              return { id: m.id, role: "user", text: m.content };
-            }
-            const meta = m.metadata_json || {};
-            if (m.action === "capture" && meta.capture) {
-              return {
-                id: m.id,
-                role: "assistant",
-                kind: "capture",
-                text: m.content,
-                data: meta.capture as any,
-              };
-            }
-            if (
-              m.action === "reminder" ||
-              m.action === "answer" ||
-              m.action === "self" ||
-              meta.reminder ||
-              meta.evidence
-            ) {
-              const dataObj: ChatResponse = {
-                action: (m.action as any) || "conversation",
-                message: m.content,
-                saved: false,
-                capture: (meta.capture as any) || null,
-                reminder: (meta.reminder as any) || null,
-                evidence: (meta.evidence as any) || [],
-                knowledge_gaps: (meta.knowledge_gaps as any) || [],
-                tensions: (meta.tensions as any) || [],
-                next_step: (meta.next_step as any) || null,
-                preference_updates: (meta.preference_updates as any) || [],
-                preferences: (meta.preferences as any) || null,
-              };
-              return {
-                id: m.id,
-                role: "assistant",
-                kind: "answer",
-                text: m.content,
-                data: dataObj,
-              };
-            }
-            return {
-              id: m.id,
-              role: "assistant",
-              kind: "text",
-              text: m.content,
-            };
-          });
+  const loadConversation = useCallback(
+    async ({ silent = false }: { silent?: boolean } = {}) => {
+      if (!session) return;
+
+      if (!silent) {
+        setHistoryLoading(true);
+      }
+      setHistoryError(null);
+
+      let lastError: unknown = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const conv = await getCurrentConversation();
+          const loaded: ChatMessage[] = conv?.messages?.length
+            ? conv.messages.map((m) => {
+                if (m.role === "user") {
+                  return { id: m.id, role: "user", text: m.content };
+                }
+                const meta = m.metadata_json || {};
+                if (m.action === "capture" && meta.capture) {
+                  return {
+                    id: m.id,
+                    role: "assistant",
+                    kind: "capture",
+                    text: m.content,
+                    data: meta.capture as any,
+                  };
+                }
+                if (
+                  m.action === "reminder" ||
+                  m.action === "answer" ||
+                  m.action === "self" ||
+                  meta.reminder ||
+                  meta.evidence
+                ) {
+                  const dataObj: ChatResponse = {
+                    action: (m.action as any) || "conversation",
+                    message: m.content,
+                    saved: false,
+                    capture: (meta.capture as any) || null,
+                    reminder: (meta.reminder as any) || null,
+                    evidence: (meta.evidence as any) || [],
+                    knowledge_gaps: (meta.knowledge_gaps as any) || [],
+                    tensions: (meta.tensions as any) || [],
+                    next_step: (meta.next_step as any) || null,
+                    preference_updates: (meta.preference_updates as any) || [],
+                    preferences: (meta.preferences as any) || null,
+                  };
+                  return {
+                    id: m.id,
+                    role: "assistant",
+                    kind: "answer",
+                    text: m.content,
+                    data: dataObj,
+                  };
+                }
+                return {
+                  id: m.id,
+                  role: "assistant",
+                  kind: "text",
+                  text: m.content,
+                };
+              })
+            : [openingMessage(session.name)];
+
           shouldStickToBottomRef.current = true;
           initialScrollDoneRef.current = false;
           setMessages(loaded);
           scrollToEnd(false);
+          setHistoryLoading(false);
+          return;
+        } catch (error) {
+          lastError = error;
+          if (attempt === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 600));
+          }
         }
-      } catch {}
-    })();
-  }, [scrollToEnd]);
+      }
+
+      setHistoryLoading(false);
+      setHistoryError(
+        lastError instanceof Error
+          ? "I could not load your earlier messages yet."
+          : "Your earlier messages did not load. Pull down to try again.",
+      );
+    },
+    [scrollToEnd, session],
+  );
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!session) {
+      setMessages([openingMessage(null)]);
+      setHistoryLoading(false);
+      setHistoryError(null);
+      return;
+    }
+
+    void loadConversation();
+  }, [authLoading, loadConversation, session]);
 
 
   const sendText = useCallback(
@@ -454,12 +493,23 @@ export default function ChatScreen() {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         contentContainerStyle={styles.list}
+        refreshing={historyLoading}
+        onRefresh={() => void loadConversation()}
         showsVerticalScrollIndicator={false}
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
         onScroll={handleListScroll}
         scrollEventThrottle={16}
         onContentSizeChange={handleContentSizeChange}
+        ListHeaderComponent={historyError ? (
+          <Pressable
+            style={({ pressed }) => [styles.historyError, pressed && { opacity: 0.72 }]}
+            onPress={() => void loadConversation()}
+          >
+            <Text style={styles.historyErrorText}>{historyError}</Text>
+            <Text style={styles.historyErrorAction}>Tap to retry</Text>
+          </Pressable>
+        ) : null}
         ListFooterComponent={working || uploadingFile ? <ThinkingTurn mode={workMode} /> : null}
       />
 
@@ -951,6 +1001,26 @@ const styles = StyleSheet.create({
     paddingTop: tokens.spacing[6],
     paddingBottom: 26,
     gap: tokens.spacing[7],
+  },
+  historyError: {
+    borderWidth: 1,
+    borderColor: "#ead8b6",
+    backgroundColor: "#fff9ed",
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  historyErrorText: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontFamily: fontFamily.semibold,
+    color: "#6f5120",
+  },
+  historyErrorAction: {
+    marginTop: 4,
+    fontSize: 11,
+    fontFamily: fontFamily.bold,
+    color: "#9a6a12",
   },
   userTurnRow: {
     alignItems: "flex-end",
