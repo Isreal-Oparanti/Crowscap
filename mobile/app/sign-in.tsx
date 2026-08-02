@@ -10,9 +10,7 @@ import {
   View,
 } from "react-native";
 import { useCallback, useEffect, useState } from "react";
-import * as Google from "expo-auth-session/providers/google";
 import Constants, { ExecutionEnvironment } from "expo-constants";
-import * as WebBrowser from "expo-web-browser";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
@@ -25,24 +23,16 @@ import { BrandMark } from "@/components/shell/BrandMark";
 import { Icons } from "@/components/ui/Icon";
 import { useAuth } from "@/hooks/useAuth";
 import { fontFamily } from "@/theme/typography";
-import { makeId } from "@/utils/id";
-
-WebBrowser.maybeCompleteAuthSession();
 
 const IOS_CLIENT_ID =
   Constants.expoConfig?.extra?.googleClientIdIos ??
   process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS ??
-  "";
-const ANDROID_CLIENT_ID =
-  Constants.expoConfig?.extra?.googleClientIdAndroid ??
-  process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID ??
   "";
 const WEB_CLIENT_ID =
   Constants.expoConfig?.extra?.googleClientIdWeb ??
   process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB ??
   "";
 
-const PLATFORM_CLIENT_ID = Platform.OS === "ios" ? IOS_CLIENT_ID : ANDROID_CLIENT_ID;
 const IS_EXPO_GO = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 
 type AuthMode = "signup" | "login";
@@ -60,15 +50,6 @@ export default function SignInScreen() {
   const [resendIn, setResendIn] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [handledGoogleKey, setHandledGoogleKey] = useState<string | null>(null);
-
-  const [, googleResponse, promptAsync] = Google.useIdTokenAuthRequest({
-    webClientId: WEB_CLIENT_ID || PLATFORM_CLIENT_ID,
-    iosClientId: IOS_CLIENT_ID || WEB_CLIENT_ID,
-    androidClientId: ANDROID_CLIENT_ID || WEB_CLIENT_ID,
-    scopes: ["openid", "email", "profile"],
-    selectAccount: true,
-  });
 
   useEffect(() => {
     if (!resendIn) return;
@@ -93,46 +74,6 @@ export default function SignInScreen() {
     [router, setSession]
   );
 
-  useEffect(() => {
-    if (!googleResponse || googleResponse.type === "cancel" || googleResponse.type === "dismiss") {
-      if (busy === "google") setBusy(null);
-      return;
-    }
-
-    if (googleResponse.type === "error") {
-      setBusy(null);
-      setErrorMessage("Google sign-in request was rejected. Check your account settings and try again.");
-      return;
-    }
-
-    if (googleResponse.type !== "success") return;
-
-    const idToken = googleResponse.params.id_token;
-    const responseKey = idToken || googleResponse.params.code || makeId("google_response");
-    if (handledGoogleKey === responseKey) return;
-
-    if (!idToken) {
-      if (googleResponse.params.code) return;
-      setHandledGoogleKey(responseKey);
-      setBusy(null);
-      setErrorMessage("Google did not return a valid identity token.");
-      return;
-    }
-
-    setHandledGoogleKey(responseKey);
-    setBusy("google");
-    setErrorMessage(null);
-    createMobileSession({
-      id_token: idToken,
-      platform: Platform.OS === "ios" ? "ios" : "android",
-    })
-      .then(finishSignIn)
-      .catch((err) => {
-        setErrorMessage(readableAuthError(err));
-      })
-      .finally(() => setBusy(null));
-  }, [busy, finishSignIn, googleResponse, handledGoogleKey]);
-
   async function handleGoogleSignIn() {
     setErrorMessage(null);
     if (IS_EXPO_GO) {
@@ -142,21 +83,50 @@ export default function SignInScreen() {
       return;
     }
 
-    if (!WEB_CLIENT_ID || !PLATFORM_CLIENT_ID) {
+    if (!WEB_CLIENT_ID || (Platform.OS === "ios" && !IOS_CLIENT_ID)) {
       setErrorMessage(
-        "Google sign-in is not configured. Add Web and Mobile OAuth client IDs to environment."
+        "Google sign-in is not configured. Add the Web OAuth client ID to the mobile build environment."
       );
       return;
     }
 
     setBusy("google");
     try {
-      const result = await promptAsync();
-      if (result?.type !== "success") {
-        setBusy(null);
+      const { GoogleSignin } = await import("@react-native-google-signin/google-signin");
+      GoogleSignin.configure({
+        webClientId: WEB_CLIENT_ID,
+        iosClientId: IOS_CLIENT_ID || undefined,
+        scopes: ["openid", "email", "profile"],
+      });
+
+      if (Platform.OS === "android") {
+        await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
       }
+
+      const result = await GoogleSignin.signIn();
+      if (result.type === "cancelled") {
+        setBusy(null);
+        return;
+      }
+
+      let idToken = result.data.idToken;
+      if (!idToken) {
+        const tokens = await GoogleSignin.getTokens();
+        idToken = tokens.idToken;
+      }
+
+      if (!idToken) {
+        throw new Error("Google did not return an identity token.");
+      }
+
+      await finishSignIn(
+        await createMobileSession({
+          id_token: idToken,
+          platform: Platform.OS === "ios" ? "ios" : "android",
+        })
+      );
     } catch (err) {
-      setErrorMessage(readableAuthError(err));
+      setErrorMessage(readableGoogleNativeError(err));
       setBusy(null);
     }
   }
@@ -428,6 +398,37 @@ function readableAuthError(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong. Please try again.";
 }
 
+function readableGoogleNativeError(error: unknown) {
+  if (error instanceof ApiError) {
+    return readableAuthError(error);
+  }
+
+  const code =
+    typeof error === "object" && error && "code" in error
+      ? String((error as { code?: unknown }).code)
+      : "";
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const lowerMessage = message.toLowerCase();
+
+  if (code.includes("SIGN_IN_CANCELLED") || lowerMessage.includes("cancel")) {
+    return "Google sign-in was cancelled.";
+  }
+
+  if (code.includes("PLAY_SERVICES_NOT_AVAILABLE")) {
+    return "Google Play Services is not available or needs an update on this device.";
+  }
+
+  if (code.includes("DEVELOPER_ERROR") || lowerMessage.includes("developer_error")) {
+    return "Google sign-in is not fully connected to this Android build yet. Check the Android OAuth client package name and SHA-1 in Google Cloud.";
+  }
+
+  if (error instanceof TypeError) {
+    return "Crowscap could not reach the server. Please check your internet connection.";
+  }
+
+  return "Google sign-in could not complete. Try email code for now, or try again shortly.";
+}
+
 function GoogleLogoSvg({ size = 18 }: { size?: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
@@ -657,4 +658,3 @@ const styles = StyleSheet.create({
     color: "#d1d5db",
   },
 });
-

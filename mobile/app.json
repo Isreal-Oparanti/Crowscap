@@ -70,6 +70,7 @@
       "expo-font",
       "expo-secure-store",
       "expo-updates",
+      "@react-native-google-signin/google-signin",
       [
         "expo-notifications",
         {
