@@ -33,7 +33,7 @@
 
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#111111"
       },
       "package": "xyz.crowscap.app",
 

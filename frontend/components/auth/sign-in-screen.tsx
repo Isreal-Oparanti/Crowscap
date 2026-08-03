@@ -5,10 +5,8 @@ import {
   Bell,
   Check,
   FileText,
-  LockKeyhole,
   Search,
 } from "lucide-react";
-import { signIn } from "next-auth/react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 
@@ -60,32 +58,18 @@ const howItWorks = [
 ];
 
 export function SignInScreen() {
-  const [signingInProvider, setSigningInProvider] = useState<
-    "google" | "demo" | null
-  >(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [downloadStarted, setDownloadStarted] = useState(false);
 
-  function handleGoogleSignIn() {
-    setSigningInProvider("google");
-    void signIn("google", { callbackUrl: "/" }).finally(() => {
-      setSigningInProvider(null);
-    });
-  }
-
-  async function handleDemoSignIn() {
-    setSigningInProvider("demo");
-    const res = await signIn("credentials", {
-      email: "yc@crowscap.xyz",
-      password: "demo2026",
-      redirect: false,
-      callbackUrl: "/",
-    });
-    if (res?.url) {
-      window.location.href = res.url;
-    } else {
-      setSigningInProvider(null);
-      window.location.reload();
-    }
+  function handleDownload() {
+    setDownloadStarted(true);
+    const link = document.createElement("a");
+    link.href = "https://api.crowscap.xyz/downloads/crowscap-latest.apk";
+    link.download = "crowscap.apk";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => setDownloadStarted(false), 5000);
   }
 
   return (
@@ -170,28 +154,34 @@ export function SignInScreen() {
             </p>
 
             <div className="mt-9 flex flex-col gap-3 sm:max-w-[430px]">
-              <button
-                type="button"
-                onClick={handleGoogleSignIn}
-                disabled={signingInProvider !== null}
-                className="relative inline-flex h-12 items-center justify-center rounded-[10px] border border-[#d5d8da] bg-white px-4 text-center text-[13px] font-extrabold text-[#111111] shadow-[0_16px_44px_rgba(17,17,17,0.10)] transition hover:border-[#a8adb0] hover:bg-[#fbfbfb] disabled:cursor-wait disabled:opacity-70"
+              <a
+                href="/auth"
+                className="relative inline-flex h-12 items-center justify-center rounded-[10px] bg-[#111111] px-4 text-center text-[13px] font-extrabold text-white shadow-[0_16px_44px_rgba(17,17,17,0.18)] transition hover:bg-[#1f2122]"
               >
-                <span className="absolute left-4">
-                  <GoogleMark />
+                Continue on Web
+                <span className="absolute right-4 flex size-5 items-center justify-center">
+                  <ArrowRight size={14} />
                 </span>
-                {signingInProvider === "google"
-                  ? "Opening Google..."
-                  : "Continue with Google"}
-              </button>
+              </a>
               <button
                 type="button"
-                onClick={handleDemoSignIn}
-                disabled={signingInProvider !== null}
-                className="inline-flex h-12 items-center justify-center rounded-[10px] border border-[#d5d8da] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:border-[#a8adb0] hover:bg-[#fbfbfb] disabled:cursor-wait disabled:opacity-70"
+                onClick={handleDownload}
+                disabled={downloadStarted}
+                className="relative inline-flex h-12 items-center justify-center gap-2 rounded-[10px] border border-[#d5d8da] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:border-[#a8adb0] hover:bg-[#fbfbfb] disabled:cursor-default"
               >
-                {signingInProvider === "demo"
-                  ? "Opening demo..."
-                  : "Open demo workspace"}
+                {downloadStarted ? (
+                  <>
+                    <span className="flex size-4 items-center justify-center rounded-full bg-[#0f5132]">
+                      <Check size={10} className="text-white" />
+                    </span>
+                    Download started — check your notifications
+                  </>
+                ) : (
+                  <>
+                    <AndroidIcon />
+                    Download the App
+                  </>
+                )}
               </button>
             </div>
 
@@ -382,32 +372,16 @@ export function SignInScreen() {
   );
 }
 
-function GoogleMark() {
+function AndroidIcon() {
   return (
-    <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-[#e4e6e7] bg-white">
-      <svg
-        aria-hidden="true"
-        viewBox="0 0 24 24"
-        className="size-3.5"
-      >
-        <path
-          fill="#4285F4"
-          d="M21.6 12.23c0-.78-.07-1.53-.2-2.23H12v4.22h5.38a4.6 4.6 0 0 1-2 3.02v2.51h3.24c1.9-1.75 2.98-4.32 2.98-7.52Z"
-        />
-        <path
-          fill="#34A853"
-          d="M12 22c2.7 0 4.96-.9 6.62-2.25l-3.24-2.51c-.9.6-2.05.96-3.38.96-2.6 0-4.8-1.76-5.58-4.12H3.08v2.59A9.99 9.99 0 0 0 12 22Z"
-        />
-        <path
-          fill="#FBBC05"
-          d="M6.42 14.08A6.01 6.01 0 0 1 6.1 12c0-.72.12-1.42.32-2.08V7.33H3.08A9.99 9.99 0 0 0 2 12c0 1.61.39 3.13 1.08 4.67l3.34-2.59Z"
-        />
-        <path
-          fill="#EA4335"
-          d="M12 5.8c1.47 0 2.8.5 3.84 1.5l2.87-2.87C16.96 2.8 14.7 2 12 2a9.99 9.99 0 0 0-8.92 5.33l3.34 2.59C7.2 7.56 9.4 5.8 12 5.8Z"
-        />
-      </svg>
-    </span>
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="size-4 shrink-0"
+      fill="currentColor"
+    >
+      <path d="M17.523 15.341A5.005 5.005 0 0 0 20 11V9a8 8 0 1 0-16 0v2a5.005 5.005 0 0 0 2.477 4.341A2 2 0 0 0 8 17h8a2 2 0 0 0 1.523-1.659ZM6 11V9a6 6 0 1 1 12 0v2a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3Zm4.5-6.5a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 0 1h-2a.5.5 0 0 1-.5-.5ZM8 19h8v1a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-1Z" />
+    </svg>
   );
 }
 

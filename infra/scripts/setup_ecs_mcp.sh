@@ -98,6 +98,17 @@ server {
         proxy_send_timeout 3600;
     }
 
+    location /downloads/ {
+        alias /var/www/crowscap/downloads/;
+        autoindex off;
+        add_header Content-Disposition 'attachment';
+        add_header Cache-Control 'no-cache';
+        types {
+            application/vnd.android.package-archive apk;
+        }
+        default_type application/vnd.android.package-archive;
+    }
+
     location / {
         proxy_pass http://127.0.0.1:$BACKEND_PORT;
         proxy_http_version 1.1;

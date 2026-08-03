@@ -105,6 +105,9 @@ export default function SignInScreen() {
         await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
       }
 
+      // Sign out silently first so the account picker always shows
+      try { await GoogleSignin.signOut(); } catch { /* ignore */ }
+
       const result = await GoogleSignin.signIn();
       if (result.type === "cancelled") {
         setBusy(null);
