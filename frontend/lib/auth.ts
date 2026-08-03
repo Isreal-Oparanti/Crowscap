@@ -25,18 +25,29 @@ export const authOptions: NextAuthOptions = {
         process.env.AUTH_GOOGLE_SECRET ?? process.env.GOOGLE_CLIENT_SECRET ?? "",
     }),
     CredentialsProvider({
-      name: "Demo Account",
+      name: "Credentials",
       credentials: {
         email: { label: "Email", type: "text" },
-        password: { label: "Password", type: "password" }
+        password: { label: "Password", type: "password" },
+        userId: { label: "User ID", type: "text" },
+        sessionToken: { label: "Session Token", type: "text" },
       },
       async authorize(credentials) {
         if (credentials?.email === "yc@crowscap.xyz" && credentials?.password === "demo2026") {
           return { id: "demo_yc_user", name: "YC Reviewer", email: "yc@crowscap.xyz" };
         }
+        if (credentials?.email && (credentials?.userId || credentials?.sessionToken)) {
+          const userId = credentials.userId || `g_${credentials.email.replace(/[^a-zA-Z0-9_.:-]/g, "").slice(0, 34)}`;
+          return {
+            id: userId,
+            name: credentials.email.split("@")[0],
+            email: credentials.email,
+          };
+        }
         return null;
-      }
-    })
+      },
+    }),
+
   ],
   callbacks: {
     async jwt({ token, account }) {
