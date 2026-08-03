@@ -81,7 +81,8 @@
           "sounds": [],
           "androidMode": "default"
         }
-      ]
+      ],
+      "./plugins/withAbiSplits"
     ],
     "experiments": {
       "typedRoutes": true
