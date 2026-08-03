@@ -19,9 +19,9 @@
       "distribution": "internal",
       "channel": "preview",
       "android": {
-        "buildType": "apk",
-        "gradleCommand": ":app:assembleRelease -Pandroid.injected.build.abi=arm64-v8a"
+        "buildType": "apk"
       },
+
 
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://api.crowscap.xyz",
