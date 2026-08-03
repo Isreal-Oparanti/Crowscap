@@ -8,8 +8,15 @@ export const metadata = {
   description: "Sign in to your Crowscap personal memory.",
 };
 
-export default async function AuthPage() {
+export default async function AuthPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ mode?: string }>;
+}) {
   const session = await getServerSession(authOptions);
   if (session?.user) redirect("/");
-  return <WebSignInForm />;
+  const resolvedParams = await searchParams;
+  const initialMode = resolvedParams?.mode === "signup" ? "signup" : "login";
+  return <WebSignInForm initialMode={initialMode} />;
 }
+

@@ -155,9 +155,10 @@ export function SignInScreen() {
 
             <div className="mt-9 flex flex-col gap-3 sm:max-w-[430px]">
               <a
-                href="/auth"
+                href="/auth?mode=login"
                 className="relative inline-flex h-12 items-center justify-center rounded-[10px] bg-[#111111] px-4 text-center text-[13px] font-extrabold text-white shadow-[0_16px_44px_rgba(17,17,17,0.18)] transition hover:bg-[#1f2122]"
               >
+
                 Continue on Web
                 <span className="absolute right-4 flex size-5 items-center justify-center">
                   <ArrowRight size={14} />

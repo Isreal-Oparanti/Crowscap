@@ -12,8 +12,12 @@ type BusyState = "google" | "email-start" | "email-verify" | "resend" | null;
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "https://api.crowscap.xyz";
 
-export function WebSignInForm() {
-  const [mode, setMode] = useState<AuthMode>("login");
+export function WebSignInForm({
+  initialMode = "login",
+}: {
+  initialMode?: AuthMode;
+}) {
+  const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [codeSent, setCodeSent] = useState(false);
@@ -21,6 +25,10 @@ export function WebSignInForm() {
   const [resendIn, setResendIn] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
 
   useEffect(() => {
     if (!resendIn) return;
@@ -149,7 +157,7 @@ export function WebSignInForm() {
   const busyNow = busy !== null;
 
   return (
-    <main className="relative min-h-screen bg-[#f5f5f3] text-[#101112]">
+    <main className="relative flex min-h-screen flex-col bg-[#f5f5f3] text-[#101112]">
       {/* Toast popup */}
       {toast ? (
         <div className="fixed top-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[#d5d8da] bg-white px-5 py-2.5 text-[13px] font-bold text-[#111111] shadow-[0_12px_40px_rgba(17,17,17,0.12)]">
@@ -182,21 +190,19 @@ export function WebSignInForm() {
         </a>
       </header>
 
-      {/* Auth Card */}
-      <div className="mx-auto flex min-h-[calc(100vh-88px)] max-w-[440px] items-center px-5 py-8">
+      {/* Vertically Centralized Auth Card */}
+      <div className="mx-auto flex flex-1 w-full max-w-[440px] flex-col items-center justify-center px-5 py-6">
         <div className="w-full rounded-[22px] border border-[#d8dbdc] bg-white p-7 shadow-[0_32px_100px_rgba(17,17,17,0.10)] sm:p-9">
-          {/* Logo & Headline */}
-          <div className="flex flex-col items-center text-center">
-            <div className="flex size-12 items-center justify-center rounded-[14px] border border-[#dedfdf] bg-white shadow-sm">
-              <BrandIcon className="size-9" />
-            </div>
-            <h1 className="mt-4 text-[28px] font-[880] tracking-[-0.035em]">
+          {/* Headline & Tagline (No icon inside card) */}
+          <div className="text-center">
+            <h1 className="text-[28px] font-[880] tracking-[-0.035em]">
               {headline}
             </h1>
             <p className="mt-1 text-[13px] font-semibold text-[#6f7376]">
               Your Personal Intelligent Memory
             </p>
           </div>
+
 
           {/* Google Sign In */}
           <div className="mt-7">

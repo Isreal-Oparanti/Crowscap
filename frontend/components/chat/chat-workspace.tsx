@@ -1292,11 +1292,6 @@ function ThinkingTurn({ mode }: { mode: WorkMode }) {
         <div className="mt-2 h-px w-48 overflow-hidden bg-[#e1e3e4]">
           <div className="work-progress h-full bg-[#111111]" />
         </div>
-      </div>
-    </div>
-  );
-}
-
 function Composer({
   draft,
   setDraft,
@@ -1323,74 +1318,78 @@ function Composer({
     textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 42), 160)}px`;
   }, [draft, textareaRef]);
 
+  const canSend = (Boolean(draft.trim()) || Boolean(attachedFile)) && !working;
+
   return (
-    <div className="absolute inset-x-0 bottom-[72px] z-30 max-w-full bg-gradient-to-t from-white via-white to-transparent px-3 pb-3 pt-8 md:bottom-0 md:px-7 md:pb-5">
+    <div className="absolute inset-x-0 bottom-[72px] z-30 max-w-full bg-white px-3 pb-2 pt-2 md:bottom-0 md:px-7 md:pb-4">
       <div className="mx-auto max-w-[780px]">
         {attachedFile && (
-          <div className="mb-2 flex w-max max-w-full items-center justify-between gap-3 rounded-md bg-[#f0f1f2] px-3 py-1.5 text-[12px] font-medium text-[#4f5552] shadow-sm">
+          <div className="mb-2 flex w-max max-w-[85%] items-center justify-between gap-2.5 rounded-[10px] border border-[#e1e3e7] bg-[#f0f2f4] px-3 py-1.5 text-[13px] font-medium text-[#303437]">
             <div className="flex min-w-0 items-center gap-2">
-              <FileText size={14} className="shrink-0" />
-              <span className="truncate">{attachedFile.name}</span>
+              <FileText size={15} className="shrink-0 text-[#4f5356]" />
+              <span className="truncate max-w-[200px]">{attachedFile.name}</span>
             </div>
             <button
               type="button"
               onClick={() => setAttachedFile(null)}
-              className="shrink-0 text-[#8b8e91] transition hover:text-[#111111]"
+              className="shrink-0 text-[#777b7e] transition hover:text-[#111111]"
             >
               <X size={14} />
             </button>
           </div>
         )}
-        <div className="rounded-[28px] border border-[#d4d7d9] bg-white px-2 py-2 shadow-[0_16px_50px_rgba(17,17,17,0.12)] focus-within:border-[#9da2a5]">
-          <div className="flex items-end gap-1">
-            <button
-              type="button"
-              aria-label="Attach a PDF"
-              title="Attach a PDF"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={working}
-              className="mb-0.5 flex size-10 shrink-0 items-center justify-center rounded-full text-[#5f6467] transition hover:bg-[#f0f1f2] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Paperclip size={19} />
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/pdf,.pdf"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (file) {
-                  setAttachedFile(file);
-                }
-              }}
-            />
-            <textarea
-              ref={textareaRef}
-              value={draft}
-              rows={1}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault();
-                  sendMessage();
-                }
-              }}
-              placeholder="Save a thought, ask your memory."
-              className="max-h-40 min-h-10 flex-1 resize-none bg-transparent px-1.5 py-2.5 text-[14px] font-medium leading-6 outline-none placeholder:text-[#9a9da0] md:text-[13px]"
-            />
-            <button
-              type="button"
-              aria-label="Send message"
-              title="Send message"
-              onClick={sendMessage}
-              disabled={(!draft.trim() && !attachedFile) || working}
-              className="mb-0.5 ml-0 flex size-10 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white transition hover:bg-black disabled:cursor-not-allowed disabled:bg-[#d3d5d6] [&_svg]:stroke-white"
-            >
-              <ArrowUp size={18} strokeWidth={2.4} />
-            </button>
-          </div>
+        <div className="flex min-h-[52px] items-center gap-2 rounded-[28px] border border-[#e3e5e8] bg-white px-3 py-1 shadow-[0_12px_40px_rgba(17,17,17,0.08)] focus-within:border-[#9da2a5]">
+          <button
+            type="button"
+            aria-label="Attach a PDF"
+            title="Attach a PDF"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={working}
+            className="flex size-[34px] shrink-0 items-center justify-center rounded-full text-[#65696f] transition hover:bg-[#f0f1f2] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Paperclip size={20} />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file) {
+                setAttachedFile(file);
+              }
+            }}
+          />
+          <textarea
+            ref={textareaRef}
+            value={draft}
+            rows={1}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                if (canSend) sendMessage();
+              }
+            }}
+            placeholder="Save a thought, ask your memory..."
+            className="max-h-32 min-h-[20px] flex-1 resize-none bg-transparent px-1 py-1.5 text-[14.5px] font-normal leading-[20px] text-black outline-none placeholder:text-[#8a8e94]"
+          />
+          <button
+            type="button"
+            aria-label="Send message"
+            title="Send message"
+            onClick={sendMessage}
+            disabled={!canSend}
+            className={`flex size-[34px] shrink-0 items-center justify-center rounded-full transition ${
+              canSend
+                ? "bg-[#111111] text-white hover:bg-black"
+                : "bg-[#d5d8dc] text-[#a8acb1] cursor-not-allowed"
+            }`}
+          >
+            <ArrowUp size={18} strokeWidth={2.2} />
+          </button>
         </div>
       </div>
     </div>
