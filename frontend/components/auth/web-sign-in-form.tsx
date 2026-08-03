@@ -203,7 +203,6 @@ export function WebSignInForm({
             </p>
           </div>
 
-
           {/* Google Sign In */}
           <div className="mt-7">
             <button
@@ -330,15 +329,17 @@ export function WebSignInForm({
               type="button"
               onClick={() => (codeSent ? verifyEmailCode() : requestEmailCode())}
               disabled={busyNow}
-              className="flex h-12 w-full items-center justify-center rounded-[10px] bg-[#111111] px-4 text-[13px] font-extrabold text-white shadow-[0_12px_32px_rgba(17,17,17,0.15)] transition hover:bg-[#25282a] disabled:cursor-wait disabled:opacity-60"
+              style={{ color: "#ffffff" }}
+              className="flex h-12 w-full items-center justify-center rounded-[10px] bg-[#111111] px-4 text-[13px] font-extrabold !text-white shadow-[0_12px_32px_rgba(17,17,17,0.15)] transition hover:bg-[#25282a] disabled:cursor-wait disabled:opacity-60"
             >
               {busy === "email-start" || busy === "email-verify" ? (
-                <Loader2 size={18} className="animate-spin text-white" />
+                <Loader2 size={18} className="animate-spin !text-white" />
               ) : (
                 "Continue"
               )}
             </button>
           </div>
+
 
           {/* Resend Code Button */}
           {codeSent ? (

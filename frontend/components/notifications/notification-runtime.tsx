@@ -117,8 +117,10 @@ export function NotificationRuntime() {
               <button
                 type="button"
                 disabled={pushLoading}
-                className="rounded-full bg-[#111111] px-4 py-2 text-sm font-semibold text-white transition hover:bg-black disabled:opacity-60"
+                style={{ color: "#ffffff" }}
+                className="rounded-full bg-[#111111] px-4 py-2 text-sm font-semibold !text-white transition hover:bg-black disabled:opacity-60"
                 onClick={async () => {
+
                   try {
                     setPushLoading(true);
                     const status = await subscribeToPush();
