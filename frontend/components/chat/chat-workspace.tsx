@@ -1292,7 +1292,13 @@ function ThinkingTurn({ mode }: { mode: WorkMode }) {
         <div className="mt-2 h-px w-48 overflow-hidden bg-[#e1e3e4]">
           <div className="work-progress h-full bg-[#111111]" />
         </div>
+      </div>
+    </div>
+  );
+}
+
 function Composer({
+
   draft,
   setDraft,
   attachedFile,

@@ -101,10 +101,11 @@ export function InstallBanner() {
 
     if (!deferredPrompt) {
       window.alert(
-        "On this browser, use the browser menu and choose Add to Home Screen.",
+        "To install Crowscap on iOS:\n\n1. Tap the Share button in Safari (at the bottom of your screen)\n2. Scroll down and tap 'Add to Home Screen'\n3. Tap 'Add' in the top right",
       );
       return;
     }
+
 
     try {
       setInstalling(true);
