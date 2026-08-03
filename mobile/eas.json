@@ -30,8 +30,19 @@
     },
     "production": {
       "autoIncrement": true,
-      "channel": "production"
+      "channel": "production",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_BACKEND_URL": "https://api.crowscap.xyz",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB": "1021218071446-g3fvih6bt05gbtaiv9djmkgj15facu8d.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID": "1021218071446-4vj6ah6ifssvm4gq7rlpoapc6covk9hk.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS": "1021218071446-o9qcbq9gv0a1bc3v63v7q7404amgk3ju.apps.googleusercontent.com"
+      }
     }
+
+
   },
   "submit": {
     "production": {}

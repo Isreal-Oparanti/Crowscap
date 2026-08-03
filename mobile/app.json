@@ -28,7 +28,9 @@
       "buildNumber": "1"
     },
     "android": {
+      "jsEngine": "hermes",
       "softwareKeyboardLayoutMode": "resize",
+
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"

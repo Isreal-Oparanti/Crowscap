@@ -33,6 +33,8 @@ const WEB_CLIENT_ID =
   process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB ??
   "";
 
+
+
 const IS_EXPO_GO = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 
 type AuthMode = "signup" | "login";
