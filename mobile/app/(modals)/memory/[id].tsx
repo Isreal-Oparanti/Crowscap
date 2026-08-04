@@ -6,29 +6,94 @@ import {
   Pressable,
   ActivityIndicator,
   Alert,
+  Linking,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiRequest } from "@/api/client";
 import { archiveMemory } from "@/api/memories";
-import type { MemoryAtom } from "@/types/api";
 import { MemoryTypeBadge } from "@/components/memory/MemoryTypeBadge";
 import { ConfidencePill } from "@/components/memory/ConfidencePill";
-import { RelationRow } from "@/components/memory/RelationRow";
 import { tokens } from "@/theme/tokens";
 import { Icons } from "@/components/ui/Icon";
 import { fontFamily } from "@/theme/typography";
 
+// ---- Types ----
+
+interface MemoryRelationDetail {
+  related_memory_id: string;
+  relationship_type: string;
+  strength: string;
+  explanation: string;
+}
+
+interface MemoryAtomDetail {
+  id: string;
+  memory_type: string;
+  epistemic_label: string | null;
+  content: string;
+  summary: string | null;
+  confidence: string;
+  confidence_reason: string | null;
+  source_strength: string;
+  relationships: MemoryRelationDetail[];
+}
+
+interface SourceMemoriesResponse {
+  source_id: string;
+  source_title: string | null;
+  source_type: string;
+  source_url: string | null;
+  memories: MemoryAtomDetail[];
+}
+
+// ---- Helpers ----
+
+const URL_REGEX = /https?:\/\/[^\s]+/g;
+
+function containsUrl(text: string): boolean {
+  return URL_REGEX.test(text);
+}
+
+function extractFirstUrl(text: string): string | null {
+  const match = text.match(URL_REGEX);
+  return match ? match[0] : null;
+}
+
+function isLinkAtom(atom: MemoryAtomDetail): boolean {
+  return (
+    atom.memory_type === "reference" ||
+    containsUrl(atom.content) ||
+    containsUrl(atom.summary ?? "")
+  );
+}
+
+function getSourceTypeLabel(sourceType: string): string {
+  const labels: Record<string, string> = {
+    url: "Web Link",
+    pdf: "PDF",
+    chat: "Chat",
+    text: "Text",
+    file: "File",
+  };
+  return labels[sourceType?.toLowerCase()] ?? sourceType ?? "Source";
+}
+
+// ---- Main Component ----
+
 export default function MemoryDetailModal() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, source_id } = useLocalSearchParams<{ id: string; source_id?: string }>();
 
-  const [memory, setMemory] = useState<MemoryAtom | null>(null);
+  const [data, setData] = useState<SourceMemoriesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [archiving, setArchiving] = useState(false);
+  const [archiving, setArchiving] = useState<string | null>(null); // memory id being archived
+
+  const scrollRef = useRef<ScrollView>(null);
+  const atomLayouts = useRef<Record<string, number>>({});
 
   useEffect(() => {
     if (!id) return;
@@ -36,26 +101,49 @@ export default function MemoryDetailModal() {
     setLoading(true);
     setError(null);
 
-    apiRequest<MemoryAtom>(`/memories/${id}`)
-      .then((data) => {
-        if (!cancelled) setMemory(data);
-      })
-      .catch((err) => {
+    const fetchData = async () => {
+      try {
+        if (source_id) {
+          // Preferred: fetch all atoms from the same source
+          const result = await apiRequest<SourceMemoriesResponse>(`/memories/by-source/${source_id}`);
+          if (!cancelled) setData(result);
+        } else {
+          // Fallback: fetch just the single atom and wrap it
+          const mem = await apiRequest<MemoryAtomDetail>(`/memories/${id}`);
+          if (!cancelled) {
+            setData({
+              source_id: "",
+              source_title: null,
+              source_type: "chat",
+              source_url: null,
+              memories: [mem],
+            });
+          }
+        }
+      } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Could not load memory.");
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
+      }
     };
-  }, [id]);
 
-  const handleArchive = () => {
-    if (!id || archiving) return;
+    void fetchData();
+    return () => { cancelled = true; };
+  }, [id, source_id]);
+
+  // Auto-scroll to the highlighted atom after layout
+  const scrollToHighlighted = () => {
+    if (!id) return;
+    const y = atomLayouts.current[id];
+    if (y !== undefined && scrollRef.current) {
+      scrollRef.current.scrollTo({ y: Math.max(0, y - 24), animated: true });
+    }
+  };
+
+  const handleArchive = (memId: string) => {
+    if (archiving) return;
     Alert.alert(
       "Archive Memory",
       "Are you sure you want to archive this memory? It will no longer surface in search or recall.",
@@ -65,16 +153,23 @@ export default function MemoryDetailModal() {
           text: "Archive",
           style: "destructive",
           onPress: async () => {
-            setArchiving(true);
+            setArchiving(memId);
             try {
-              await archiveMemory(id);
-              router.back();
+              await archiveMemory(memId);
+              // Remove from local list
+              setData((prev) =>
+                prev
+                  ? { ...prev, memories: prev.memories.filter((m) => m.id !== memId) }
+                  : prev
+              );
             } catch (err) {
-              setArchiving(false);
+              setArchiving(null);
               Alert.alert(
                 "Error",
                 err instanceof Error ? err.message : "Could not archive memory."
               );
+            } finally {
+              setArchiving(null);
             }
           },
         },
@@ -82,116 +177,179 @@ export default function MemoryDetailModal() {
     );
   };
 
+  const highlighted = data?.memories.find((m) => m.id === id);
+  const sourceUrl = data?.source_url ?? extractFirstUrl(highlighted?.content ?? "");
+
   return (
     <View style={styles.root}>
       <View style={styles.handleBar} />
 
       {/* Header */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Memory Detail</Text>
-          <Text style={styles.headerSub}>Source-aware atomic memory</Text>
+        <View style={styles.headerLeft}>
+          {data && (
+            <View style={styles.sourceTypeBadge}>
+              <Text style={styles.sourceTypeBadgeText}>
+                {getSourceTypeLabel(data.source_type)}
+              </Text>
+            </View>
+          )}
+          <View style={{ flex: 1 }}>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {data?.source_title
+                ? data.source_title.length > 40
+                  ? data.source_title.slice(0, 40) + "…"
+                  : data.source_title
+                : "Memory Detail"}
+            </Text>
+            <Text style={styles.headerSub}>
+              {data ? `${data.memories.length} ${data.memories.length === 1 ? "atom" : "atoms"} from this source` : "Source-aware atomic memory"}
+            </Text>
+          </View>
         </View>
         <Pressable style={styles.closeBtn} onPress={() => router.back()} hitSlop={8}>
           <Icons.X size={18} color="#777a7e" />
         </Pressable>
       </View>
 
+      {/* Source URL chip */}
+      {sourceUrl ? (
+        <Pressable
+          style={styles.sourceUrlChip}
+          onPress={() => Linking.openURL(sourceUrl)}
+        >
+          <Icons.Link size={12} color="#1a6ebd" />
+          <Text style={styles.sourceUrlText} numberOfLines={1}>
+            {sourceUrl}
+          </Text>
+          <Icons.ExternalLink size={12} color="#1a6ebd" />
+        </Pressable>
+      ) : null}
+
       {loading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="small" color={tokens.colors.text} />
+          <Text style={styles.loadingText}>Loading memories…</Text>
         </View>
       ) : error ? (
         <View style={styles.centered}>
+          <Icons.AlertCircle size={24} color={tokens.colors.danger} />
           <Text style={styles.errorText}>{error}</Text>
           <Pressable onPress={() => router.back()} style={styles.backBtn}>
             <Text style={styles.backBtnText}>Go back</Text>
           </Pressable>
         </View>
-      ) : !memory ? (
+      ) : !data || data.memories.length === 0 ? (
         <View style={styles.centered}>
-          <Text style={styles.errorText}>Memory not found.</Text>
+          <Text style={styles.errorText}>No memories found.</Text>
         </View>
       ) : (
         <ScrollView
+          ref={scrollRef}
           style={styles.scroll}
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingBottom: insets.bottom + 32 },
+            { paddingBottom: insets.bottom + 40 },
           ]}
           showsVerticalScrollIndicator={false}
+          onLayout={scrollToHighlighted}
         >
-          {/* Metadata badges */}
-          <View style={styles.badgeRow}>
-            <MemoryTypeBadge type={memory.memory_type} />
-            {memory.epistemic_label ? (
-              <View style={styles.epistemicBadge}>
-                <Text style={styles.epistemicText}>
-                  {memory.epistemic_label.replace("_", " ")}
-                </Text>
+          {data.memories.map((mem) => {
+            const isHighlighted = mem.id === id;
+            const isLink = isLinkAtom(mem);
+            const memUrl = extractFirstUrl(mem.content) ?? extractFirstUrl(mem.summary ?? "");
+
+            return (
+              <View
+                key={mem.id}
+                style={[
+                  styles.atomCard,
+                  isHighlighted && styles.atomCardHighlighted,
+                ]}
+                onLayout={(e) => {
+                  atomLayouts.current[mem.id] = e.nativeEvent.layout.y;
+                  if (isHighlighted) scrollToHighlighted();
+                }}
+              >
+                {/* Highlight bar */}
+                {isHighlighted && <View style={styles.highlightBar} />}
+
+                {/* Atom header */}
+                <View style={styles.atomHeader}>
+                  <MemoryTypeBadge type={mem.memory_type as any} />
+                  {mem.epistemic_label ? (
+                    <View style={styles.epistemicBadge}>
+                      <Text style={styles.epistemicText}>
+                        {mem.epistemic_label.replace(/_/g, " ")}
+                      </Text>
+                    </View>
+                  ) : null}
+                  <ConfidencePill confidence={mem.confidence as any} />
+                  {isHighlighted && (
+                    <View style={styles.focusedBadge}>
+                      <Text style={styles.focusedBadgeText}>FOCUSED</Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Content */}
+                <View style={styles.contentBox}>
+                  <Text style={styles.contentText}>{mem.content}</Text>
+                </View>
+
+                {/* URL chip for link atoms */}
+                {isLink && memUrl ? (
+                  <Pressable
+                    style={styles.linkChip}
+                    onPress={() => Linking.openURL(memUrl)}
+                  >
+                    <Icons.Link size={12} color="#1a6ebd" />
+                    <Text style={styles.linkChipText} numberOfLines={1}>
+                      {memUrl}
+                    </Text>
+                    <Icons.ExternalLink size={11} color="#1a6ebd" />
+                  </Pressable>
+                ) : null}
+
+                {/* Summary */}
+                {mem.summary ? (
+                  <View style={styles.summaryBox}>
+                    <Text style={styles.summaryLabel}>SUMMARY</Text>
+                    <Text style={styles.summaryText}>{mem.summary}</Text>
+                  </View>
+                ) : null}
+
+                {/* Confidence reason */}
+                {mem.confidence_reason ? (
+                  <View style={styles.reasonBox}>
+                    <Icons.Info size={11} color="#7b7e82" style={{ marginTop: 1 }} />
+                    <Text style={styles.reasonText}>{mem.confidence_reason}</Text>
+                  </View>
+                ) : null}
+
+                {/* Archive only on focused atom */}
+                {isHighlighted && (
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.archiveBtn,
+                      pressed && { opacity: 0.8 },
+                    ]}
+                    onPress={() => handleArchive(mem.id)}
+                    disabled={archiving === mem.id}
+                  >
+                    {archiving === mem.id ? (
+                      <ActivityIndicator size="small" color="#9b4c51" />
+                    ) : (
+                      <>
+                        <Icons.Archive size={14} color="#9b4c51" />
+                        <Text style={styles.archiveBtnText}>Archive this memory</Text>
+                      </>
+                    )}
+                  </Pressable>
+                )}
               </View>
-            ) : null}
-            <ConfidencePill confidence={memory.confidence} />
-          </View>
-
-          {/* Main Content */}
-          <View style={styles.contentBox}>
-            <Text style={styles.contentText}>{memory.content}</Text>
-          </View>
-
-          {/* Summary Box */}
-          {memory.summary ? (
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>SUMMARY</Text>
-              <View style={styles.summaryBox}>
-                <Text style={styles.summaryText}>{memory.summary}</Text>
-              </View>
-            </View>
-          ) : null}
-
-          {/* Confidence Reason Box */}
-          {memory.confidence_reason ? (
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>EVIDENCE CONFIDENCE REASON</Text>
-              <View style={styles.reasonBox}>
-                <Icons.Info size={12} color="#7b7e82" style={{ marginTop: 2 }} />
-                <Text style={styles.reasonText}>{memory.confidence_reason}</Text>
-              </View>
-            </View>
-          ) : null}
-
-          {/* Relationships */}
-          {memory.relationships && memory.relationships.length > 0 ? (
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>
-                CONNECTED MEMORIES ({memory.relationships.length})
-              </Text>
-              <View style={styles.relationList}>
-                {memory.relationships.map((rel, idx) => (
-                  <RelationRow key={idx} relation={rel} />
-                ))}
-              </View>
-            </View>
-          ) : null}
-
-          {/* Archive CTA */}
-          <Pressable
-            style={({ pressed }) => [
-              styles.archiveBtn,
-              pressed && { opacity: 0.8 },
-            ]}
-            onPress={handleArchive}
-            disabled={archiving}
-          >
-            {archiving ? (
-              <ActivityIndicator size="small" color="#9b4c51" />
-            ) : (
-              <>
-                <Icons.Archive size={15} color="#9b4c51" />
-                <Text style={styles.archiveBtnText}>Archive memory</Text>
-              </>
-            )}
-          </Pressable>
+            );
+          })}
         </ScrollView>
       )}
     </View>
@@ -220,12 +378,31 @@ const styles = StyleSheet.create({
     paddingVertical: tokens.spacing[3],
     borderBottomWidth: 1,
     borderBottomColor: "#e7e8e9",
+    gap: 12,
+  },
+  headerLeft: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  sourceTypeBadge: {
+    backgroundColor: "#e8f1f5",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  sourceTypeBadgeText: {
+    fontSize: 10,
+    fontFamily: fontFamily.extrabold,
+    color: "#356b8f",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
   headerTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: fontFamily.extrabold,
     color: tokens.colors.text,
-    letterSpacing: 0,
   },
   headerSub: {
     fontSize: 11,
@@ -242,12 +419,38 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
+  sourceUrlChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginHorizontal: tokens.spacing[5],
+    marginTop: 10,
+    marginBottom: 2,
+    backgroundColor: "#eef4fb",
+    borderWidth: 1,
+    borderColor: "#c5daf5",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  sourceUrlText: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: fontFamily.medium,
+    color: "#1a6ebd",
+  },
+
   centered: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     gap: tokens.spacing[3],
     paddingHorizontal: tokens.spacing[6],
+  },
+  loadingText: {
+    fontSize: 12,
+    fontFamily: fontFamily.medium,
+    color: tokens.colors.textMuted,
   },
   errorText: {
     fontSize: 13,
@@ -270,20 +473,46 @@ const styles = StyleSheet.create({
 
   scroll: { flex: 1 },
   scrollContent: {
-    paddingHorizontal: tokens.spacing[5],
-    paddingTop: tokens.spacing[5],
-    gap: tokens.spacing[5],
+    paddingHorizontal: tokens.spacing[4],
+    paddingTop: 20,
+    gap: 12,
   },
 
-  badgeRow: {
+  atomCard: {
+    borderWidth: 1,
+    borderColor: "#e2e4e5",
+    borderRadius: 14,
+    padding: tokens.spacing[4],
+    backgroundColor: "#fafafa",
+    gap: 10,
+    overflow: "hidden",
+  },
+  atomCardHighlighted: {
+    borderColor: "#a8d4be",
+    backgroundColor: "#f4fbf7",
+  },
+  highlightBar: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    backgroundColor: "#2d7058",
+    borderTopLeftRadius: 14,
+    borderBottomLeftRadius: 14,
+  },
+
+  atomHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    flexWrap: "wrap",
+    gap: 6,
+    paddingLeft: 6, // account for highlight bar
   },
   epistemicBadge: {
     backgroundColor: "#f2f3f4",
     borderRadius: 6,
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 3,
   },
   epistemicText: {
@@ -292,13 +521,21 @@ const styles = StyleSheet.create({
     color: "#555860",
     textTransform: "capitalize",
   },
+  focusedBadge: {
+    backgroundColor: "#d8efe5",
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  focusedBadgeText: {
+    fontSize: 9,
+    fontFamily: fontFamily.extrabold,
+    color: "#2d7058",
+    letterSpacing: 0.5,
+  },
 
   contentBox: {
-    borderWidth: 1,
-    borderColor: "#e2e4e5",
-    borderRadius: 14,
-    padding: tokens.spacing[4],
-    backgroundColor: "#fafafa",
+    paddingLeft: 6,
   },
   contentText: {
     fontSize: 14,
@@ -307,22 +544,40 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
 
-  section: {
-    gap: tokens.spacing[2],
+  linkChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#eef4fb",
+    borderWidth: 1,
+    borderColor: "#c5daf5",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginLeft: 6,
   },
-  sectionLabel: {
-    fontSize: 10,
-    fontFamily: fontFamily.extrabold,
-    color: "#8a8d90",
-    letterSpacing: 0,
+  linkChipText: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: fontFamily.medium,
+    color: "#1a6ebd",
   },
 
   summaryBox: {
     borderWidth: 1,
     borderColor: "#e2e4e5",
-    borderRadius: 12,
+    borderRadius: 10,
     padding: tokens.spacing[3],
     backgroundColor: "#ffffff",
+    gap: 4,
+    marginLeft: 6,
+  },
+  summaryLabel: {
+    fontSize: 9,
+    fontFamily: fontFamily.extrabold,
+    color: "#8a8d90",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
   },
   summaryText: {
     fontSize: 12,
@@ -335,38 +590,31 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 6,
-    borderWidth: 1,
-    borderColor: "#e8eaec",
-    borderRadius: 10,
-    padding: tokens.spacing[3],
-    backgroundColor: "#fafafa",
+    marginLeft: 6,
   },
   reasonText: {
+    flex: 1,
     fontSize: 11,
     fontFamily: fontFamily.medium,
     color: "#676a6d",
     lineHeight: 16,
-    flex: 1,
-  },
-
-  relationList: {
-    gap: 8,
   },
 
   archiveBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    height: 48,
-    borderRadius: 12,
+    gap: 7,
+    height: 42,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: "#f5d0d0",
     backgroundColor: "#fff5f5",
-    marginTop: 12,
+    marginTop: 4,
+    marginLeft: 6,
   },
   archiveBtnText: {
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: fontFamily.extrabold,
     color: "#9b4c51",
   },

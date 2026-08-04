@@ -18,6 +18,7 @@ import {
   HelpCircle,
   Info,
   Lightbulb,
+  Link,
   Loader2,
   Lock,
   LogOut,
@@ -37,6 +38,7 @@ import {
 
 
 export const Icons = {
+  AlertCircle: CircleAlert,
   Archive,
   ArrowLeft,
   ArrowRight,
@@ -56,6 +58,7 @@ export const Icons = {
   HelpCircle,
   Info,
   Lightbulb,
+  Link,
   Loader2,
   Lock,
   LogOut,

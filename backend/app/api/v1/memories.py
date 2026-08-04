@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from typing import Optional, List
 
 from app.core.auth import CurrentUser, require_current_user
 from app.db.models import (
@@ -24,6 +26,35 @@ from app.schemas.memory import (
     RestoreMemoryResponse,
 )
 from app.schemas.perspective import PerspectiveNoteDecisionResponse, PerspectiveNoteListResponse
+
+
+# ---- Inline schemas for memory detail (no circular import risk) ----
+
+class MemoryRelationDetail(BaseModel):
+    related_memory_id: str
+    relationship_type: str
+    strength: str
+    explanation: str
+
+
+class MemoryAtomDetail(BaseModel):
+    id: str
+    memory_type: str
+    epistemic_label: Optional[str]
+    content: str
+    summary: Optional[str]
+    confidence: str
+    confidence_reason: Optional[str]
+    source_strength: str
+    relationships: List[MemoryRelationDetail]
+
+
+class SourceMemoriesResponse(BaseModel):
+    source_id: str
+    source_title: Optional[str]
+    source_type: str
+    source_url: Optional[str]
+    memories: List[MemoryAtomDetail]
 from app.services.memory_lifecycle_service import (
     archive_memory,
     list_archive_candidates,
@@ -123,6 +154,97 @@ def dismiss_perspective_note(
         return response
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/by-source/{source_id}", response_model=SourceMemoriesResponse)
+def memories_by_source(
+    source_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_current_user),
+) -> SourceMemoriesResponse:
+    """Return all active memory atoms from a given source capture, with their relations."""
+    source = db.scalar(
+        select(Source).where(Source.id == source_id, Source.user_id == current_user.id)
+    )
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found.")
+
+    rows = db.execute(
+        select(Memory)
+        .where(Memory.source_id == source_id, Memory.user_id == current_user.id)
+        .order_by(Memory.created_at.asc(), Memory.id.asc())
+    ).scalars().all()
+
+    atoms: List[MemoryAtomDetail] = []
+    for mem in rows:
+        rels = db.execute(
+            select(MemoryRelation).where(MemoryRelation.source_memory_id == mem.id)
+        ).scalars().all()
+        atoms.append(MemoryAtomDetail(
+            id=mem.id,
+            memory_type=mem.memory_type,
+            epistemic_label=mem.epistemic_label,
+            content=mem.content,
+            summary=mem.summary,
+            confidence=mem.confidence,
+            confidence_reason=mem.confidence_reason,
+            source_strength=mem.source_strength,
+            relationships=[
+                MemoryRelationDetail(
+                    related_memory_id=r.target_memory_id,
+                    relationship_type=r.relationship_type,
+                    strength=r.strength,
+                    explanation=r.explanation,
+                )
+                for r in rels
+            ],
+        ))
+
+    return SourceMemoriesResponse(
+        source_id=source.id,
+        source_title=source.title,
+        source_type=source.source_type,
+        source_url=source.resolved_url or source.original_url,
+        memories=atoms,
+    )
+
+
+@router.get("/{memory_id}", response_model=MemoryAtomDetail)
+def get_memory(
+    memory_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_current_user),
+) -> MemoryAtomDetail:
+    """Return a single memory atom by ID with its relations."""
+    memory = db.scalar(
+        select(Memory).where(Memory.id == memory_id, Memory.user_id == current_user.id)
+    )
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Memory not found.")
+
+    rels = db.execute(
+        select(MemoryRelation).where(MemoryRelation.source_memory_id == memory_id)
+    ).scalars().all()
+
+    return MemoryAtomDetail(
+        id=memory.id,
+        memory_type=memory.memory_type,
+        epistemic_label=memory.epistemic_label,
+        content=memory.content,
+        summary=memory.summary,
+        confidence=memory.confidence,
+        confidence_reason=memory.confidence_reason,
+        source_strength=memory.source_strength,
+        relationships=[
+            MemoryRelationDetail(
+                related_memory_id=r.target_memory_id,
+                relationship_type=r.relationship_type,
+                strength=r.strength,
+                explanation=r.explanation,
+            )
+            for r in rels
+        ],
+    )
 
 
 @router.post("/{memory_id}/archive", response_model=MemoryArchiveResponse)

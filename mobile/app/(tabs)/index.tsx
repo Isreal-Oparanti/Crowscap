@@ -2,12 +2,12 @@ import {
   ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-
   TextInput,
   View,
   type ListRenderItem,
@@ -157,7 +157,7 @@ export default function ChatScreen() {
       setHistoryError(null);
 
       let lastError: unknown = null;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
           const conv = await getCurrentConversation();
           const loaded: ChatMessage[] = conv?.messages?.length
@@ -221,7 +221,9 @@ export default function ChatScreen() {
         } catch (error) {
           lastError = error;
           if (attempt === 0) {
-            await new Promise((resolve) => setTimeout(resolve, 600));
+            await new Promise((resolve) => setTimeout(resolve, 800));
+          } else if (attempt === 1) {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
           }
         }
       }
@@ -451,7 +453,7 @@ export default function ChatScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.root}
-      behavior="padding"
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
 
@@ -541,9 +543,7 @@ function ChatTurn({
   if (message.role === "user") {
     return (
       <View style={styles.userTurnRow}>
-        <View style={styles.userBubble}>
-          <Text style={styles.userBubbleText}>{message.text}</Text>
-        </View>
+        <UserBubble text={message.text} />
       </View>
     );
   }
@@ -568,6 +568,50 @@ function ChatTurn({
           </Pressable>
         ) : null}
       </View>
+    </View>
+  );
+}
+
+function UserBubble({ text }: { text: string }) {
+  // Split text into segments: URL vs plain text
+  const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
+  const segments: Array<{ type: "text" | "url"; value: string }> = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = URL_REGEX.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ type: "text", value: text.slice(lastIndex, match.index) });
+    }
+    segments.push({ type: "url", value: match[0] });
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    segments.push({ type: "text", value: text.slice(lastIndex) });
+  }
+
+  const hasUrl = segments.some((s) => s.type === "url");
+
+  return (
+    <View style={styles.userBubble}>
+      {segments.length === 1 && !hasUrl ? (
+        <Text style={styles.userBubbleText}>{text}</Text>
+      ) : (
+        <Text style={styles.userBubbleText}>
+          {segments.map((seg, i) =>
+            seg.type === "url" ? (
+              <Text
+                key={i}
+                style={styles.userBubbleLink}
+                onPress={() => Linking.openURL(seg.value.startsWith("http") ? seg.value : `https://${seg.value}`)}
+              >
+                {seg.value}
+              </Text>
+            ) : (
+              <Text key={i}>{seg.value}</Text>
+            )
+          )}
+        </Text>
+      )}
     </View>
   );
 }
@@ -652,7 +696,9 @@ function CaptureReceipt({ data }: { data: CaptureResponse }) {
                   <Pressable
                     key={mem.id}
                     style={styles.receiptMemoryCard}
-                    onPress={() => router.push(`/(modals)/memory/${mem.id}` as never)}
+                    onPress={() => router.push(
+                      (`/(modals)/memory/${mem.id}?source_id=${data.source_id}`) as never
+                    )}
                   >
                     <View style={styles.receiptMemoryCardTop}>
                       <View style={styles.receiptMemoryIconWrap}>
@@ -1040,6 +1086,13 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.medium,
     color: "#17191a",
     lineHeight: 20,
+  },
+  userBubbleLink: {
+    fontSize: 13,
+    fontFamily: fontFamily.medium,
+    color: "#1a6ebd",
+    lineHeight: 20,
+    textDecorationLine: "underline",
   },
   assistantTurnRow: {
     flexDirection: "row",
