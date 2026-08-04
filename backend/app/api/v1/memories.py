@@ -209,44 +209,6 @@ def memories_by_source(
     )
 
 
-@router.get("/{memory_id}", response_model=MemoryAtomDetail)
-def get_memory(
-    memory_id: str,
-    db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_current_user),
-) -> MemoryAtomDetail:
-    """Return a single memory atom by ID with its relations."""
-    memory = db.scalar(
-        select(Memory).where(Memory.id == memory_id, Memory.user_id == current_user.id)
-    )
-    if memory is None:
-        raise HTTPException(status_code=404, detail="Memory not found.")
-
-    rels = db.execute(
-        select(MemoryRelation).where(MemoryRelation.source_memory_id == memory_id)
-    ).scalars().all()
-
-    return MemoryAtomDetail(
-        id=memory.id,
-        memory_type=memory.memory_type,
-        epistemic_label=memory.epistemic_label,
-        content=memory.content,
-        summary=memory.summary,
-        confidence=memory.confidence,
-        confidence_reason=memory.confidence_reason,
-        source_strength=memory.source_strength,
-        relationships=[
-            MemoryRelationDetail(
-                related_memory_id=r.target_memory_id,
-                relationship_type=r.relationship_type,
-                strength=r.strength,
-                explanation=r.explanation,
-            )
-            for r in rels
-        ],
-    )
-
-
 @router.post("/{memory_id}/archive", response_model=MemoryArchiveResponse)
 def archive(
     memory_id: str,
@@ -324,3 +286,41 @@ def compression_candidates(
     current_user: CurrentUser = Depends(require_current_user),
 ) -> CompressionCandidateListResponse:
     return list_compression_candidates(db=db, limit=limit, user_id=current_user.id)
+
+
+@router.get("/{memory_id}", response_model=MemoryAtomDetail)
+def get_memory(
+    memory_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_current_user),
+) -> MemoryAtomDetail:
+    """Return a single memory atom by ID with its relations."""
+    memory = db.scalar(
+        select(Memory).where(Memory.id == memory_id, Memory.user_id == current_user.id)
+    )
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Memory not found.")
+
+    rels = db.execute(
+        select(MemoryRelation).where(MemoryRelation.source_memory_id == memory_id)
+    ).scalars().all()
+
+    return MemoryAtomDetail(
+        id=memory.id,
+        memory_type=memory.memory_type,
+        epistemic_label=memory.epistemic_label,
+        content=memory.content,
+        summary=memory.summary,
+        confidence=memory.confidence,
+        confidence_reason=memory.confidence_reason,
+        source_strength=memory.source_strength,
+        relationships=[
+            MemoryRelationDetail(
+                related_memory_id=r.target_memory_id,
+                relationship_type=r.relationship_type,
+                strength=r.strength,
+                explanation=r.explanation,
+            )
+            for r in rels
+        ],
+    )
