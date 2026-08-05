@@ -80,6 +80,28 @@ function getSourceTypeLabel(sourceType: string): string {
   return labels[sourceType?.toLowerCase()] ?? sourceType ?? "Source";
 }
 
+function deriveDisplayTitle(data: SourceMemoriesResponse | null, highlighted?: MemoryAtomDetail): string {
+  if (data?.source_title && data.source_title.trim()) {
+    const title = data.source_title.trim();
+    return title.length > 40 ? title.slice(0, 40) + "…" : title;
+  }
+  if (highlighted?.content) {
+    const firstLine = highlighted.content.split("\n")[0].trim();
+    if (firstLine && !firstLine.startsWith("http")) {
+      return firstLine.length > 40 ? firstLine.slice(0, 40) + "…" : firstLine;
+    }
+  }
+  if (data?.source_url) {
+    try {
+      const parsed = new URL(data.source_url);
+      return parsed.hostname.replace(/^www\./, "");
+    } catch {
+      // ignore
+    }
+  }
+  return "Memory Detail";
+}
+
 // ---- Main Component ----
 
 export default function MemoryDetailModal() {
@@ -181,7 +203,7 @@ export default function MemoryDetailModal() {
   const sourceUrl = data?.source_url ?? extractFirstUrl(highlighted?.content ?? "");
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { paddingTop: Math.max(insets.top, 16) }]}>
       <View style={styles.handleBar} />
 
       {/* Header */}
@@ -196,11 +218,7 @@ export default function MemoryDetailModal() {
           )}
           <View style={{ flex: 1 }}>
             <Text style={styles.headerTitle} numberOfLines={1}>
-              {data?.source_title
-                ? data.source_title.length > 40
-                  ? data.source_title.slice(0, 40) + "…"
-                  : data.source_title
-                : "Memory Detail"}
+              {deriveDisplayTitle(data, highlighted)}
             </Text>
             <Text style={styles.headerSub}>
               {data ? `${data.memories.length} ${data.memories.length === 1 ? "atom" : "atoms"} from this source` : "Source-aware atomic memory"}
@@ -256,8 +274,6 @@ export default function MemoryDetailModal() {
         >
           {data.memories.map((mem) => {
             const isHighlighted = mem.id === id;
-            const isLink = isLinkAtom(mem);
-            const memUrl = extractFirstUrl(mem.content) ?? extractFirstUrl(mem.summary ?? "");
 
             return (
               <View
@@ -271,82 +287,31 @@ export default function MemoryDetailModal() {
                   if (isHighlighted) scrollToHighlighted();
                 }}
               >
-                {/* Highlight bar */}
-                {isHighlighted && <View style={styles.highlightBar} />}
-
-                {/* Atom header */}
-                <View style={styles.atomHeader}>
-                  <MemoryTypeBadge type={mem.memory_type as any} />
-                  {mem.epistemic_label ? (
-                    <View style={styles.epistemicBadge}>
-                      <Text style={styles.epistemicText}>
-                        {mem.epistemic_label.replace(/_/g, " ")}
-                      </Text>
-                    </View>
-                  ) : null}
-                  <ConfidencePill confidence={mem.confidence as any} />
-                  {isHighlighted && (
-                    <View style={styles.focusedBadge}>
-                      <Text style={styles.focusedBadgeText}>FOCUSED</Text>
-                    </View>
-                  )}
+                {/* Top header row */}
+                <View style={styles.atomTopRow}>
+                  <View style={styles.atomIconWrap}>
+                    <Icons.Lightbulb size={16} color="#356b8f" />
+                  </View>
+                  <View style={styles.atomMeta}>
+                    <Text style={styles.atomTypeLabel}>
+                      {mem.memory_type}
+                    </Text>
+                    <Text style={styles.atomDot}>·</Text>
+                    <Text style={styles.atomConfidenceText}>
+                      {mem.confidence} confidence
+                    </Text>
+                    {mem.epistemic_label ? (
+                      <View style={styles.epistemicTag}>
+                        <Text style={styles.epistemicTagText}>
+                          {mem.epistemic_label.replace(/_/g, " ")}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
                 </View>
 
                 {/* Content */}
-                <View style={styles.contentBox}>
-                  <Text style={styles.contentText}>{mem.content}</Text>
-                </View>
-
-                {/* URL chip for link atoms */}
-                {isLink && memUrl ? (
-                  <Pressable
-                    style={styles.linkChip}
-                    onPress={() => Linking.openURL(memUrl)}
-                  >
-                    <Icons.Link size={12} color="#1a6ebd" />
-                    <Text style={styles.linkChipText} numberOfLines={1}>
-                      {memUrl}
-                    </Text>
-                    <Icons.ExternalLink size={11} color="#1a6ebd" />
-                  </Pressable>
-                ) : null}
-
-                {/* Summary */}
-                {mem.summary ? (
-                  <View style={styles.summaryBox}>
-                    <Text style={styles.summaryLabel}>SUMMARY</Text>
-                    <Text style={styles.summaryText}>{mem.summary}</Text>
-                  </View>
-                ) : null}
-
-                {/* Confidence reason */}
-                {mem.confidence_reason ? (
-                  <View style={styles.reasonBox}>
-                    <Icons.Info size={11} color="#7b7e82" style={{ marginTop: 1 }} />
-                    <Text style={styles.reasonText}>{mem.confidence_reason}</Text>
-                  </View>
-                ) : null}
-
-                {/* Archive only on focused atom */}
-                {isHighlighted && (
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.archiveBtn,
-                      pressed && { opacity: 0.8 },
-                    ]}
-                    onPress={() => handleArchive(mem.id)}
-                    disabled={archiving === mem.id}
-                  >
-                    {archiving === mem.id ? (
-                      <ActivityIndicator size="small" color="#9b4c51" />
-                    ) : (
-                      <>
-                        <Icons.Archive size={14} color="#9b4c51" />
-                        <Text style={styles.archiveBtnText}>Archive this memory</Text>
-                      </>
-                    )}
-                  </Pressable>
-                )}
+                <Text style={styles.contentText}>{mem.content}</Text>
               </View>
             );
           })}
@@ -367,8 +332,8 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: "#d1d3d5",
     alignSelf: "center",
-    marginTop: 10,
-    marginBottom: 4,
+    marginTop: 12,
+    marginBottom: 8,
   },
   header: {
     flexDirection: "row",
@@ -480,70 +445,81 @@ const styles = StyleSheet.create({
 
   atomCard: {
     borderWidth: 1,
-    borderColor: "#e2e4e5",
-    borderRadius: 14,
-    padding: tokens.spacing[4],
-    backgroundColor: "#fafafa",
-    gap: 10,
-    overflow: "hidden",
+    borderColor: "#e3e5e8",
+    borderRadius: 12,
+    padding: 16,
+    backgroundColor: "#ffffff",
+    gap: 12,
   },
   atomCardHighlighted: {
-    borderColor: "#a8d4be",
-    backgroundColor: "#f4fbf7",
+    borderColor: "#b6e2cd",
+    backgroundColor: "#f4faf7",
   },
-  highlightBar: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 4,
-    backgroundColor: "#2d7058",
-    borderTopLeftRadius: 14,
-    borderBottomLeftRadius: 14,
+  atomTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
-
-  atomHeader: {
+  atomIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: "#eaf2f7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  atomMeta: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
     gap: 6,
-    paddingLeft: 6, // account for highlight bar
   },
-  epistemicBadge: {
-    backgroundColor: "#f2f3f4",
-    borderRadius: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
+  atomTypeLabel: {
+    fontSize: 11,
+    fontFamily: fontFamily.extrabold,
+    color: "#55585b",
+    textTransform: "uppercase",
   },
-  epistemicText: {
+  atomDot: {
+    fontSize: 11,
+    color: "#b4b7b9",
+  },
+  atomConfidenceText: {
+    fontSize: 11,
+    fontFamily: fontFamily.medium,
+    color: "#85888b",
+  },
+  epistemicTag: {
+    backgroundColor: "#f1f2f3",
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  epistemicTagText: {
     fontSize: 10,
     fontFamily: fontFamily.bold,
-    color: "#555860",
+    color: "#727679",
     textTransform: "capitalize",
   },
-  focusedBadge: {
+  focusedPill: {
     backgroundColor: "#d8efe5",
     borderRadius: 6,
     paddingHorizontal: 7,
     paddingVertical: 3,
   },
-  focusedBadgeText: {
-    fontSize: 9,
+  focusedPillText: {
+    fontSize: 9.5,
     fontFamily: fontFamily.extrabold,
     color: "#2d7058",
     letterSpacing: 0.5,
   },
-
-  contentBox: {
-    paddingLeft: 6,
-  },
   contentText: {
-    fontSize: 14,
+    fontSize: 14.5,
     fontFamily: fontFamily.medium,
     color: "#1d1e1f",
-    lineHeight: 22,
+    lineHeight: 23,
   },
-
   linkChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -554,7 +530,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 7,
-    marginLeft: 6,
   },
   linkChipText: {
     flex: 1,
@@ -562,42 +537,39 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.medium,
     color: "#1a6ebd",
   },
-
   summaryBox: {
     borderWidth: 1,
-    borderColor: "#e2e4e5",
-    borderRadius: 10,
-    padding: tokens.spacing[3],
+    borderColor: "#e3e5e8",
+    borderRadius: 8,
+    padding: 12,
     backgroundColor: "#ffffff",
     gap: 4,
-    marginLeft: 6,
   },
   summaryLabel: {
-    fontSize: 9,
+    fontSize: 9.5,
     fontFamily: fontFamily.extrabold,
-    color: "#8a8d90",
+    color: "#85888b",
     letterSpacing: 0.5,
     textTransform: "uppercase",
   },
   summaryText: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontFamily: fontFamily.medium,
     color: "#464a4d",
-    lineHeight: 18,
+    lineHeight: 19,
   },
-
   reasonBox: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 6,
-    marginLeft: 6,
+    paddingHorizontal: 2,
   },
   reasonText: {
     flex: 1,
-    fontSize: 11,
+    fontSize: 11.5,
     fontFamily: fontFamily.medium,
     color: "#676a6d",
-    lineHeight: 16,
+    lineHeight: 17,
   },
 
   archiveBtn: {

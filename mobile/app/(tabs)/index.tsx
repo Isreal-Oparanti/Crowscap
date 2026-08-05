@@ -1,6 +1,7 @@
 import {
   ActivityIndicator,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Platform,
@@ -20,7 +21,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { useRouter } from "expo-router";
 
 import { sendChatMessage, getCurrentConversation } from "@/api/chat";
-import { capturePdf } from "@/api/captures";
+import { capturePdf, getProcessingJob } from "@/api/captures";
 
 import { BrandMark } from "@/components/shell/BrandMark";
 import { Icons } from "@/components/ui/Icon";
@@ -373,6 +374,7 @@ export default function ChatScreen() {
   }, [uploadingFile, working]);
 
   const handleSend = useCallback(async () => {
+    Keyboard.dismiss();
     if (pendingFile) {
       const fileToUpload = pendingFile;
       const note = draft.trim();
@@ -616,12 +618,130 @@ function UserBubble({ text }: { text: string }) {
   );
 }
 
+function humanizeJobStep(step: string | null): string {
+  if (!step) return "Checking the link";
+  const labels: Record<string, string> = {
+    queued: "Waiting to read the source",
+    validating_url: "Checking the link",
+    extracting_source: "Reading the source",
+    ready: "Ready",
+    failed: "Could not read the source",
+  };
+  return labels[step] ?? step.replace(/_/g, " ");
+}
+
+function LinkEnrichmentStatus({
+  status,
+  step,
+  error,
+}: {
+  status: string | null;
+  step: string | null;
+  error: string | null;
+}) {
+  if (!status) return null;
+
+  if (["queued", "running", "retrying"].includes(status)) {
+    return (
+      <View style={styles.enrichmentBoxGreen}>
+        <View style={styles.enrichmentTopRow}>
+          <ActivityIndicator size="small" color="#2d7058" />
+          <Text style={styles.enrichmentTitleGreen}>GETTING DETAILS</Text>
+        </View>
+        <Text style={styles.enrichmentTextGreen}>
+          The link is saved. Crowscap is reading what it can in the background.
+        </Text>
+        <Text style={styles.enrichmentStepText}>{humanizeJobStep(step)}</Text>
+      </View>
+    );
+  }
+
+  if (status === "succeeded") {
+    return (
+      <View style={styles.enrichmentBoxGreen}>
+        <Text style={styles.enrichmentTitleGreen}>READING COMPLETE</Text>
+        <Text style={styles.enrichmentTextGreen}>
+          Crowscap finished reading this link in the background.
+        </Text>
+      </View>
+    );
+  }
+
+  if (status === "failed") {
+    return (
+      <View style={styles.enrichmentBoxAmber}>
+        <Text style={styles.enrichmentTitleAmber}>REFERENCE KEPT</Text>
+        <Text style={styles.enrichmentTextAmber}>
+          {error || "Crowscap could not read content from this link, so it kept the URL."}
+        </Text>
+      </View>
+    );
+  }
+
+  return null;
+}
+
 function CaptureReceipt({ data }: { data: CaptureResponse }) {
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<"memories" | "original">("memories");
   const router = useRouter();
   const memCount = data.memories.length;
   const intents = data.inferred_intents.slice(0, 3);
+
+  // Link enrichment job polling
+  const meta = data.metadata_json || {};
+  const initialJobId = typeof meta.enrichment_job_id === "string" ? meta.enrichment_job_id : null;
+  const initialJobStatus = typeof meta.enrichment_status === "string" ? meta.enrichment_status : null;
+
+  const [jobStatus, setJobStatus] = useState<string | null>(initialJobStatus);
+  const [jobStep, setJobStep] = useState<string | null>(null);
+  const [jobError, setJobError] = useState<string | null>(null);
+  const [jobResult, setJobResult] = useState<CaptureResponse | null>(null);
+
+  // Match web approach: poll only by jobId (not jobStatus in deps to avoid duplicate loops)
+  useEffect(() => {
+    if (!initialJobId) return;
+    // Skip polling if already in a terminal state from initial chat response
+    if (initialJobStatus && ["succeeded", "failed"].includes(initialJobStatus)) return;
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const res = await getProcessingJob(initialJobId);
+        if (cancelled) return;
+        setJobStatus(res.status);
+        setJobStep(res.step ?? null);
+        if (res.error_message_safe) setJobError(res.error_message_safe);
+        if (res.result) setJobResult(res.result as unknown as CaptureResponse);
+
+        if (["queued", "running", "retrying"].includes(res.status)) {
+          timer = setTimeout(poll, 2500);
+        }
+      } catch {
+        // Silently retry on network errors — don't crash the receipt
+        if (!cancelled) timer = setTimeout(poll, 5000);
+      }
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialJobId]);
+
+  // Mirror web: enrichedCapture is the job result when it has memories
+  const enrichedCapture =
+    jobStatus === "succeeded" && (jobResult?.memories?.length ?? 0) > 0
+      ? jobResult
+      : null;
+  const enrichmentMode =
+    typeof enrichedCapture?.metadata_json?.ingestion_mode === "string"
+      ? enrichedCapture.metadata_json.ingestion_mode
+      : null;
 
   return (
     <View style={styles.receiptCard}>
@@ -636,7 +756,11 @@ function CaptureReceipt({ data }: { data: CaptureResponse }) {
           <Text style={styles.receiptLabel}>Memory receipt</Text>
           <Text style={styles.receiptMeta}>
             {memCount} {memCount === 1 ? "memory" : "memories"}
-            {intents.length > 0 ? ` · ${intents.join(", ")}` : ""}
+            {["queued", "running", "retrying"].includes(jobStatus ?? "")
+              ? " · getting details"
+              : intents.length > 0
+              ? ` · ${intents.join(", ")}`
+              : ""}
           </Text>
         </View>
         {expanded ? (
@@ -650,8 +774,11 @@ function CaptureReceipt({ data }: { data: CaptureResponse }) {
         <>
           <View style={styles.receiptDividerLine} />
           <View style={styles.receiptAccordionContent}>
+            {/* Link Background Enrichment Status Card */}
+            <LinkEnrichmentStatus status={jobStatus} step={jobStep} error={jobError} />
+
             {/* Tab Switcher: Memories | Original */}
-            <View style={styles.receiptTabRow}>
+            <View style={[styles.receiptTabRow, Boolean(jobStatus) && { marginTop: 10 }]}>
               <Pressable
                 style={[
                   styles.receiptTabBtn,
@@ -692,6 +819,7 @@ function CaptureReceipt({ data }: { data: CaptureResponse }) {
 
             {activeTab === "memories" ? (
               <View style={styles.receiptMemoryList}>
+                {/* Initial memories (the reference atom saved immediately) */}
                 {data.memories.map((mem) => (
                   <Pressable
                     key={mem.id}
@@ -713,9 +841,6 @@ function CaptureReceipt({ data }: { data: CaptureResponse }) {
                           {mem.confidence ? `${mem.confidence} confidence` : "high confidence"}
                         </Text>
                       </View>
-                      <View style={styles.receiptSourceTag}>
-                        <Text style={styles.receiptSourceTagText}>PDF</Text>
-                      </View>
                     </View>
 
                     <Text style={styles.receiptMemoryBodyText}>
@@ -723,6 +848,51 @@ function CaptureReceipt({ data }: { data: CaptureResponse }) {
                     </Text>
                   </Pressable>
                 ))}
+
+                {/* Enriched memories section — matches web "Details found" green box */}
+                {enrichedCapture ? (
+                  <View style={styles.enrichedSection}>
+                    <Text style={styles.enrichedSectionLabel}>
+                      {enrichmentMode === "metadata_only"
+                        ? "VIDEO DETAILS SAVED"
+                        : "DETAILS FOUND"}
+                    </Text>
+                    <Text style={styles.enrichedSectionSub}>
+                      {enrichmentMode === "metadata_only"
+                        ? "Crowscap saved the reliable video details. A full transcript was not available."
+                        : "Crowscap finished reading the link and added these memory cards."}
+                    </Text>
+                    <View style={styles.enrichedMemoryList}>
+                      {enrichedCapture.memories.map((mem) => (
+                        <Pressable
+                          key={mem.id}
+                          style={styles.receiptMemoryCard}
+                          onPress={() => router.push(
+                            (`/(modals)/memory/${mem.id}?source_id=${enrichedCapture.source_id ?? data.source_id}`) as never
+                          )}
+                        >
+                          <View style={styles.receiptMemoryCardTop}>
+                            <View style={styles.receiptMemoryIconWrap}>
+                              <Icons.Lightbulb size={15} color="#356b8f" />
+                            </View>
+                            <View style={styles.receiptMemoryCardMeta}>
+                              <Text style={styles.receiptMemoryTypeLabel}>
+                                {mem.memory_type}
+                              </Text>
+                              <Text style={styles.receiptMemoryDot}>·</Text>
+                              <Text style={styles.receiptMemoryConfidence}>
+                                {mem.confidence ? `${mem.confidence} confidence` : "high confidence"}
+                              </Text>
+                            </View>
+                          </View>
+                          <Text style={styles.receiptMemoryBodyText}>
+                            {mem.content || mem.summary}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
               </View>
             ) : (
             <View style={styles.receiptOriginalWrap}>
@@ -731,6 +901,21 @@ function CaptureReceipt({ data }: { data: CaptureResponse }) {
                 <Text style={styles.receiptOriginalTitle}>
                   {cleanSourceTitle(data.source_title)}
                 </Text>
+              ) : null}
+              {data.original_content && /https?:\/\/[^\s]+/.test(data.original_content) ? (
+                <Pressable
+                  style={styles.originalLinkChip}
+                  onPress={() => {
+                    const url = data.original_content?.match(/https?:\/\/[^\s]+/)?.[0];
+                    if (url) void Linking.openURL(url);
+                  }}
+                >
+                  <Icons.Link size={14} color="#1a6ebd" />
+                  <Text style={styles.originalLinkText} numberOfLines={1}>
+                    {data.original_content.match(/https?:\/\/[^\s]+/)?.[0]}
+                  </Text>
+                  <Icons.ExternalLink size={13} color="#1a6ebd" />
+                </Pressable>
               ) : null}
               <ScrollView
                 nestedScrollEnabled
@@ -969,9 +1154,6 @@ function ThinkingTurn({ mode }: { mode: WorkMode }) {
           <ActivityIndicator size="small" color="#777b7e" />
         </View>
         <Text style={styles.thinkingText}>{current.detail}</Text>
-        <View style={styles.progressTrack}>
-          <View style={styles.progressFill} />
-        </View>
       </View>
     </View>
   );
@@ -1045,7 +1227,7 @@ const styles = StyleSheet.create({
   list: {
     paddingHorizontal: tokens.spacing[4],
     paddingTop: tokens.spacing[6],
-    paddingBottom: 26,
+    paddingBottom: 56,
     gap: tokens.spacing[7],
   },
   historyError: {
@@ -1203,6 +1385,32 @@ const styles = StyleSheet.create({
   receiptMemoryList: {
     gap: 10,
   },
+  enrichedSection: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: "#d7e5dc",
+    backgroundColor: "#f1f7f4",
+    borderRadius: 10,
+    padding: 12,
+    gap: 6,
+  },
+  enrichedSectionLabel: {
+    fontSize: 10,
+    fontFamily: fontFamily.extrabold,
+    color: "#2d7058",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  enrichedSectionSub: {
+    fontSize: 12,
+    fontFamily: fontFamily.medium,
+    color: "#49685b",
+    lineHeight: 17,
+    marginBottom: 4,
+  },
+  enrichedMemoryList: {
+    gap: 8,
+  },
   receiptMemoryCard: {
     borderWidth: 1,
     borderColor: "#e3e5e8",
@@ -1267,10 +1475,28 @@ const styles = StyleSheet.create({
   receiptOriginalWrap: {
     padding: 14,
     backgroundColor: "#ffffff",
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: "#e3e5e8",
-    borderRadius: 8,
     gap: 8,
+  },
+  originalLinkChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#eef4fb",
+    borderWidth: 1,
+    borderColor: "#c5daf5",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginVertical: 4,
+  },
+  originalLinkText: {
+    flex: 1,
+    fontSize: 12.5,
+    fontFamily: fontFamily.medium,
+    color: "#1a6ebd",
   },
   receiptOriginalEyebrow: {
     fontSize: 10.5,
@@ -1392,10 +1618,65 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.extrabold,
     color: tokens.colors.text,
   },
+  enrichmentBoxGreen: {
+    backgroundColor: "#f1f7f4",
+    borderWidth: 1,
+    borderColor: "#d7e5dc",
+    borderRadius: 8,
+    padding: 12,
+    gap: 4,
+    marginBottom: 8,
+  },
+  enrichmentTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  enrichmentTitleGreen: {
+    fontSize: 10,
+    fontFamily: fontFamily.extrabold,
+    color: "#2d7058",
+    letterSpacing: 0.5,
+  },
+  enrichmentTextGreen: {
+    fontSize: 12,
+    fontFamily: fontFamily.semibold,
+    color: "#49685b",
+    lineHeight: 17,
+  },
+  enrichmentStepText: {
+    fontSize: 11,
+    fontFamily: fontFamily.bold,
+    color: "#6a8578",
+    marginTop: 2,
+  },
+  enrichmentBoxAmber: {
+    backgroundColor: "#fff9ec",
+    borderWidth: 1,
+    borderColor: "#eadbbd",
+    borderRadius: 8,
+    padding: 12,
+    gap: 4,
+    marginBottom: 8,
+  },
+  enrichmentTitleAmber: {
+    fontSize: 10,
+    fontFamily: fontFamily.extrabold,
+    color: "#7b5b24",
+    letterSpacing: 0.5,
+  },
+  enrichmentTextAmber: {
+    fontSize: 12,
+    fontFamily: fontFamily.semibold,
+    color: "#7b5b24",
+    lineHeight: 17,
+  },
   thinkingRow: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: tokens.spacing[3],
+    marginBottom: 44,
+    paddingBottom: 24,
   },
   thinkingContent: {
     flex: 1,

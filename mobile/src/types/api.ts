@@ -115,7 +115,24 @@ export interface ChatResponse {
 }
 
 
-// Captures
+// Captures & Jobs
+export interface ProcessingJobResponse {
+  id: string;
+  job_type: string;
+  status: "queued" | "running" | "succeeded" | "failed" | "retrying" | string;
+  step: string;
+  attempts: number;
+  capture_id: string | null;
+  source_id: string | null;
+  error_code: string | null;
+  error_message_safe: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  result: CaptureResponse | null;
+}
+
 export interface CaptureResponse {
   capture_id: string;
   source_id: string;
@@ -124,6 +141,7 @@ export interface CaptureResponse {
   status: string;
   inferred_intents: string[];
   memories: MemoryAtom[];
+  metadata_json?: Record<string, any> | null;
 }
 
 // Memories

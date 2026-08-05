@@ -1,0 +1,26 @@
+[Unit]
+Description=Crowscap Backend API
+After=network.target postgresql-15.service
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/crowscap-backend
+Environment="PATH=/home/ec2-user/crowscap-backend/.venv/bin:/usr/bin"
+ExecStart=/home/ec2-user/crowscap-backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+Restart=always
+RestartSec=10
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/ec2-user/crowscap-backend
+
+# Logging
+StandardOutput=append:/var/log/crowscap.log
+StandardError=append:/var/log/crowscap-error.log
+
+[Install]
+WantedBy=multi-user.target

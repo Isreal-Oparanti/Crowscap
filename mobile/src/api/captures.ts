@@ -39,3 +39,7 @@ export async function capturePdf(payload: {
     body: formData,
   });
 }
+
+export async function getProcessingJob(jobId: string): Promise<import("@/types/api").ProcessingJobResponse> {
+  return apiRequest<import("@/types/api").ProcessingJobResponse>(`/jobs/${jobId}`);
+}
