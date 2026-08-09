@@ -396,11 +396,12 @@ function readableAuthError(error: unknown) {
     return error.message;
   }
 
-  if (error instanceof TypeError) {
+  const msg = error instanceof Error ? error.message : String(error ?? "");
+  if (error instanceof TypeError || msg.includes("Failed to fetch") || msg.includes("Network request failed")) {
     return "Crowscap could not reach the server. Please check your internet connection.";
   }
 
-  return error instanceof Error ? error.message : "Something went wrong. Please try again.";
+  return msg || "Something went wrong. Please try again.";
 }
 
 function readableGoogleNativeError(error: unknown) {

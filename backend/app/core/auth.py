@@ -173,6 +173,7 @@ def _current_user_from_mobile_token(
             jwt_secret,
             algorithms=["HS256"],
             audience="crowscap-mobile",
+            leeway=10,
         )
     except InvalidTokenError:
         logger.warning("🔒 auth.rejected reason=bad_mobile_token")

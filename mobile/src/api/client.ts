@@ -5,8 +5,10 @@ export const backendUrl =
   process.env.EXPO_PUBLIC_BACKEND_URL ??
   "https://api.crowscap.xyz";
 
+import { getToken } from "@/auth/session";
+
 /** Retrieve the stored auth token. Injected by session.ts at runtime. */
-let _getToken: (() => Promise<string | null>) | null = null;
+let _getToken: (() => Promise<string | null>) | null = getToken;
 
 export async function getAuthToken(): Promise<string | null> {
   return _getToken ? await _getToken() : null;
