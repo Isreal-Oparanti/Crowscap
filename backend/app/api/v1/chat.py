@@ -32,6 +32,10 @@ from app.services.safety_service import CaptureSafetyError
 router = APIRouter(tags=["chat"])
 logger = get_logger("api.chat")
 
+REASONING_UNAVAILABLE_MESSAGE = (
+    "Crowscap could not reach its reasoning engine right now. Please try again in a moment."
+)
+
 
 @router.get("/conversations/current", response_model=ConversationResponse | None)
 def current_conversation(
@@ -83,8 +87,8 @@ def chat(
             user_id=current_user.id,
         )
     except (QwenClientError, EmbeddingError) as exc:
-        logger.warning("\u26a0\ufe0f chat.unavailable reason=%s", exc)
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        logger.warning("⚠️ chat.unavailable reason=%s", exc)
+        raise HTTPException(status_code=503, detail=REASONING_UNAVAILABLE_MESSAGE) from exc
     except (
         BeliefAuditError,
         ChatRoutingError,
@@ -93,10 +97,10 @@ def chat(
         IngestionError,
         CaptureSafetyError,
     ) as exc:
-        logger.warning("\u26a0\ufe0f chat.invalid reason=%s", exc)
+        logger.warning("⚠️ chat.invalid reason=%s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ValidationError as exc:
-        logger.warning("\u26a0\ufe0f chat.validation_failed reason=%s", exc)
+        logger.warning("⚠️ chat.validation_failed reason=%s", exc)
         raise HTTPException(
             status_code=422,
             detail=(
@@ -134,8 +138,8 @@ async def chat_pdf(
             user_id=current_user.id,
         )
     except (QwenClientError, EmbeddingError) as exc:
-        logger.warning("\u26a0\ufe0f chat.pdf.unavailable reason=%s", exc)
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        logger.warning("⚠️ chat.pdf.unavailable reason=%s", exc)
+        raise HTTPException(status_code=503, detail=REASONING_UNAVAILABLE_MESSAGE) from exc
     except (
         ChatSynthesisError,
         ExtractionError,
@@ -143,5 +147,5 @@ async def chat_pdf(
         CaptureSafetyError,
         ValidationError,
     ) as exc:
-        logger.warning("\u26a0\ufe0f chat.pdf.invalid reason=%s", exc)
+        logger.warning("⚠️ chat.pdf.invalid reason=%s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc

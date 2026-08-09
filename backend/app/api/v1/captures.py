@@ -21,6 +21,10 @@ from app.services.safety_service import CaptureSafetyError
 router = APIRouter(tags=["captures"])
 logger = get_logger("api.captures")
 
+REASONING_UNAVAILABLE_MESSAGE = (
+    "Crowscap could not reach its reasoning engine right now. Please try again in a moment."
+)
+
 
 @router.post("/text", response_model=TextCaptureResponse)
 def capture_text(
@@ -41,15 +45,12 @@ def capture_text(
             relation_detector=relation_detector,
             user_id=current_user.id,
         )
-    except QwenClientError as exc:
-        logger.warning("\u26a0\ufe0f capture.text.unavailable reason=%s", exc)
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (QwenClientError, EmbeddingError) as exc:
+        logger.warning("⚠️ capture.text.unavailable reason=%s", exc)
+        raise HTTPException(status_code=503, detail=REASONING_UNAVAILABLE_MESSAGE) from exc
     except (ExtractionError, CaptureSafetyError) as exc:
-        logger.warning("\u26a0\ufe0f capture.text.invalid reason=%s", exc)
+        logger.warning("⚠️ capture.text.invalid reason=%s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except EmbeddingError as exc:
-        logger.warning("\u26a0\ufe0f capture.text.embedding_failed reason=%s", exc)
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/url", response_model=TextCaptureResponse)
@@ -71,15 +72,12 @@ def capture_url(
             relation_detector=relation_detector,
             user_id=current_user.id,
         )
-    except QwenClientError as exc:
-        logger.warning("\u26a0\ufe0f capture.url.unavailable reason=%s", exc)
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (QwenClientError, EmbeddingError) as exc:
+        logger.warning("⚠️ capture.url.unavailable reason=%s", exc)
+        raise HTTPException(status_code=503, detail=REASONING_UNAVAILABLE_MESSAGE) from exc
     except (ExtractionError, IngestionError, CaptureSafetyError) as exc:
-        logger.warning("\u26a0\ufe0f capture.url.invalid reason=%s", exc)
+        logger.warning("⚠️ capture.url.invalid reason=%s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except EmbeddingError as exc:
-        logger.warning("\u26a0\ufe0f capture.url.embedding_failed reason=%s", exc)
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/pdf", response_model=TextCaptureResponse)
@@ -107,12 +105,9 @@ async def capture_pdf(
             relation_detector=relation_detector,
             user_id=current_user.id,
         )
-    except QwenClientError as exc:
-        logger.warning("\u26a0\ufe0f capture.pdf.unavailable reason=%s", exc)
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (QwenClientError, EmbeddingError) as exc:
+        logger.warning("⚠️ capture.pdf.unavailable reason=%s", exc)
+        raise HTTPException(status_code=503, detail=REASONING_UNAVAILABLE_MESSAGE) from exc
     except (ExtractionError, IngestionError, CaptureSafetyError) as exc:
-        logger.warning("\u26a0\ufe0f capture.pdf.invalid reason=%s", exc)
+        logger.warning("⚠️ capture.pdf.invalid reason=%s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except EmbeddingError as exc:
-        logger.warning("\u26a0\ufe0f capture.pdf.embedding_failed reason=%s", exc)
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
