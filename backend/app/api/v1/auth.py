@@ -136,15 +136,15 @@ def start_email_session(
             detail="No Crowscap account exists for this email yet. Sign up first.",
         )
 
-    # 1. If user already exists in DB and logging in, log in directly without requiring verification code!
-    if existing_user is not None:
+    # 1. Allow bypass ONLY for the YC reviewer demo email if demo mode is enabled
+    if email == "yc@crowscap.xyz" and settings.crowscap_mobile_demo_enabled and existing_user is not None:
         session = _create_session_response(
             db=db,
             user_id=existing_user.id,
             email=email,
-            name=existing_user.name or email.split("@")[0],
+            name=existing_user.name or "YC Reviewer",
             image_url=existing_user.image_url,
-            provider="email",
+            provider="demo",
         )
         return EmailCodeStartResponse(
             status="logged_in",
