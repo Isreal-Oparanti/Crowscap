@@ -9,9 +9,9 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { completeReminder, snoozeReminder } from "@/api/recalls";
+import { completeReminder, snoozeReminder, submitQuickRecall as apiSubmitQuickRecall } from "@/api/recalls";
 import { BrandMark } from "@/components/shell/BrandMark";
 import { StayUpToDateBanner } from "@/components/shell/StayUpToDateBanner";
 import { Icons } from "@/components/ui/Icon";
@@ -20,7 +20,7 @@ import { MarkdownText } from "@/components/ui/MarkdownText";
 import { useRecalls } from "@/hooks/useRecalls";
 import { tokens } from "@/theme/tokens";
 import { fontFamily } from "@/theme/typography";
-import type { DueReminder, RecallMemory } from "@/types/api";
+import type { DueReminder, RecallMemory, RecallQuickAction } from "@/types/api";
 import { formatOverdue, memoryTypeLabel, truncate } from "@/utils/format";
 import { scheduleLocalNotification } from "@/utils/notifications";
 
@@ -57,17 +57,16 @@ function itemSubtitle(item: ReadyItem) {
 export default function RecallScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ target_memory_id?: string; memory_id?: string }>();
+  const targetMemoryId = params.target_memory_id || params.memory_id;
+
   const {
     data,
     loading,
     error,
-    answering,
-    evaluation,
-    submitAnswerFor,
     refresh,
-  } = useRecalls();
+  } = useRecalls(targetMemoryId);
   const [activeKey, setActiveKey] = useState<string | null>(null);
-  const [writtenAnswer, setWrittenAnswer] = useState("");
   const [reminderWorking, setReminderWorking] = useState(false);
 
   const readyItems = useMemo<ReadyItem[]>(() => {
@@ -88,7 +87,6 @@ export default function RecallScreen() {
 
   const closeDetail = () => {
     setActiveKey(null);
-    setWrittenAnswer("");
   };
 
   const completeActiveReminder = async (reminderId: string) => {
@@ -125,9 +123,27 @@ export default function RecallScreen() {
     }
   };
 
-  const submitQuickRecall = async (memory: RecallMemory, answer: string, rating: number) => {
-    await submitAnswerFor(memory.memory_id, answer, rating);
-    setWrittenAnswer("");
+  const handleQuickAction = async (memory: RecallMemory, action: RecallQuickAction) => {
+    if (reminderWorking) return;
+    setReminderWorking(true);
+    try {
+      if (action === "ask_agent") {
+        await apiSubmitQuickRecall(memory.memory_id, action);
+        closeDetail();
+        router.push(`/(tabs)/?context_memory_id=${memory.memory_id}` as never);
+        return;
+      }
+      await apiSubmitQuickRecall(memory.memory_id, action);
+      closeDetail();
+      await refresh();
+    } catch (err) {
+      Alert.alert(
+        "Action failed",
+        err instanceof Error ? err.message : "Please try again."
+      );
+    } finally {
+      setReminderWorking(false);
+    }
   };
 
   if (loading) {
@@ -271,7 +287,10 @@ function Header({ onSettings }: { onSettings: () => void }) {
 
 function ReadyRow({ item, index, onPress }: { item: ReadyItem; index: number; onPress: () => void }) {
   const isReminder = item.kind === "reminder";
-  const label = isReminder ? "REMINDER" : memoryTypeLabel(item.memory.memory_type).toUpperCase();
+  const isPinned = !isReminder && item.memory.pinned_from_notification;
+  const label = isReminder
+    ? "REMINDER"
+    : (item.memory.human_title || memoryTypeLabel(item.memory.memory_type).toUpperCase());
   const title = itemTitle(item);
   const subtitle = itemSubtitle(item);
   const isFirst = index === 0;
@@ -282,17 +301,23 @@ function ReadyRow({ item, index, onPress }: { item: ReadyItem; index: number; on
       style={({ pressed }) => [
         styles.readyRow,
         isFirst && styles.firstReadyRow,
+        isPinned && styles.pinnedReadyRow,
         pressed && styles.readyRowPressed,
       ]}
     >
-      <View style={[styles.rowIcon, isReminder && styles.reminderIcon]}>
+      <View style={[styles.rowIcon, isReminder && styles.reminderIcon, isPinned && styles.pinnedIcon]}>
         {isReminder ? (
           <Icons.Bell size={17} color="#2d7058" />
         ) : (
-          <Icons.BookOpenCheck size={17} color="#2d7058" />
+          <Icons.BookOpenCheck size={17} color={isPinned ? "#d97706" : "#2d7058"} />
         )}
       </View>
       <View style={styles.rowBody}>
+        {isPinned ? (
+          <View style={styles.pinnedBadge}>
+            <Text style={styles.pinnedBadgeText}>🔔 From Today's Nudge</Text>
+          </View>
+        ) : null}
         <Text style={styles.rowLabel}>{label}</Text>
         <Text style={styles.rowTitle} numberOfLines={2}>
           {title}
@@ -358,107 +383,39 @@ function ReminderDetail({
 
 function MemoryDetail({
   memory,
-  answering,
-  evaluation,
-  answer,
-  onChangeAnswer,
-  onQuickAnswer,
-  onSubmit,
+  working,
+  onQuickAction,
 }: {
   memory: RecallMemory;
-  answering: boolean;
-  evaluation: ReturnType<typeof useRecalls>["evaluation"];
-  answer: string;
-  onChangeAnswer: (value: string) => void;
-  onQuickAnswer: (answer: string, rating: number) => void;
-  onSubmit: () => void;
+  working: boolean;
+  onQuickAction: (action: RecallQuickAction) => void;
 }) {
-  const title = memory.summary || memory.content;
+  const title = memory.human_title || memory.summary || memory.content;
+  const promptText =
+    memory.human_prompt ||
+    "Do you still want to revisit this memory or take action on it?";
 
   return (
-      <View style={styles.detailBlock}>
-        <View style={styles.detailLabelRow}>
-        <Icons.BookOpenCheck size={17} color="#2f7b60" />
-        <Text style={styles.detailLabel}>A THOUGHT IS READY</Text>
-      </View>
-      <Text style={styles.detailTitle}>{title}</Text>
-      <Text style={styles.detailMeta}>
-        {memory.source_title || "Saved memory"} - {formatOverdue(memory.overdue_seconds)}
-      </Text>
-
-      <View style={styles.ideaBox}>
-        <Text style={styles.ideaLabel}>THE IDEA</Text>
-        <MarkdownText text={memory.content} compact />
-      </View>
-
-      {memory.epistemic_label ? (
-        <View style={styles.warningBox}>
-          <Icons.CircleAlert size={14} color="#9b6a24" />
-          <Text style={styles.warningText}>
-            Saved as {memory.epistemic_label.replace("_", " ")}, not as verified fact.
-          </Text>
+    <View style={styles.detailBlock}>
+      {memory.pinned_from_notification ? (
+        <View style={styles.pinnedBadgeLarge}>
+          <Text style={styles.pinnedBadgeLargeText}>🔔 Pinned from Notification</Text>
         </View>
       ) : null}
 
+      <View style={styles.detailLabelRow}>
+        <Icons.BookOpenCheck size={17} color="#2f7b60" />
+        <Text style={styles.detailLabel}>{title.toUpperCase()}</Text>
+      </View>
+
+      <Text style={styles.detailTitle}>{promptText}</Text>
+
+      <View style={styles.ideaBox}>
+        <Text style={styles.ideaLabel}>ORIGINAL MEMORY</Text>
+        <MarkdownText text={memory.content} compact />
+      </View>
+
       <View style={styles.checkBox}>
-        <Text style={styles.checkLabel}>QUICK CHECK</Text>
-        <Text style={styles.checkQuestion}>
-          Does this still feel useful for what you are doing now?
-        </Text>
-        <View style={styles.quickGrid}>
-          <Pressable
-            style={styles.quickButton}
-            disabled={answering}
-            onPress={() => onQuickAnswer("This is still useful.", 5)}
-          >
-            <Text style={styles.quickButtonText}>Still useful</Text>
-          </Pressable>
-          <Pressable
-            style={styles.quickButton}
-            disabled={answering}
-            onPress={() => onQuickAnswer("I used this memory.", 5)}
-          >
-            <Text style={styles.quickButtonText}>I used it</Text>
-          </Pressable>
-          <Pressable
-            style={styles.quickButton}
-            disabled={answering}
-            onPress={() => onQuickAnswer("Not now.", 2)}
-          >
-            <Text style={styles.quickButtonText}>Not now</Text>
-          </Pressable>
-        </View>
-      </View>
-
-      <View style={styles.answerBox}>
-        <Text style={styles.checkLabel}>REVIEW DEEPER</Text>
-        <TextInput
-          value={answer}
-          onChangeText={onChangeAnswer}
-          multiline
-          placeholder="Write what changed, what you used, or what still feels unclear."
-          placeholderTextColor="#9b9fa4"
-          style={styles.answerInput}
-          textAlignVertical="top"
-        />
-        <Pressable
-          style={[styles.primaryButton, (!answer.trim() || answering) && styles.disabledButton]}
-          disabled={!answer.trim() || answering}
-          onPress={onSubmit}
-        >
-          {answering ? (
-            <ActivityIndicator size="small" color="#ffffff" />
-          ) : (
-            <Text style={styles.primaryButtonText}>Save review</Text>
-          )}
-        </Pressable>
-      </View>
-
-      {evaluation ? (
-        <View style={styles.evaluationBox}>
-          <Text style={styles.evaluationTitle}>Review saved</Text>
-          <MarkdownText text={evaluation.feedback} compact />
-        </View>
       ) : null}
     </View>
   );
@@ -844,6 +801,76 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: fontFamily.bold,
     color: "#2d7058",
+  },
+  pinnedReadyRow: {
+    backgroundColor: "#fffbeb",
+    borderColor: "#fde68a",
+    borderWidth: 1.5,
+  },
+  pinnedIcon: {
+    backgroundColor: "#fef3c7",
+  },
+  pinnedBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "#fef3c7",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginBottom: 4,
+  },
+  pinnedBadgeText: {
+    fontSize: 11,
+    fontFamily: fontFamily.bold,
+    color: "#b45309",
+  },
+  pinnedBadgeLarge: {
+    backgroundColor: "#fef3c7",
+    borderColor: "#fde68a",
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    alignSelf: "flex-start",
+    marginBottom: 12,
+  },
+  pinnedBadgeLargeText: {
+    fontSize: 12,
+    fontFamily: fontFamily.bold,
+    color: "#b45309",
+  },
+  quickGrid3: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 10,
+  },
+  quickActionButton: {
+    flex: 1,
+    backgroundColor: "#f3f4f6",
+    borderColor: "#e5e7eb",
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    gap: 4,
+  },
+  quickActionTitle: {
+    fontSize: 13,
+    fontFamily: fontFamily.bold,
+    color: "#374151",
+  },
+  quickActionSub: {
+    fontSize: 10,
+    fontFamily: fontFamily.medium,
+    color: "#6b7280",
+  },
+  quickActionUsed: {
+    backgroundColor: "#f0fdf4",
+    borderColor: "#bbf7d0",
+  },
+  quickActionChat: {
+    backgroundColor: "#eff6ff",
+    borderColor: "#bfdbfe",
   },
 });
 

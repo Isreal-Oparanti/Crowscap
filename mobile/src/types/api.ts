@@ -229,8 +229,20 @@ export interface RecallMemory {
   review_count: number;
   recall_score: number;
   overdue_seconds: number;
+  human_title?: string | null;
+  human_prompt?: string | null;
+  pinned_from_notification?: boolean;
+  surface_reason?: string | null;
   relationships: MemoryRelation[];
 }
+
+export type RecallQuickAction =
+  | "still_relevant"
+  | "applied"
+  | "not_now"
+  | "snooze_7d"
+  | "snooze_30d"
+  | "ask_agent";
 
 export interface DueReminder {
   reminder_id: string;

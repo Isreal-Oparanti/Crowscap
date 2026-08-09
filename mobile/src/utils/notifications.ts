@@ -201,7 +201,7 @@ export async function scheduleOrUpdateLocalReminder({
   body,
   dueAt,
   memoryId,
-  url = "/(tabs)/recall",
+  url,
 }: {
   reminderId: string;
   title: string;
@@ -210,6 +210,7 @@ export async function scheduleOrUpdateLocalReminder({
   memoryId?: string | null;
   url?: string;
 }): Promise<string | null> {
+  const finalUrl = url || (memoryId ? `/(tabs)/recall?target_memory_id=${memoryId}` : "/(tabs)/recall");
   const Notifications = getNotificationsModule();
   if (!Notifications) return null;
 
@@ -265,7 +266,7 @@ export async function scheduleOrUpdateLocalReminder({
         body,
         sound: useSound ? "default" : undefined,
         categoryIdentifier: REMINDER_CATEGORY_ID,
-        data: { url, reminderId, memoryId: memoryId || null },
+        data: { url: finalUrl, reminderId, memoryId: memoryId || null },
       },
 
       trigger: triggerInput,

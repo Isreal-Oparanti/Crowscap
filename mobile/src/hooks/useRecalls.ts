@@ -3,18 +3,18 @@ import { getDueRecalls, answerRecall } from "@/api/recalls";
 import type { RecallDueResponse, RecallMemory, RecallAnswerResponse } from "@/types/api";
 import { scheduleOrUpdateLocalReminder } from "@/utils/notifications";
 
-export function useRecalls() {
+export function useRecalls(targetMemoryId?: string) {
   const [data, setData] = useState<RecallDueResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(targetMemoryId ?? null);
   const [answering, setAnswering] = useState(false);
   const [evaluation, setEvaluation] = useState<RecallAnswerResponse | null>(null);
 
   const fetchDue = useCallback(async () => {
     try {
       setError(null);
-      const res = await getDueRecalls(50);
+      const res = await getDueRecalls(50, targetMemoryId);
       setData(res);
 
       if (res.reminders && res.reminders.length > 0) {
@@ -32,9 +32,7 @@ export function useRecalls() {
     } finally {
       setLoading(false);
     }
-  }, []);
-
-
+  }, [targetMemoryId]);
 
   useEffect(() => {
     fetchDue();

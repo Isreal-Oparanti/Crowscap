@@ -1,8 +1,22 @@
 import { apiRequest } from "./client";
-import type { DueReminder, RecallAnswerResponse, RecallDueResponse } from "@/types/api";
+import type { DueReminder, RecallAnswerResponse, RecallDueResponse, RecallQuickAction } from "@/types/api";
 
-export async function getDueRecalls(limit = 50): Promise<RecallDueResponse> {
-  return apiRequest<RecallDueResponse>(`/recalls/due?limit=${limit}`);
+export async function getDueRecalls(limit = 50, targetMemoryId?: string): Promise<RecallDueResponse> {
+  let url = `/recalls/due?limit=${limit}`;
+  if (targetMemoryId) {
+    url += `&target_memory_id=${encodeURIComponent(targetMemoryId)}`;
+  }
+  return apiRequest<RecallDueResponse>(url);
+}
+
+export async function submitQuickRecall(
+  memoryId: string,
+  action: RecallQuickAction
+): Promise<RecallAnswerResponse> {
+  return apiRequest<RecallAnswerResponse>(`/recalls/${memoryId}/quick`, {
+    method: "POST",
+    body: JSON.stringify({ action }),
+  });
 }
 
 export async function answerRecall(
