@@ -66,6 +66,7 @@ class MobileSessionResponse(BaseModel):
 @router.post("/mobile-session", response_model=MobileSessionResponse)
 def create_mobile_session(
     payload: MobileSessionRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> MobileSessionResponse:
     profile = _verify_google_id_token(payload.id_token)
@@ -81,12 +82,15 @@ def create_mobile_session(
     if email_verified not in (True, "true", "True", "1", 1):
         raise HTTPException(status_code=401, detail="Google email is not verified.")
 
+    existing_user = _get_user_by_email(db, email)
+    is_new_user = existing_user is None
+
     user_id = _resolve_user_id_for_email(
         db=db,
         email=email,
         preferred_user_id=normalize_google_user_id(sub),
     )
-    return _create_session_response(
+    session = _create_session_response(
         db=db,
         user_id=user_id,
         email=email,
@@ -94,6 +98,10 @@ def create_mobile_session(
         image_url=image_url,
         provider="google",
     )
+    if is_new_user and email != "yc@crowscap.xyz":
+        background_tasks.add_task(_send_welcome_email, email=email, name=name)
+
+    return session
 
 
 @router.post("/demo-session", response_model=MobileSessionResponse)
@@ -187,10 +195,12 @@ def start_email_session(
 @router.post("/email/verify", response_model=MobileSessionResponse)
 def verify_email_session(
     payload: EmailCodeVerifyRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> MobileSessionResponse:
     email = _normalize_email(payload.email)
     existing_user = _get_user_by_email(db, email)
+    is_new_user = existing_user is None
 
     if payload.mode == "signup" and existing_user is not None:
         raise HTTPException(
@@ -245,7 +255,7 @@ def verify_email_session(
     )
     resolved_image = existing_user.image_url if existing_user is not None else None
 
-    return _create_session_response(
+    session = _create_session_response(
         db=db,
         user_id=existing_user.id if existing_user is not None else _normalize_email_user_id(email),
         email=email,
@@ -253,6 +263,10 @@ def verify_email_session(
         image_url=resolved_image,
         provider="email",
     )
+    if is_new_user and email != "yc@crowscap.xyz":
+        background_tasks.add_task(_send_welcome_email, email=email, name=resolved_name)
+
+    return session
 
 
 
@@ -377,6 +391,60 @@ def _send_login_code(*, email: str, code: str) -> None:
             status_code=503,
             detail="Crowscap could not reach the email provider. Check the connection and try again shortly.",
         ) from None
+
+
+def _send_welcome_email(*, email: str, name: str | None = None) -> None:
+    settings = get_settings()
+    api_key = settings.resend_api_key_value
+    if not api_key:
+        if settings.app_env == "production":
+            logger.warning("welcome.email.skipped_no_resend_key email=%s", email)
+            return
+        logger.info("welcome.email.dev email=%s", email)
+        return
+
+    display_name = name or email.split("@")[0]
+    html = (
+        "<div style='font-family:Inter,Arial,sans-serif;color:#111;line-height:1.6;max-width:560px;margin:0 auto;padding:24px 16px;'>"
+        f"<h2 style='font-size:22px;font-weight:800;color:#111;margin-bottom:16px;'>Welcome to Crowscap, {display_name}!</h2>"
+        "<p style='font-size:15px;color:#374151;margin-bottom:16px;'>"
+        "Congratulations on creating your Crowscap account. Crowscap is designed to transform how you save, recall, and act on knowledge."
+        "</p>"
+        "<div style='background-color:#f9fafb;border-left:4px solid #2d7058;padding:16px;margin:20px 0;border-radius:6px;'>"
+        "<h3 style='font-size:15px;font-weight:700;color:#111;margin:0 0 8px 0;'>What Crowscap does for you</h3>"
+        "<ul style='margin:0;padding-left:20px;font-size:14px;color:#374151;'>"
+        "<li style='margin-bottom:6px;'><strong>Active Memory Resurfacing:</strong> Automatically brings back saved PDFs, links, and thoughts right when you need them.</li>"
+        "<li style='margin-bottom:6px;'><strong>Intelligent Summaries:</strong> Extracts core insights, action items, and structural takeaways using advanced AI.</li>"
+        "<li style='margin-bottom:0;'><strong>Context Aware Agent:</strong> Answers your follow up questions directly using your saved knowledge base.</li>"
+        "</ul>"
+        "</div>"
+        "<h3 style='font-size:15px;font-weight:700;color:#111;margin-top:24px;margin-bottom:8px;'>Next steps to get started</h3>"
+        "<ol style='margin:0;padding-left:20px;font-size:14px;color:#374151;'>"
+        "<li style='margin-bottom:6px;'><strong>Capture your first item:</strong> Save a webpage URL, upload a PDF document, or drop a quick note in the chat.</li>"
+        "<li style='margin-bottom:6px;'><strong>Explore your Recall tab:</strong> Review structured memory summaries and quick action cards.</li>"
+        "<li style='margin-bottom:0;'><strong>Ask Crowscap:</strong> Use the chat assistant to explore topics across your entire memory graph.</li>"
+        "</ol>"
+        "<p style='font-size:14px;color:#6b7280;margin-top:28px;border-top:1px solid #e5e7eb;padding-top:16px;'>"
+        "Happy building,<br>The Crowscap Team"
+        "</p>"
+        "</div>"
+    )
+    try:
+        response = httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "from": _resend_from_header(settings.crowscap_email_from),
+                "to": [email],
+                "subject": "Welcome to Crowscap! Your active memory engine is ready",
+                "html": html,
+            },
+            timeout=8.0,
+        )
+        response.raise_for_status()
+        logger.info("welcome.email.sent email=%s status=%s", email, response.status_code)
+    except Exception as exc:
+        logger.warning("welcome.email.failed email=%s error=%s", email, exc)
 
 
 def _resend_from_header(value: str) -> str:
