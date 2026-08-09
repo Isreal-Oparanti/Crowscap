@@ -7,7 +7,7 @@ from app.core.auth import CurrentUser, require_current_user
 from app.core.logging import get_logger
 from app.core.rate_limit import rate_limit
 from app.db.session import get_db
-from app.schemas.chat import ChatRequest, ChatResponse, ConversationResponse
+from app.schemas.chat import ChatRequest, ChatResponse, ConversationResponse, PaginatedMessagesResponse
 from app.services.belief_audit_service import BeliefAuditError, BeliefAuditor, get_belief_auditor
 from app.services.chat_service import (
     ChatIntentRouter,
@@ -18,6 +18,7 @@ from app.services.chat_service import (
     get_chat_conversation_responder,
     get_conversation,
     get_current_conversation,
+    get_paginated_chat_messages,
     get_chat_router,
     get_chat_synthesizer,
     process_chat_pdf_upload,

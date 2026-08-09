@@ -79,3 +79,8 @@ class ConversationResponse(BaseModel):
     created_at: str
     updated_at: str
     messages: list[ChatMessageResponse] = Field(default_factory=list)
+
+
+class PaginatedMessagesResponse(BaseModel):
+    messages: list[ChatMessageResponse] = Field(default_factory=list)
+    has_more: bool = False

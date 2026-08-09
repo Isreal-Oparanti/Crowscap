@@ -1547,7 +1547,14 @@ def _looks_like_acknowledgement_only(normalized: str) -> bool:
     return set(words).issubset(acknowledgement_words)
 
 
-def _conversation_response(conversation: Conversation) -> ConversationResponse:
+def _conversation_response(conversation: Conversation, limit: int = 20) -> ConversationResponse:
+    all_valid = [
+        message for message in conversation.messages
+        if message.role in {"user", "assistant"}
+        and _message_belongs_to_conversation_owner(conversation, message)
+    ]
+    recent_messages = all_valid[-limit:] if (limit and len(all_valid) > limit) else all_valid
+
     return ConversationResponse(
         id=conversation.id,
         title=conversation.title,
@@ -1564,10 +1571,57 @@ def _conversation_response(conversation: Conversation) -> ConversationResponse:
                 metadata_json=message.metadata_json,
                 created_at=message.created_at.isoformat(),
             )
-            for message in conversation.messages
-            if message.role in {"user", "assistant"}
-            and _message_belongs_to_conversation_owner(conversation, message)
+            for message in recent_messages
         ],
+    )
+
+
+def get_paginated_chat_messages(
+    *,
+    db: Session,
+    user_id: str,
+    limit: int = 20,
+    before_id: str | None = None,
+) -> PaginatedMessagesResponse:
+    conv = db.scalar(
+        select(Conversation)
+        .where(Conversation.status == "active", Conversation.user_id == user_id)
+        .order_by(Conversation.created_at.asc())
+    )
+    if not conv:
+        return PaginatedMessagesResponse(messages=[], has_more=False)
+
+    query = select(ChatMessage).where(
+        ChatMessage.conversation_id == conv.id,
+        ChatMessage.role.in_(["user", "assistant"]),
+    )
+
+    if before_id:
+        ref_msg = db.get(ChatMessage, before_id)
+        if ref_msg:
+            query = query.where(ChatMessage.created_at < ref_msg.created_at)
+
+    query = query.order_by(ChatMessage.created_at.desc()).limit(limit + 1)
+    rows = list(db.scalars(query).all())
+
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
+    page_rows.reverse()
+
+    return PaginatedMessagesResponse(
+        messages=[
+            ChatMessageResponse(
+                id=m.id,
+                conversation_id=m.conversation_id,
+                role=m.role,
+                content=m.content,
+                action=m.action,
+                metadata_json=m.metadata_json,
+                created_at=m.created_at.isoformat(),
+            )
+            for m in page_rows
+        ],
+        has_more=has_more,
     )
 
 
