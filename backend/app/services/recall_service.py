@@ -228,37 +228,57 @@ def _clean_title(raw_title: str) -> str:
 
 
 def _build_recall_summary(*, memory: Memory, source: Source) -> str:
-    # 1. Prefer memory.summary if available
-    if memory.summary and len(memory.summary.strip()) >= 30:
-        sum_text = memory.summary.strip()
-        sum_text = re.sub(r"^#{1,6}\s+.*?\n+", "", sum_text).strip()
-        return sum_text
+    clean_title = _clean_title(source.title) if (source.title and source.title != "Captured text") else None
+    url = source.resolved_url or source.original_url
 
-    # 2. Extract clean, meaningful knowledge points from source.raw_text
-    raw_text = getattr(source, "raw_text", None)
-    if raw_text and len(raw_text.strip()) > 30:
-        lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
-        meaningful_points: list[str] = []
+    parts: list[str] = []
 
-        for line in lines:
-            if line.startswith("http://") or line.startswith("https://"):
-                continue
-            if len(line) < 6 or re.match(r"^[\d\.\s\-#]+$", line):
-                continue
-            if re.match(r"^(YouTube video title|Channel|URL|Transcript status|Description)\s*:", line, re.I):
-                continue
-            clean_line = re.sub(r"^[-*#\d\.\s]+", "", line).strip()
-            if len(clean_line) >= 15:
-                meaningful_points.append(clean_line)
-            if len(meaningful_points) >= 5:
-                break
+    # 1. Source Title & Link
+    if clean_title:
+        parts.append(f"**Source**: {clean_title}")
+    if url and not url.startswith("file://"):
+        parts.append(f"**Link**: {url}")
 
-        if meaningful_points:
-            return "\n".join(f"- {pt}" for pt in meaningful_points)
+    # 2. User's Note / Reason if distinct and short (< 150 chars)
+    user_note = memory.content.strip() if memory.content else ""
+    if user_note and user_note != memory.summary and len(user_note) < 150:
+        clean_note = re.sub(r"^#{1,6}\s+", "", user_note).strip()
+        parts.append(f"**Why you saved this**: {clean_note}")
 
-    # 3. Fallback to memory.content
-    content_text = memory.content or "Saved memory item."
-    return re.sub(r"^#{1,6}\s+", "", content_text).strip()
+    # 3. Content / Key Insights Summary
+    summary_text: str | None = None
+    if memory.summary and len(memory.summary.strip()) >= 25:
+        summary_text = re.sub(r"^#{1,6}\s+.*?\n+", "", memory.summary.strip()).strip()
+
+    if not summary_text:
+        raw_text = getattr(source, "raw_text", None)
+        if raw_text and len(raw_text.strip()) > 30:
+            lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
+            meaningful_points: list[str] = []
+            for line in lines:
+                if line.startswith("http://") or line.startswith("https://"):
+                    continue
+                if len(line) < 6 or re.match(r"^[\d\.\s\-#]+$", line):
+                    continue
+                if re.match(r"^(YouTube video title|Channel|URL|Transcript status|Description)\s*:", line, re.I):
+                    continue
+                clean_line = re.sub(r"^[-*#\d\.\s]+", "", line).strip()
+                if len(clean_line) >= 15:
+                    meaningful_points.append(clean_line)
+                if len(meaningful_points) >= 5:
+                    break
+            if meaningful_points:
+                summary_text = "\n".join(f"- {pt}" for pt in meaningful_points)
+
+    if summary_text:
+        parts.append(f"**Key Summary**:\n{summary_text}")
+    elif user_note and len(user_note) >= 150:
+        parts.append(f"**Summary**:\n{user_note}")
+
+    if parts:
+        return "\n\n".join(parts)
+
+    return memory.summary or memory.content or "Saved memory item."
 
 
 def _human_recall_title(*, memory: Memory, source: Source, now: datetime) -> str:
