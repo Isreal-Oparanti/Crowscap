@@ -640,12 +640,39 @@ def process_chat_message(
         )
 
     if route.action == "recent":
-        reply = _recent_link_content_reply(
+        # Inject recent capture context into model_history so the LLM can
+        # actually answer the user's specific question rather than returning
+        # the same hardcoded memory-card template every time.
+        recent_capture = _latest_captured_source_from_conversation(
             db=db,
             conversation=conversation,
             user_id=user_id,
-            require_url=False,
+            source_type_hint=None,
         )
+        enriched_history = model_history
+        if recent_capture is not None:
+            capture_turn = _recent_capture_context_turn(recent_capture)
+            if capture_turn is not None:
+                enriched_history = [capture_turn, *model_history]
+
+        try:
+            reply = conversation_responder.respond(
+                message=payload.message,
+                history=enriched_history,
+                preferences=preferences,
+            )
+        except Exception:
+            # Fallback to the template only if the LLM call fails
+            logger.exception("\u26a0\ufe0f chat.recent.llm_fallback conversation_id=%s", conversation.id)
+            reply = _recent_link_content_reply(
+                db=db,
+                conversation=conversation,
+                user_id=user_id,
+                require_url=False,
+            ) or (
+                "I do not see anything saved in this chat yet, so there is nothing recent "
+                "for me to describe. Save a link or note first and ask me again."
+            )
         if reply is None:
             reply = (
                 "I do not see anything saved in this chat yet, so there is nothing recent "
@@ -1427,11 +1454,34 @@ def _should_include_recent_capture_context(
         "mean",
         "means",
         "meaning",
+        # Source content query words — ensures compound follow-up questions
+        # about a just-saved video/link/article inject the capture context turn
+        # into the LLM prompt so it can answer the actual question.
+        "video",
+        "link",
+        "url",
+        "article",
+        "page",
+        "short",
+        "about",
+        "original",
+        "movie",
+        "film",
+        "content",
+        "what",
+        "explain",
+        "summarize",
+        "summarise",
+        "say",
+        "says",
+        "tells",
+        "discuss",
+        "cover",
+        "covers",
     }
-    if len(words) <= 12 and (
-        _is_short_conversation_followup(normalized)
-        or any(word in local_reference_words for word in words)
-    ):
+    if any(word in local_reference_words for word in words):
+        return True
+    if len(words) <= 12 and _is_short_conversation_followup(normalized):
         return True
     return False
 
@@ -1807,10 +1857,17 @@ def _grounded_local_conversation_reply(
     normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
     previous_user_turns = _conversation_user_messages(conversation)
 
-    if _asks_recent_source_question(normalized):
-        if reply := _recent_link_content_reply(db=db, conversation=conversation, user_id=user_id):
-            return reply
+    # _asks_recent_source_question() was intentionally removed here.
+    # It was too broad: it matched compound follow-up questions like
+    # "What's the video about and the original movie?" and returned a
+    # hardcoded memory-card template, bypassing the LLM entirely.
+    # Those questions now fall through to the LLM path where
+    # _model_prompt_history() already injects the recent capture context
+    # as a synthetic assistant turn, and conversation_responder.respond()
+    # produces a real answer that addresses the actual question.
 
+    # Only intercept the simplest exact deictic queries (short, unambiguous
+    # patterns like "what's the above about", "what was that about").
     if _asks_about_recent_capture(normalized):
         if reply := _recent_link_content_reply(
             db=db,

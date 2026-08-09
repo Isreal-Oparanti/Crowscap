@@ -204,9 +204,10 @@ def create_youtube_capture(
             info = ydl.extract_info(url, download=False)
     except Exception as exc:
         logger.warning(
-            "\u26a0\ufe0f capture.youtube.failed video_id=%s error_type=%s",
+            "⚠️ capture.youtube.failed video_id=%s error_type=%s error=%s",
             video_id,
             type(exc).__name__,
+            str(exc)[:500],
         )
         if _looks_like_network_failure(exc):
             raise IngestionError(
@@ -253,6 +254,12 @@ def create_youtube_capture(
     youtube_metadata = {**fallback_metadata, **_youtube_reference_metadata(info, video_id=video_id)}
     track = _choose_caption_track(info)
     if track is None:
+        logger.info(
+            "ℹ️ capture.youtube.no_captions video_id=%s subtitles=%s auto_captions=%s",
+            video_id,
+            list((info.get("subtitles") or {}).keys()),
+            list((info.get("automatic_captions") or {}).keys()),
+        )
         return create_youtube_metadata_capture(
             db=db,
             url=url,
@@ -274,6 +281,12 @@ def create_youtube_capture(
         caption_text = _download_caption_text(track["url"])
         transcript = clean_transcript(caption_text)
     except Exception as exc:
+        logger.warning(
+            "⚠️ capture.youtube.caption_download_failed video_id=%s error_type=%s error=%s",
+            video_id,
+            type(exc).__name__,
+            str(exc)[:400],
+        )
         if _looks_like_network_failure(exc):
             raise IngestionError(
                 "Crowscap found captions for this YouTube video, but could not reach YouTube to download them right now. Please check your connection and try again.",
