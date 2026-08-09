@@ -67,7 +67,7 @@ from app.services.perspective_service import (
     mark_perspective_note_dismissed,
 )
 
-router = APIRouter(tags=["memories"])
+from app.services.recall_service import _clean_title
 
 
 @router.get("/recent", response_model=RecentMemoryListResponse)
@@ -92,7 +92,7 @@ def recent_memories(
             memory_id=memory.id,
             source_id=source.id,
             source_type=source.source_type,
-            source_title=source.title,
+            source_title=_clean_title(source.title) if source.title else None,
             memory_type=memory.memory_type,
             epistemic_label=memory.epistemic_label,
             content=memory.content,
