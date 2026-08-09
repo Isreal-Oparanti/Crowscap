@@ -406,12 +406,12 @@ def _send_welcome_email(*, email: str, name: str | None = None) -> None:
     display_name = name or email.split("@")[0]
     html = (
         "<div style='font-family:Inter,Arial,sans-serif;color:#111111;line-height:1.6;max-width:560px;margin:0 auto;padding:32px 20px;background-color:#ffffff;'>"
-        f"<h2 style='font-size:22px;font-weight:800;color:#111111;margin:0 0 16px 0;letter-spacing:-0.4px;'>Welcome to Crowscap, {display_name}</h2>"
+        f"<h2 style='font-size:22px;font-weight:800;color:#111111;margin:0 0 16px 0;letter-spacing:-0.4px;'>Welcome to Crowscap AI, {display_name}</h2>"
         "<p style='font-size:15px;color:#333333;margin:0 0 20px 0;line-height:1.6;'>"
-        "Your personal intelligent memory engine is ready. Crowscap is built to turn what you read, watch, and learn into an active, interconnected knowledge graph."
+        "Your personal intelligent memory engine is ready. Crowscap AI is built to turn what you read, watch, and learn into an active, interconnected knowledge graph."
         "</p>"
         "<div style='background-color:#f8f9fa;border-left:3px solid #111111;border-radius:0px;padding:20px;margin:24px 0;'>"
-        "<h3 style='font-size:14px;font-weight:800;color:#111111;margin:0 0 12px 0;text-transform:uppercase;letter-spacing:0.5px;'>What Crowscap does for you</h3>"
+        "<h3 style='font-size:14px;font-weight:800;color:#111111;margin:0 0 12px 0;text-transform:uppercase;letter-spacing:0.5px;'>What Crowscap AI does for you</h3>"
         "<ul style='margin:0;padding-left:18px;font-size:14px;color:#222222;'>"
         "<li style='margin-bottom:10px;'><strong>Atomic Memory Extraction:</strong> Breaks down articles, PDFs, and YouTube videos into distinct, verifiable ideas rather than passive summaries.</li>"
         "<li style='margin-bottom:10px;'><strong>Knowledge Graph & Contradictions:</strong> Connects related thoughts across your library and flags ideas pulling in conflicting directions.</li>"
@@ -423,12 +423,12 @@ def _send_welcome_email(*, email: str, name: str | None = None) -> None:
         "<ol style='margin:0;padding-left:18px;font-size:14px;color:#222222;'>"
         "<li style='margin-bottom:8px;'><strong>Capture content:</strong> Share a link, upload a PDF document, or drop a raw thought into the chat.</li>"
         "<li style='margin-bottom:8px;'><strong>Revisit active recall:</strong> Check your Recall tab to review due memory cards and strengthen retention.</li>"
-        "<li style='margin-bottom:0;'><strong>Ask Crowscap:</strong> Use the assistant to query your saved knowledge base with deep context awareness.</li>"
+        "<li style='margin-bottom:0;'><strong>Ask Crowscap AI:</strong> Use the assistant to query your saved knowledge base with deep context awareness.</li>"
         "</ol>"
         "<div style='border-top:1px solid #eeeeee;margin-top:32px;padding-top:20px;'>"
         "<p style='font-size:14px;color:#666666;margin:0;'>"
         "Happy building,<br>"
-        "<strong>The Crowscap Team</strong>"
+        "<strong>The Crowscap AI Team</strong>"
         "</p>"
         "</div>"
         "</div>"
@@ -440,7 +440,7 @@ def _send_welcome_email(*, email: str, name: str | None = None) -> None:
             json={
                 "from": _resend_from_header(settings.crowscap_email_from),
                 "to": [email],
-                "subject": "Welcome to Crowscap! Your active memory engine is ready",
+                "subject": "Welcome to Crowscap AI! Your active memory engine is ready",
                 "html": html,
             },
             timeout=8.0,
@@ -454,7 +454,7 @@ def _send_welcome_email(*, email: str, name: str | None = None) -> None:
 def _resend_from_header(value: str) -> str:
     raw = (value or "").strip()
     if not raw:
-        return "Crowscap <support@crowscap.xyz>"
+        return "Crowscap AI <support@crowscap.xyz>"
 
     match = re.search(r"<([^>]+)>", raw)
     if match:
@@ -462,9 +462,9 @@ def _resend_from_header(value: str) -> str:
     elif "@" in raw:
         email_addr = raw
     else:
-        return "Crowscap <support@crowscap.xyz>"
+        return "Crowscap AI <support@crowscap.xyz>"
 
-    return f"Crowscap <{email_addr}>"
+    return f"Crowscap AI <{email_addr}>"
 
 
 

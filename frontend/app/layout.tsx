@@ -3,9 +3,9 @@ import "./globals.css";
 import type { Metadata, Viewport } from "next";
 
 export const metadata: Metadata = {
-  title: "Crowscap",
+  title: "Crowscap AI",
   description: "A second brain that remembers, questions, and recalls what you learn.",
-  applicationName: "Crowscap",
+  applicationName: "Crowscap AI",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    title: "Crowscap",
+    title: "Crowscap AI",
     statusBarStyle: "default",
   },
 };

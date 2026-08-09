@@ -15,7 +15,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "Crowscap API"
+    app_name: str = "Crowscap AI API"
     app_env: Literal["development", "test", "staging", "production"] = "development"
     api_v1_prefix: str = "/api/v1"
 

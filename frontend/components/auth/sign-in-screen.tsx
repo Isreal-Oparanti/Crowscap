@@ -85,7 +85,7 @@ export function SignInScreen() {
             </div>
             <div>
               <p className="text-[17px] font-[850] tracking-[-0.02em]">
-                Crowscap
+                Crowscap AI
               </p>
               <p className="text-[12px] font-semibold text-[#6f7376]">
                 Personal intelligent Memory
@@ -148,7 +148,7 @@ export function SignInScreen() {
               Stop losing what you learn. Start actually using it.
             </h1>
             <p className="mt-7 max-w-[680px] text-[17px] font-medium leading-8 text-[#464a4d] md:text-[19px]">
-              Crowscap is your personal intelligent memory that saves what you read and watch, 
+              Crowscap AI is your personal intelligent memory that saves what you read and watch, 
               connects it to what you already know, 
               and brings the right idea back the moment you actually need it.
             </p>
