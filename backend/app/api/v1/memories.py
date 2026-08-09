@@ -69,6 +69,8 @@ from app.services.perspective_service import (
 
 from app.services.recall_service import _clean_title
 
+router = APIRouter(tags=["memories"])
+
 
 @router.get("/recent", response_model=RecentMemoryListResponse)
 def recent_memories(
