@@ -67,7 +67,7 @@ Crowscap supports:
 
 ## Architecture
 
-![Crowscap architecture](./crowscap-architecture-diagram.jpg)
+![Crowscap architecture](./docs/assets/crowscap-architecture-diagram.jpg)
 
 The architecture is intentionally split into three layers:
 
@@ -211,6 +211,7 @@ Important project docs:
 - [`docs/18-autonomous-preferences-and-perspectives.md`](docs/18-autonomous-preferences-and-perspectives.md)
 - [`docs/19-chat-routing-and-trust.md`](docs/19-chat-routing-and-trust.md)
 - [`docs/20-pwa-push-notifications.md`](docs/20-pwa-push-notifications.md)
+- [`docs/21-backend-learning-guide.md`](docs/21-backend-learning-guide.md)
 
 ## Current Scope
 

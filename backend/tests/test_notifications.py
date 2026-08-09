@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from fastapi.testclient import TestClient
 from pytest import MonkeyPatch
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -499,4 +499,135 @@ def test_send_push_event_uses_expo_sender_for_native_token(monkeypatch: MonkeyPa
     send_push_event_to_user(db=db, user_id=TEST_USER_ID, event=event)
 
     assert calls == ["ExponentPushToken[abcdefghijklmnopqrstuvwxyz123456]"]
+    db.close()
+
+
+def test_send_due_pushes_once_does_not_walk_due_memories_without_cooldown(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "crowscap_recall_push_cooldown_minutes", 360)
+    monkeypatch.setattr(settings, "crowscap_recall_push_daily_limit", 3)
+    monkeypatch.setattr(
+        "app.services.notification_service.generate_notification_copy",
+        lambda *, context, default_title, default_body: (default_title, default_body),
+    )
+
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    testing_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    db = testing_session()
+    db.add(
+        PushSubscription(
+            user_id=TEST_USER_ID,
+            endpoint="ExponentPushToken[abcdefghijklmnopqrstuvwxyz123456]",
+            p256dh="expo",
+            auth="expo",
+            status="active",
+            metadata_json={"provider": "expo", "platform": "android"},
+        )
+    )
+    source = Source(
+        user_id=TEST_USER_ID,
+        source_type="text",
+        title="Backend review notes",
+    )
+    db.add(source)
+    db.flush()
+    capture = Capture(user_id=TEST_USER_ID, source_id=source.id, status="ready")
+    db.add(capture)
+    db.flush()
+    db.add_all(
+        [
+            Memory(
+                user_id=TEST_USER_ID,
+                source_id=source.id,
+                capture_id=capture.id,
+                memory_type="principle",
+                content="Use idempotent delivery records for push notifications.",
+                confidence="high",
+                source_strength="strong",
+                next_review_at=utc_now() - timedelta(days=2),
+            ),
+            Memory(
+                user_id=TEST_USER_ID,
+                source_id=source.id,
+                capture_id=capture.id,
+                memory_type="warning",
+                content="Notification loops damage trust quickly.",
+                confidence="high",
+                source_strength="strong",
+                next_review_at=utc_now() - timedelta(days=1),
+            ),
+        ]
+    )
+    db.commit()
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "app.services.notification_service._send_expo_push",
+        lambda *, subscription, event: calls.append(event.event_key),
+    )
+
+    from app.services.notification_service import send_due_pushes_once
+
+    first_event = send_due_pushes_once(db=db, user_id=TEST_USER_ID)
+    second_event = send_due_pushes_once(db=db, user_id=TEST_USER_ID)
+
+    assert first_event.event_type == "recall_due"
+    assert second_event.event_type == "heartbeat"
+    assert len(calls) == 1
+    db.close()
+
+
+def test_send_push_event_disables_dead_expo_token(monkeypatch: MonkeyPatch) -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    testing_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    db = testing_session()
+    subscription = PushSubscription(
+        user_id=TEST_USER_ID,
+        endpoint="ExponentPushToken[deadabcdefghijklmnopqrstuvwxyz]",
+        p256dh="expo",
+        auth="expo",
+        status="active",
+        metadata_json={"provider": "expo", "platform": "android"},
+    )
+    db.add(subscription)
+    db.commit()
+
+    def fail_dead_token(*, subscription, event) -> None:
+        raise RuntimeError("DeviceNotRegistered")
+
+    monkeypatch.setattr("app.services.notification_service._send_expo_push", fail_dead_token)
+
+    from app.schemas.notifications import NotificationEvent
+    from app.services.notification_service import send_push_event_to_user
+
+    event = NotificationEvent(
+        event_id="event",
+        event_key="recall_due:dead-token",
+        event_type="recall_due",
+        due_count=1,
+        title="A thought is ready",
+        body="You saved this yesterday. It is ready to revisit.",
+        url="/recall",
+        created_at=utc_now(),
+    )
+
+    send_push_event_to_user(db=db, user_id=TEST_USER_ID, event=event)
+
+    db.refresh(subscription)
+    delivery = db.scalar(select(NotificationDelivery))
+    assert subscription.status == "disabled"
+    assert delivery is not None
+    assert delivery.status == "failed"
     db.close()

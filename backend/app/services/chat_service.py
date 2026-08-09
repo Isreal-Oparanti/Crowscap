@@ -254,6 +254,7 @@ SESSION_CONVERSATION_MARKERS = (
 from app.services.chat_types import (
     ReminderIntent,
     RecentCaptureContext,
+    ResolvedChatContext,
     SelfKnowledgeChunk,
     CROWSCAP_SELF_KNOWLEDGE,
     ChatRoutingError,
@@ -442,7 +443,14 @@ def process_chat_message(
 
     persisted_history = _conversation_turns(conversation, limit=None)
     effective_history = persisted_history or payload.history
-    pending_url = _pending_url_from_history(effective_history)
+    resolved_context = _resolve_chat_context(
+        db=db,
+        conversation=conversation,
+        message=payload.message,
+        history=effective_history,
+        user_id=user_id,
+    )
+    pending_url = resolved_context.pending_url
     normalized_message = re.sub(r"\s+", " ", payload.message.strip().lower())
     grounded_local_reply = (
         None
@@ -476,6 +484,7 @@ def process_chat_message(
             message=payload.message,
             history=effective_history,
             pending_url=pending_url,
+            context=resolved_context,
         )
 
     user_message = ChatMessage(
@@ -1157,6 +1166,130 @@ def _conversation_user_messages(conversation: Conversation) -> list[str]:
     ]
 
 
+def _resolve_chat_context(
+    *,
+    db: Session,
+    conversation: Conversation,
+    message: str,
+    history: list[ConversationTurn],
+    user_id: str | None,
+) -> ResolvedChatContext:
+    recent = _latest_captured_source_from_conversation(
+        db=db,
+        conversation=conversation,
+        user_id=user_id,
+        source_type_hint=None,
+    )
+    latest_user_message = _latest_chat_message(
+        db=db,
+        conversation=conversation,
+        role="user",
+        user_id=user_id,
+    )
+    latest_assistant_message = _latest_chat_message(
+        db=db,
+        conversation=conversation,
+        role="assistant",
+        user_id=user_id,
+    )
+    pending_url = _pending_url_from_history(history)
+    source = recent.source if recent is not None else None
+    source_metadata = source.metadata_json or {} if source is not None else {}
+    recent_link = (
+        source.original_url or source.resolved_url
+        if source is not None
+        else pending_url
+    )
+    recent_status = None
+    if source is not None:
+        recent_status = str(
+            source_metadata.get("enrichment_status")
+            or source_metadata.get("read_status")
+            or ("ready" if recent and recent.memories else "reference")
+        )
+    return ResolvedChatContext(
+        latest_user_message=latest_user_message,
+        latest_assistant_message=latest_assistant_message,
+        latest_capture=recent.capture if recent is not None else None,
+        latest_source=source,
+        latest_memory_ids=[memory.id for memory in recent.memories] if recent is not None else [],
+        pending_url=pending_url,
+        declined_pending_urls=_declined_pending_urls_from_history(history),
+        recent_link=recent_link,
+        recent_link_read_status=recent_status,
+        recent_link_user_reason=_reference_reason_from_source(source) if source is not None else None,
+        deictic_target_hint=_deictic_target_hint(
+            message=message,
+            has_recent_capture=recent is not None,
+            pending_url=pending_url,
+        ),
+    )
+
+
+def _latest_chat_message(
+    *,
+    db: Session,
+    conversation: Conversation,
+    role: str,
+    user_id: str | None,
+) -> ChatMessage | None:
+    query = (
+        select(ChatMessage)
+        .where(ChatMessage.conversation_id == conversation.id, ChatMessage.role == role)
+        .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
+        .limit(1)
+    )
+    if conversation.user_id is not None:
+        query = query.where(ChatMessage.user_id == conversation.user_id)
+    elif user_id is not None:
+        query = query.where(ChatMessage.user_id == user_id)
+    else:
+        query = query.where(ChatMessage.user_id.is_(None))
+    return db.scalar(query)
+
+
+def _declined_pending_urls_from_history(history: list[ConversationTurn]) -> tuple[str, ...]:
+    declined: list[str] = []
+    last_url: str | None = None
+    for turn in history[-12:]:
+        if turn.role == "user":
+            if url := _first_url(turn.content):
+                last_url = url
+            continue
+        if turn.role == "assistant" and "I will leave that link unsaved" in turn.content and last_url:
+            declined.append(last_url)
+            last_url = None
+    return tuple(declined)
+
+
+def _deictic_target_hint(
+    *,
+    message: str,
+    has_recent_capture: bool,
+    pending_url: str | None,
+) -> str | None:
+    normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
+    if not normalized:
+        return None
+    if _is_save_previous_response_command(message):
+        return "previous_assistant_response"
+    if pending_url is not None and (
+        _is_pending_url_rejection(message)
+        or _is_url_capture_confirmation(message)
+        or _is_generic_affirmation(message)
+    ):
+        return "pending_url"
+    if has_recent_capture and _is_forget_command(normalized) and _references_recent_capture_text(normalized):
+        return "latest_capture"
+    if has_recent_capture and (
+        _asks_about_recent_link_content(normalized)
+        or _asks_about_recent_capture(normalized)
+        or _message_references_recent_source(normalized)
+    ):
+        return "latest_source"
+    return None
+
+
 def _model_prompt_history(
     *,
     db: Session,
@@ -1674,7 +1807,7 @@ def _grounded_local_conversation_reply(
     normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
     previous_user_turns = _conversation_user_messages(conversation)
 
-    if _asks_about_recent_link_content(normalized):
+    if _asks_recent_source_question(normalized):
         if reply := _recent_link_content_reply(db=db, conversation=conversation, user_id=user_id):
             return reply
 
@@ -1747,6 +1880,29 @@ def _asks_about_recent_link_content(normalized: str) -> bool:
     return any(re.fullmatch(pattern, normalized) is not None for pattern in patterns)
 
 
+def _asks_recent_source_question(normalized: str) -> bool:
+    if _asks_about_recent_link_content(normalized) or _asks_about_recent_capture(normalized):
+        return True
+    if not _message_references_recent_source(normalized):
+        return False
+    if "?" in normalized:
+        return True
+    question_starts = (
+        "what ",
+        "whats ",
+        "what's ",
+        "summarize ",
+        "summarise ",
+        "explain ",
+        "tell me ",
+    )
+    if normalized.startswith(question_starts):
+        return True
+    return bool(
+        re.search(r"\b(?:about|inside|contain|contains|say|says|from|get|got)\b", normalized)
+    )
+
+
 def _asks_about_recent_capture(normalized: str) -> bool:
     """Deictic questions about the most recently saved item, without naming it.
 
@@ -1764,6 +1920,7 @@ def _asks_about_recent_capture(normalized: str) -> bool:
         r"^what\s+(?:is|was)\s+(?:that|this|it)\s+about$",
         r"^what\s+did\s+i\s+just\s+(?:save|send|share|paste|give\s+you)$",
         r"^what\s+did\s+you\s+just\s+(?:save|keep|get)(?:\s+from\s+(?:that|this|it))?$",
+        r"^what\s+did\s+you\s+(?:get|find|learn)\s+from\s+(?:the\s+)?(?:above|previous(?:\s+one)?|last\s+one|that|this|it)$",
         r"^summari[sz]e\s+(?:the\s+)?(?:above|previous(?:\s+one)?|last\s+one|that|this|it)$",
         r"^tell\s+me\s+about\s+(?:the\s+)?(?:above|previous(?:\s+one)?|last\s+one)$",
     )
@@ -2374,6 +2531,14 @@ def _archive_capture_memories(
 
 
 def _references_recent_capture(normalized: str, *, conversation: Conversation) -> bool:
+    if _references_recent_capture_text(normalized):
+        return True
+    if normalized in {"i mean the pdf", "i mean pdf", "pdf", "the pdf"}:
+        return _previous_user_turn_was_forget(conversation)
+    return False
+
+
+def _references_recent_capture_text(normalized: str) -> bool:
     direct_markers = (
         "what you just saved",
         "what u just saved",
@@ -2397,8 +2562,6 @@ def _references_recent_capture(normalized: str, *, conversation: Conversation) -
         return True
     if _is_short_recent_capture_forget_command(normalized):
         return True
-    if normalized in {"i mean the pdf", "i mean pdf", "pdf", "the pdf"}:
-        return _previous_user_turn_was_forget(conversation)
     return False
 
 
@@ -2592,6 +2755,35 @@ def _looks_like_recent_source_context_update(message: str) -> bool:
 
     words = re.findall(r"[a-z0-9']+", normalized)
     return len(words) >= 5 or len(normalized) >= 35
+
+
+def _message_references_recent_source(normalized: str) -> bool:
+    source_markers = (
+        "above video",
+        "above link",
+        "above source",
+        "above article",
+        "previous video",
+        "previous link",
+        "previous source",
+        "last video",
+        "last link",
+        "last source",
+        "that video",
+        "that link",
+        "that source",
+        "this video",
+        "this link",
+        "this source",
+        "the video",
+        "the link",
+        "the source",
+        "the above",
+        "the one above",
+        "this one",
+        "that one",
+    )
+    return any(marker in normalized for marker in source_markers)
 
 
 def _clean_recent_source_context_text(message: str) -> str | None:
@@ -3436,8 +3628,97 @@ def _stabilize_route_for_local_context(
     message: str,
     history: list[ConversationTurn],
     pending_url: str | None,
+    context: ResolvedChatContext | None = None,
 ) -> ChatRoute:
     normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
+    context_action = getattr(route, "context_action", None)
+    target = getattr(route, "target", None)
+
+    if context_action == "conversation_fact" or target == "conversation_history":
+        return ChatRoute(
+            action="conversation",
+            reply=None,
+            reason="The user is asking for a factual detail from this conversation.",
+            context_action=context_action,
+            target=target,
+            confidence=route.confidence,
+        )
+
+    if route.action == "reminder" or context_action == "create_reminder" or _is_reminder_command(normalized):
+        return ChatRoute(
+            action="reminder",
+            reply=None,
+            reason="The user is asking for a time-based reminder.",
+            context_action=context_action or "create_reminder",
+            target=target,
+            confidence=route.confidence,
+        )
+
+    if context_action == "ask_recent_source" or (
+        context is not None
+        and context.latest_capture is not None
+        and _asks_recent_source_question(normalized)
+    ):
+        return ChatRoute(
+            action="recent",
+            reply=None,
+            reason="The user is asking about the latest saved source in this conversation.",
+            context_action=context_action or "ask_recent_source",
+            target=target or "latest_source",
+            confidence=route.confidence,
+        )
+
+    if context_action == "update_recent_source_context" or (
+        context is not None
+        and context.latest_capture is not None
+        and _looks_like_recent_source_context_update(message)
+    ):
+        return ChatRoute(
+            action="conversation",
+            reply=None,
+            reason="The user is adding context to the latest saved source.",
+            context_action=context_action or "update_recent_source_context",
+            target=target or "latest_source",
+            confidence=route.confidence,
+        )
+
+    if context_action == "delete_recent_capture" or (
+        context is not None
+        and context.latest_capture is not None
+        and _is_forget_command(normalized)
+        and _references_recent_capture_text(normalized)
+    ):
+        return ChatRoute(
+            action="forget",
+            reply=None,
+            reason="The user is asking to remove the latest saved item in this conversation.",
+            context_action=context_action or "delete_recent_capture",
+            target=target or "latest_capture",
+            confidence=route.confidence,
+        )
+
+    if context_action == "save_previous_assistant" or target == "previous_assistant_response":
+        return ChatRoute(
+            action="capture",
+            reply=None,
+            reason="The user wants the previous assistant answer saved.",
+            context_action=context_action or "save_previous_assistant",
+            target="previous_assistant_response",
+            confidence=route.confidence,
+        )
+
+    if context_action == "save_recent_source_reference" or (
+        target == "pending_url" and pending_url is not None
+    ):
+        return ChatRoute(
+            action="capture",
+            reply=None,
+            reason="The user wants the pending or recent source saved.",
+            context_action=context_action or "save_recent_source_reference",
+            target=target or "pending_url",
+            confidence=route.confidence,
+        )
+
     if route.action in {"answer", "capture"} and _is_local_conversation_question(
         message=message,
         history=history,
@@ -4376,6 +4657,15 @@ def _is_save_previous_response_command(message: str) -> bool:
         "keep that",
         "keep this",
         "keep it",
+        "hold that",
+        "hold this",
+        "hold it",
+        "hold onto that",
+        "hold onto this",
+        "hold onto it",
+        "hang on to that",
+        "hang on to this",
+        "hang on to it",
         "store that",
         "store this",
         "store it",
@@ -4410,6 +4700,8 @@ def _is_save_previous_response_command(message: str) -> bool:
         r"^save\s+(?:that|this|it)\s+(?:to|in|into)\s+(?:my\s+)?memory$",
         r"^remember\s+(?:that|this|it)\s+(?:for\s+me)?$",
         r"^keep\s+(?:that|this|it)\s+(?:for\s+me)?$",
+        r"^hold\s+(?:on\s+to|onto)?\s*(?:that|this|it)\s+(?:for\s+me)?$",
+        r"^hang\s+on\s+to\s+(?:that|this|it)\s+(?:for\s+me)?$",
         r"^(?:save|remember|keep|store)\s+(?:the\s+)?(?:answer|reply|response)\s+(?:you\s+)?(?:just\s+)?(?:gave|sent|wrote|said)(?:\s+me)?$",
         r"^(?:save|remember|keep|store)\s+what\s+you\s+just\s+(?:said|wrote|sent|answered)$",
         r"^(?:save|remember|keep|store)\s+(?:your|the)\s+(?:last|previous)\s+(?:answer|reply|response)$",
@@ -4419,7 +4711,7 @@ def _is_save_previous_response_command(message: str) -> bool:
     if _is_short_previous_response_save_command(normalized):
         return True
 
-    if not re.search(r"\b(?:save|remember|keep|store)\b", normalized):
+    if not re.search(r"\b(?:save|remember|keep|store|hold)\b", normalized):
         return False
     if not (
         re.search(r"\b(?:that|this|it)\b", normalized)
@@ -4444,6 +4736,7 @@ def _is_save_previous_response_command(message: str) -> bool:
         "go",
         "it",
         "just",
+        "hold",
         "keep",
         "last",
         "me",
@@ -4452,6 +4745,7 @@ def _is_save_previous_response_command(message: str) -> bool:
         "nice",
         "ok",
         "okay",
+        "on",
         "one",
         "please",
         "previous",
@@ -4462,6 +4756,7 @@ def _is_save_previous_response_command(message: str) -> bool:
         "save",
         "sent",
         "store",
+        "onto",
         "that",
         "the",
         "this",
@@ -4484,7 +4779,7 @@ def _is_short_previous_response_save_command(normalized: str) -> bool:
     if not words or len(words) > 18:
         return False
 
-    save_verbs = {"save", "remember", "keep", "store"}
+    save_verbs = {"save", "remember", "keep", "store", "hold"}
     pointers = {"that", "this", "it"}
     response_words = {"answer", "reply", "response"}
     allowed_after_pointer = {
@@ -4500,6 +4795,7 @@ def _is_short_previous_response_save_command(normalized: str) -> bool:
         "memory",
         "later",
         "now",
+        "on",
     }
     allowed_after_response = allowed_after_pointer | {"you", "just", "gave", "sent", "wrote", "said", "answered"}
 
@@ -4515,6 +4811,10 @@ def _is_short_previous_response_save_command(normalized: str) -> bool:
                 continue
             rest = tail[pointer_index + 1 :]
             return all(word in allowed_after_pointer for word in rest)
+        if word == "hold" and tail[:2] in (["on", "to"], ["onto"]):
+            rest_tail = tail[2:] if tail[:2] == ["on", "to"] else tail[1:]
+            if rest_tail and rest_tail[0] in pointers:
+                return all(word in allowed_after_pointer for word in rest_tail[1:])
         for response_index, response_word in enumerate(tail[:6]):
             if response_word not in response_words:
                 continue

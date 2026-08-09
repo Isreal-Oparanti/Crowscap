@@ -7,7 +7,6 @@ import {
   connectNotificationStream,
   getPushStatus,
   registerCrowscapServiceWorker,
-  showForegroundNotification,
   subscribeToPush,
   type PushStatus,
 } from "@/lib/notifications";
@@ -61,7 +60,6 @@ export function NotificationRuntime() {
             detail: nextEvent,
           }),
         );
-        showForegroundNotification(nextEvent).catch(() => null);
       },
       () => undefined,
     );

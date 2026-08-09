@@ -14,7 +14,7 @@ Crowscap is a source-aware MemoryAgent. The system is designed around one centra
 
 ## Visual Overview
 
-![Crowscap architecture](../crowscap-architecture-diagram.jpg)
+![Crowscap architecture](./assets/crowscap-architecture-diagram.jpg)
 
 ## Implemented Runtime
 

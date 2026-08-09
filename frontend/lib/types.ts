@@ -341,6 +341,8 @@ export type NotificationEvent = {
   url: string;
   reminder_id: string | null;
   memory_id: string | null;
+  notification_title?: string | null;
+  notification_body?: string | null;
   created_at: string;
 };
 

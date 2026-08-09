@@ -311,6 +311,8 @@ def send_push_event_to_user(
         except Exception as exc:  # pragma: no cover - defensive runtime guard
             last_error = _safe_push_error(exc)
             subscription.last_error = last_error
+            if _is_expired_subscription(exc):
+                subscription.status = "disabled"
 
     delivery.attempts += 1
     if sent_any:
@@ -968,7 +970,9 @@ def _is_expo_subscription(subscription: PushSubscription) -> bool:
 def _is_expired_subscription(exc: Exception) -> bool:
     response = getattr(exc, "response", None)
     status_code = getattr(response, "status_code", None)
-    return status_code in {404, 410}
+    if status_code in {404, 410}:
+        return True
+    return "devicenotregistered" in str(exc).replace("_", "").lower()
 
 
 def _safe_push_error(exc: Exception) -> str:

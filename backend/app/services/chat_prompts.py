@@ -26,6 +26,9 @@ def _build_router_prompt(*, message: str, history: list[ConversationTurn], pendi
 Return JSON:
 {{
   "action": "acknowledge" | "conversation" | "capture" | "answer" | "audit" | "forget" | "reminder" | "self" | "recent",
+  "context_action": "save_current_message" | "save_previous_assistant" | "save_recent_source_reference" | "update_recent_source_context" | "ask_recent_source" | "delete_recent_capture" | "create_reminder" | "memory_search" | "conversation_fact" | "normal_chat" | "self" | "audit" | null,
+  "target": "current_message" | "previous_assistant_response" | "latest_source" | "latest_capture" | "pending_url" | "conversation_history" | "memory_topic" | "none" | null,
+  "confidence": 0.0-1.0,
   "reply": "short natural reply only when action is acknowledge, otherwise null",
   "reason": "brief classification reason"
 }}
@@ -41,7 +44,26 @@ Definitions:
 - self: the user asks what Crowscap is, what it does, how it works, who built it, what its purpose is, whether it is just a chatbot, or what its current limitations are.
 - recent: the user asks about the thing they JUST saved or sent in this conversation, referring to it deictically instead of by name. Examples: "whats the above about", "what's that about", "what is it about", "what did I just save", "summarize the above", "explain the link I just sent", "so what did you get from it". The recent conversation will show a save receipt from Crowscap (for example "I kept this as N memories" or "I kept this link as a reference") near the latest turns.
 
+Context action rules:
+- save_previous_assistant: the user wants the previous assistant answer saved, even if phrased casually or with typos. Examples: "cool save that", "hold onto that", "keep what you just said".
+- save_recent_source_reference: the user wants a recently pasted or pending link/source kept.
+- update_recent_source_context: the user is adding meaning, intent, correction, or context to the source they just saved. Examples: "the above video is actually about obeying laws", "that link is for my YC application".
+- ask_recent_source: the user asks what the latest link/source/save is about.
+- delete_recent_capture: the user wants the last saved item removed.
+- create_reminder: the user asks for a timed nudge, including timed references to the latest source.
+- conversation_fact: the user asks for a factual detail from this current chat, such as the first message or last thing archived.
+- memory_search: the user asks across saved memory.
+
+Target rules:
+- Use previous_assistant_response for "save that" style commands after an assistant answer.
+- Use latest_source for "the above link/video/source", "that video", "this link", or "what did you get from it".
+- Use latest_capture for "delete that", "remove what you just saved", or "what did I just save".
+- Use pending_url only when a pending URL exists and the user is confirming or declining that URL.
+- Use conversation_history for exact current-chat facts.
+- Use current_message only when the durable content is in the latest message itself.
+
 Prefer recent over answer whenever the user is pointing at the most recent saved item ("the above", "that", "it", "the previous one", "the last one", "what I just sent") rather than asking a topic question across their whole memory. People almost always mean the immediately previous item, not something saved days ago. Only use answer when the user names a topic or explicitly asks across saved memories.
+Prefer update_recent_source_context over capture when a user statement names "the above/that/this video/link/source" and adds explanatory context rather than asking a question.
 Never classify thanks, "okay", "this makes sense", or simple agreement as capture.
 Never run saved-memory search for questions about only the current chat, such as "have I thanked you before in this chat?" or "what was the first thing I said?"
 Do not classify ordinary advice questions as answer just because they are questions.

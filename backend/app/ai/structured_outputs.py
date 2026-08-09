@@ -56,6 +56,30 @@ ChatAction = Literal[
     "self",
     "recent",
 ]
+ContextualChatAction = Literal[
+    "save_current_message",
+    "save_previous_assistant",
+    "save_recent_source_reference",
+    "update_recent_source_context",
+    "ask_recent_source",
+    "delete_recent_capture",
+    "create_reminder",
+    "memory_search",
+    "conversation_fact",
+    "normal_chat",
+    "self",
+    "audit",
+]
+ContextualChatTarget = Literal[
+    "current_message",
+    "previous_assistant_response",
+    "latest_source",
+    "latest_capture",
+    "pending_url",
+    "conversation_history",
+    "memory_topic",
+    "none",
+]
 RecallRating = Literal["needs_work", "partial", "solid", "strong"]
 
 # Derived from the EpistemicLabel Literal so this set never drifts out of sync.
@@ -192,6 +216,9 @@ class ChatRoute(BaseModel):
     action: ChatAction
     reply: str | None = Field(default=None, max_length=500)
     reason: str = Field(min_length=3, max_length=300)
+    context_action: ContextualChatAction | None = None
+    target: ContextualChatTarget | None = None
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
 
     @field_validator("action", mode="before")
     @classmethod
@@ -224,6 +251,11 @@ class ChatRoute(BaseModel):
             "about_recent": "recent",
         }
         return aliases.get(normalized, normalized) if isinstance(normalized, str) else normalized
+
+    @field_validator("context_action", "target", mode="before")
+    @classmethod
+    def normalize_context_fields(cls, value: object) -> object:
+        return normalize_label(value)
 
 
 class GroundedChatSynthesis(BaseModel):

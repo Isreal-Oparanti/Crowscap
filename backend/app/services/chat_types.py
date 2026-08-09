@@ -18,7 +18,7 @@ from app.ai.qwen_client import QwenClient
 from app.ai.structured_outputs import ChatRoute, ConversationalChatReply, GroundedChatSynthesis
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.db.models import Capture, Memory, Source, UserPreference
+from app.db.models import Capture, ChatMessage, Memory, Source, UserPreference
 from app.schemas.chat import ConversationTurn
 from app.schemas.search import SearchResponse
 from app.services.preference_service import format_preference_context
@@ -47,6 +47,21 @@ class RecentCaptureContext:
     capture: Capture
     source: Source
     memories: list[Memory]
+
+
+@dataclass(frozen=True)
+class ResolvedChatContext:
+    latest_user_message: ChatMessage | None
+    latest_assistant_message: ChatMessage | None
+    latest_capture: Capture | None
+    latest_source: Source | None
+    latest_memory_ids: list[str]
+    pending_url: str | None
+    declined_pending_urls: tuple[str, ...]
+    recent_link: str | None
+    recent_link_read_status: str | None
+    recent_link_user_reason: str | None
+    deictic_target_hint: str | None
 
 
 @dataclass(frozen=True)

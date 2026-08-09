@@ -896,6 +896,54 @@ def test_followup_context_attaches_to_recent_reference_link(monkeypatch) -> None
         app.dependency_overrides.clear()
 
 
+def test_answer_route_recent_context_update_still_attaches_to_latest_source(monkeypatch) -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter("capture")
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+
+    stub_url_enrichment_job(monkeypatch)
+
+    try:
+        client = TestClient(app)
+        save_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "https://youtube.com/shorts/ythRYUxLEks?si=test",
+                "history": [],
+            },
+        )
+        assert save_response.status_code == 200
+        conversation_id = save_response.json()["conversation_id"]
+
+        app.dependency_overrides[get_chat_router] = lambda: FixedRouter("answer")
+        context_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": (
+                    "The above video is actually about obeying laws and using obedience "
+                    "as a path to success."
+                ),
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+
+        assert context_response.status_code == 200
+        payload = context_response.json()
+        assert payload["action"] == "conversation"
+        assert payload["saved"] is True
+        assert "added that context" in payload["message"].lower()
+
+        db = testing_session()
+        source = db.scalar(select(Source))
+        assert source is not None
+        assert "obeying laws" in source.raw_text
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_local_definition_after_capture_does_not_pull_saved_source_context(monkeypatch) -> None:
     override_db, testing_session = build_chat_db_override()
     app.dependency_overrides[get_db] = override_db
@@ -1740,6 +1788,58 @@ def test_casual_save_that_captures_previous_assistant_response() -> None:
         app.dependency_overrides.clear()
 
 
+def test_hold_onto_that_captures_previous_assistant_response() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_memory_extractor] = lambda: FakeExtractor()
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+    app.dependency_overrides[get_memory_relation_detector] = lambda: FakeRelationDetector()
+
+    db = testing_session()
+    conversation = Conversation(user_id="test-user", title="Founder sales")
+    db.add(conversation)
+    db.flush()
+    db.add(
+        ChatMessage(
+            conversation_id=conversation.id,
+            user_id="test-user",
+            role="assistant",
+            content=(
+                "Founder-led sales works because every objection becomes product learning, "
+                "positioning feedback, or a sharper customer definition."
+            ),
+        )
+    )
+    conversation_id = conversation.id
+    db.commit()
+    db.close()
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "can you hold onto that?", "conversation_id": conversation_id, "history": []},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "capture"
+        assert payload["saved"] is True
+
+        db = testing_session()
+        source = db.scalar(select(Source))
+        assert source is not None
+        assert source.raw_text is not None
+        assert "Founder-led sales works" in source.raw_text
+        assert "hold onto that" not in source.raw_text
+        saved_memory = db.scalar(select(Memory))
+        assert saved_memory is not None
+        assert "intends to save" not in saved_memory.content.lower()
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_save_this_after_greeting_does_not_capture_noise() -> None:
     override_db, testing_session = build_chat_db_override()
     app.dependency_overrides[get_db] = override_db
@@ -1937,6 +2037,57 @@ def test_link_above_question_uses_latest_reference_not_older_link_reason(monkeyp
         app.dependency_overrides.clear()
 
 
+def test_this_one_question_uses_newest_reference_not_older_context(monkeypatch) -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter("capture")
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+
+    stub_url_enrichment_job(monkeypatch)
+
+    try:
+        client = TestClient(app)
+        first_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": (
+                    "this video will be useful during my yc application "
+                    "https://youtube.com/shorts/ythRYUxLEks?si=test"
+                ),
+                "history": [],
+            },
+        )
+        assert first_response.status_code == 200
+        conversation_id = first_response.json()["conversation_id"]
+
+        second_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "https://youtu.be/iEFSQctQPjI?si=test",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+        assert second_response.status_code == 200
+
+        question_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "what's this one about?",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+
+        assert question_response.status_code == 200
+        payload = question_response.json()
+        assert payload["action"] == "conversation"
+        assert "https://youtu.be/iEFSQctQPjI?si=test" in payload["message"]
+        assert "yc application" not in payload["message"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_whats_the_above_about_resolves_to_latest_capture(monkeypatch) -> None:
     """Deictic questions like 'whats the above about' must resolve to the most
     recent capture in the conversation, never fall through to a broad memory
@@ -2103,6 +2254,19 @@ def test_recent_link_question_uses_extracted_source_memories() -> None:
         assert "Founder-led sales lesson" in payload["message"]
         assert "customer objections shape the product" in payload["message"]
         assert "do not know what is inside" not in payload["message"]
+
+        followup_response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "what did you get from it?",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+        assert followup_response.status_code == 200
+        followup_payload = followup_response.json()
+        assert followup_payload["action"] == "conversation"
+        assert "customer objections shape the product" in followup_payload["message"]
     finally:
         app.dependency_overrides.clear()
 
