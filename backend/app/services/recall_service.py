@@ -86,7 +86,7 @@ def get_due_recalls(
             memory_type=memory.memory_type,
             epistemic_label=memory.epistemic_label,
             content=memory.content,
-            summary=memory.summary,
+            summary=_build_recall_summary(memory=memory, source=source),
             confidence=memory.confidence,
             confidence_reason=memory.confidence_reason,
             source_strength=memory.source_strength,
@@ -207,15 +207,31 @@ def _load_due_memories(
     return selected
 
 
-def _clean_title(raw_title: str) -> str:
-    cleaned = urllib.parse.unquote(raw_title).strip()
-    if cleaned.isupper() and len(cleaned) > 4:
-        name, dot, ext = cleaned.rpartition(".")
-        if dot:
-            cleaned = name.title() + dot + ext.lower()
-        else:
-            cleaned = cleaned.title()
-    return cleaned
+def _build_recall_summary(*, memory: Memory, source: Source) -> str:
+    clean_title = _clean_title(source.title) if (source.title and source.title != "Captured text") else None
+
+    # If memory already has a detailed summary (> 60 chars), use it
+    if memory.summary and len(memory.summary.strip()) >= 60:
+        sum_text = memory.summary.strip()
+        if clean_title and not sum_text.startswith("#"):
+            return f"### {clean_title}\n\n{sum_text}"
+        return sum_text
+
+    # If source has original content (e.g., PDF text, article text), format a structured summary
+    if source.original_content and len(source.original_content.strip()) > 30:
+        orig = source.original_content.strip()
+        lines = [l.strip() for l in orig.split("\n") if l.strip() and not l.strip().startswith("http")]
+        bullet_points = lines[:6]
+        formatted_bullets = "\n".join(f"- {b}" if not b.startswith("-") and not b.startswith("#") else b for b in bullet_points)
+        if clean_title:
+            return f"### {clean_title}\n\n{formatted_bullets}"
+        return formatted_bullets
+
+    # Fallback combining memory summary/content and source title
+    main_text = memory.summary or memory.content or "Saved memory item."
+    if clean_title:
+        return f"### {clean_title}\n\n- {main_text}"
+    return main_text
 
 
 def _human_recall_title(*, memory: Memory, source: Source, now: datetime) -> str:
@@ -248,6 +264,8 @@ def _human_recall_prompt(*, memory: Memory, source: Source) -> str:
     snippet = content_text[:90].strip() + "..." if len(content_text) > 90 else content_text.strip()
 
     if source_title:
+        if source.source_type in {"pdf", "file", "url", "youtube", "article"}:
+            return f"You saved '{source_title}'. Would you like to review it?"
         if memory.memory_type == "intention":
             return f"You saved an intention from '{source_title}'. Still something you want to do?"
         if memory.memory_type == "action":
