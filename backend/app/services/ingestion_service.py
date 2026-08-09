@@ -836,6 +836,16 @@ def unsupported_url_reason(url: str) -> str | None:
             "WhatsApp group invite links do not contain readable source text for Crowscap to extract. "
             "Nothing has been saved from this link."
         )
+    if host in {"instagram.com", "www.instagram.com", "instagr.am"}:
+        return (
+            "Instagram posts and reels require login authentication and cannot be directly extracted from the web. "
+            "You can save your own notes or summary about this link instead."
+        )
+    if host in {"facebook.com", "www.facebook.com", "m.facebook.com", "fb.watch", "fb.com"}:
+        return (
+            "Facebook posts require login authentication and cannot be directly extracted from the web. "
+            "You can save your own notes or summary about this link instead."
+        )
     return None
 
 
