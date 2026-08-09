@@ -208,42 +208,57 @@ def _load_due_memories(
 
 
 def _clean_title(raw_title: str) -> str:
+    if not raw_title:
+        return ""
     cleaned = urllib.parse.unquote(raw_title).strip()
+    cleaned = re.sub(r"^#{1,6}\s+", "", cleaned).strip()
+    cleaned = re.sub(r"\s*(#[A-Za-z0-9_]+\s*)+$", "", cleaned).strip()
+
     if cleaned.isupper() and len(cleaned) > 4:
         name, dot, ext = cleaned.rpartition(".")
         if dot:
             cleaned = name.title() + dot + ext.lower()
         else:
             cleaned = cleaned.title()
+
+    if len(cleaned) > 80:
+        cleaned = cleaned[:77].strip() + "..."
+
     return cleaned
 
 
 def _build_recall_summary(*, memory: Memory, source: Source) -> str:
-    clean_title = _clean_title(source.title) if (source.title and source.title != "Captured text") else None
-
-    # If memory already has a detailed summary (> 60 chars), use it
-    if memory.summary and len(memory.summary.strip()) >= 60:
+    # 1. Prefer memory.summary if available
+    if memory.summary and len(memory.summary.strip()) >= 30:
         sum_text = memory.summary.strip()
-        if clean_title and not sum_text.startswith("#"):
-            return f"### {clean_title}\n\n{sum_text}"
+        sum_text = re.sub(r"^#{1,6}\s+.*?\n+", "", sum_text).strip()
         return sum_text
 
-    # If source has raw_text (e.g., PDF text, article text), format a structured summary
+    # 2. Extract clean, meaningful knowledge points from source.raw_text
     raw_text = getattr(source, "raw_text", None)
     if raw_text and len(raw_text.strip()) > 30:
-        orig = raw_text.strip()
-        lines = [l.strip() for l in orig.split("\n") if l.strip() and not l.strip().startswith("http")]
-        bullet_points = lines[:6]
-        formatted_bullets = "\n".join(f"- {b}" if not b.startswith("-") and not b.startswith("#") else b for b in bullet_points)
-        if clean_title:
-            return f"### {clean_title}\n\n{formatted_bullets}"
-        return formatted_bullets
+        lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
+        meaningful_points: list[str] = []
 
-    # Fallback combining memory summary/content and source title
-    main_text = memory.summary or memory.content or "Saved memory item."
-    if clean_title:
-        return f"### {clean_title}\n\n- {main_text}"
-    return main_text
+        for line in lines:
+            if line.startswith("http://") or line.startswith("https://"):
+                continue
+            if len(line) < 6 or re.match(r"^[\d\.\s\-#]+$", line):
+                continue
+            if re.match(r"^(YouTube video title|Channel|URL|Transcript status|Description)\s*:", line, re.I):
+                continue
+            clean_line = re.sub(r"^[-*#\d\.\s]+", "", line).strip()
+            if len(clean_line) >= 15:
+                meaningful_points.append(clean_line)
+            if len(meaningful_points) >= 5:
+                break
+
+        if meaningful_points:
+            return "\n".join(f"- {pt}" for pt in meaningful_points)
+
+    # 3. Fallback to memory.content
+    content_text = memory.content or "Saved memory item."
+    return re.sub(r"^#{1,6}\s+", "", content_text).strip()
 
 
 def _human_recall_title(*, memory: Memory, source: Source, now: datetime) -> str:
