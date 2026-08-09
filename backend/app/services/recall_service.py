@@ -228,9 +228,10 @@ def _build_recall_summary(*, memory: Memory, source: Source) -> str:
             return f"### {clean_title}\n\n{sum_text}"
         return sum_text
 
-    # If source has original content (e.g., PDF text, article text), format a structured summary
-    if source.original_content and len(source.original_content.strip()) > 30:
-        orig = source.original_content.strip()
+    # If source has raw_text (e.g., PDF text, article text), format a structured summary
+    raw_text = getattr(source, "raw_text", None)
+    if raw_text and len(raw_text.strip()) > 30:
+        orig = raw_text.strip()
         lines = [l.strip() for l in orig.split("\n") if l.strip() and not l.strip().startswith("http")]
         bullet_points = lines[:6]
         formatted_bullets = "\n".join(f"- {b}" if not b.startswith("-") and not b.startswith("#") else b for b in bullet_points)
