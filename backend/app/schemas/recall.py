@@ -32,6 +32,9 @@ class DueRecallMemoryResponse(BaseModel):
     recall_score: float
     overdue_seconds: int
     recall_prompt: str
+    human_title: str | None = None
+    human_prompt: str | None = None
+    pinned_from_notification: bool = False
     epistemic_caution: str | None = None
     surface_reason: str | None = None
     relationships: list[RecallRelationshipResponse] = Field(default_factory=list)
@@ -59,7 +62,14 @@ class RecallAnswerRequest(BaseModel):
     self_rating: int | None = Field(default=None, ge=1, le=4)
 
 
-RecallQuickAction = Literal["still_relevant", "applied", "not_now"]
+RecallQuickAction = Literal[
+    "still_relevant",
+    "applied",
+    "not_now",
+    "snooze_7d",
+    "snooze_30d",
+    "ask_agent",
+]
 
 
 class RecallQuickRequest(BaseModel):

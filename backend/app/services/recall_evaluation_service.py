@@ -194,19 +194,63 @@ def quick_recall(
         raise LookupError("Memory not found.")
 
     now = utc_now()
-    if payload.action == "not_now":
-        next_due_at = now + timedelta(days=1)
+    if payload.action in {"not_now", "snooze_7d", "snooze_30d"}:
+        days = 7 if payload.action == "snooze_7d" else (30 if payload.action == "snooze_30d" else 1)
+        next_due_at = now + timedelta(days=days)
         memory.next_review_at = next_due_at
         db.commit()
+        feedback_msg = (
+            "Snoozed for 1 week. Crowscap will bring this back then."
+            if payload.action == "snooze_7d"
+            else (
+                "Snoozed for 1 month. Crowscap will hold onto it until then."
+                if payload.action == "snooze_30d"
+                else "No problem. I moved this out of the way and will bring it back later."
+            )
+        )
         logger.info(
-            "\u2705 recall.quick.deferred memory_id=%s next_due_at=%s",
+            "✅ recall.quick.snoozed memory_id=%s days=%s next_due_at=%s",
             memory.id,
+            days,
             next_due_at.isoformat(),
         )
         return RecallQuickResponse(
             memory_id=memory.id,
             action=payload.action,
-            feedback="No problem. I moved this out of the way and will bring it back later.",
+            feedback=feedback_msg,
+            next_due_at=next_due_at,
+            review_count=memory.review_count,
+            recall_score=round(memory.recall_score, 4),
+        )
+
+    if payload.action == "applied":
+        next_due_at = now + timedelta(days=90)
+        memory.status = "applied"
+        memory.last_reviewed_at = now
+        memory.next_review_at = next_due_at
+        memory.review_count += 1
+        memory.recall_score = max(memory.recall_score, 0.95)
+        db.commit()
+        logger.info("✅ recall.quick.applied memory_id=%s", memory.id)
+        return RecallQuickResponse(
+            memory_id=memory.id,
+            action=payload.action,
+            feedback="Awesome! Marked as applied and completed.",
+            next_due_at=next_due_at,
+            review_count=memory.review_count,
+            recall_score=0.95,
+        )
+
+    if payload.action == "ask_agent":
+        next_due_at = now + timedelta(days=3)
+        memory.last_reviewed_at = now
+        memory.next_review_at = next_due_at
+        db.commit()
+        logger.info("✅ recall.quick.ask_agent memory_id=%s", memory.id)
+        return RecallQuickResponse(
+            memory_id=memory.id,
+            action=payload.action,
+            feedback="Context prepped for chat.",
             next_due_at=next_due_at,
             review_count=memory.review_count,
             recall_score=round(memory.recall_score, 4),

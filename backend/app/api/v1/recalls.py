@@ -31,11 +31,17 @@ logger = get_logger("api.recalls")
 @router.get("/due", response_model=DueRecallsResponse)
 def due_recalls(
     limit: int | None = Query(default=None, ge=1, le=100),
+    target_memory_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_current_user),
 ) -> DueRecallsResponse:
     settings = get_settings()
-    return get_due_recalls(db=db, limit=limit or settings.recall_due_limit, user_id=current_user.id)
+    return get_due_recalls(
+        db=db,
+        limit=limit or settings.recall_due_limit,
+        user_id=current_user.id,
+        target_memory_id=target_memory_id,
+    )
 
 
 @router.post("/reminders/{reminder_id}/complete", response_model=ReminderResponse)

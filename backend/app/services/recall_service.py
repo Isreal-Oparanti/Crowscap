@@ -61,12 +61,19 @@ def get_due_recalls(
     db: Session,
     limit: int,
     user_id: str | None = None,
+    target_memory_id: str | None = None,
 ) -> DueRecallsResponse:
     now = utc_now()
-    logger.info("\U0001f514 recall.due.start limit=%s", limit)
+    logger.info("🔔 recall.due.start limit=%s target=%s", limit, target_memory_id)
 
-    rows = _load_due_memories(db=db, now=now, limit=limit, user_id=user_id)
-    memories = [memory for memory, _source, _reason in rows]
+    rows = _load_due_memories(
+        db=db,
+        now=now,
+        limit=limit,
+        user_id=user_id,
+        target_memory_id=target_memory_id,
+    )
+    memories = [memory for memory, _source, _reason, _pinned in rows]
     relationships = _relationships_for_recall_memories(db=db, memories=memories, user_id=user_id)
     preferences = get_or_create_user_preferences(db=db, user_id=user_id)
 
@@ -92,11 +99,14 @@ def get_due_recalls(
                 relationships=relationships.get(memory.id, []),
                 preferences=preferences,
             ),
+            human_title=_human_recall_title(memory=memory, source=source, now=now),
+            human_prompt=_human_recall_prompt(memory=memory, source=source),
+            pinned_from_notification=pinned,
             epistemic_caution=_epistemic_caution(memory=memory),
             surface_reason=surface_reason,
             relationships=relationships.get(memory.id, []),
         )
-        for memory, source, surface_reason in rows
+        for memory, source, surface_reason, pinned in rows
     ]
 
     due_reminders = _load_due_reminders(db=db, now=now, limit=limit, user_id=user_id)
@@ -132,7 +142,8 @@ def _load_due_memories(
     now: datetime,
     limit: int,
     user_id: str | None,
-) -> list[tuple[Memory, Source, str]]:
+    target_memory_id: str | None = None,
+) -> list[tuple[Memory, Source, str, bool]]:
     pool_limit = max(limit * 6, 60)
     query = (
         select(Memory, Source)
@@ -166,14 +177,72 @@ def _load_due_memories(
         ),
     )
 
-    selected = [(memory, source, reason) for _score, memory, source, reason in scored_rows[:limit]]
+    selected = [(memory, source, reason, False) for _score, memory, source, reason in scored_rows[:limit]]
+
+    if target_memory_id:
+        target_query = (
+            select(Memory, Source)
+            .join(Source, Memory.source_id == Source.id)
+            .where(Memory.id == target_memory_id)
+            .where(Memory.status == "active")
+        )
+        if user_id is not None:
+            target_query = target_query.where(Memory.user_id == user_id)
+        target_row = db.execute(target_query).first()
+        if target_row:
+            t_mem, t_src = target_row
+            selected = [
+                (m, s, r, p) for m, s, r, p in selected if m.id != t_mem.id
+            ]
+            selected.insert(0, (t_mem, t_src, "From Today's Nudge", True))
+
     logger.info(
-        "\U0001f9ed recall.selection ranked_pool=%s selected=%s recent_terms=%s",
+        "🧭 recall.selection ranked_pool=%s selected=%s recent_terms=%s target_pinned=%s",
         len(rows),
         len(selected),
         len(recent_context),
+        bool(target_memory_id),
     )
     return selected
+
+
+def _human_recall_title(*, memory: Memory, source: Source, now: datetime) -> str:
+    created_at = _aware(memory.created_at or now)
+    days_ago = max(0, (now - created_at).days)
+    time_str = (
+        "Today"
+        if days_ago == 0
+        else ("Yesterday" if days_ago == 1 else f"{days_ago} days ago")
+    )
+    source_kind = (
+        "YouTube"
+        if source.source_type == "youtube"
+        else (
+            "PDF"
+            if source.source_type == "pdf"
+            else ("Article" if source.source_type == "article" else "Saved note")
+        )
+    )
+    if source.title and source.title != "Captured text":
+        title_snippet = (
+            source.title[:32] + "..." if len(source.title) > 32 else source.title
+        )
+        return f"{time_str} · {title_snippet}"
+    return f"{time_str} · {source_kind}"
+
+
+def _human_recall_prompt(*, memory: Memory, source: Source) -> str:
+    content_text = memory.summary or memory.content
+    snippet = (
+        content_text[:110] + "..." if len(content_text) > 110 else content_text
+    )
+    if memory.memory_type == "intention":
+        return f'You saved an intention: "{snippet}". Still something you want to do?'
+    if memory.memory_type == "question":
+        return f'You saved a question: "{snippet}". Still unresolved?'
+    if memory.memory_type == "action":
+        return f'You noted an action item: "{snippet}". Have you tried or applied this?'
+    return f'You saved: "{snippet}". Do you still want to revisit this?'
 
 
 def _recent_activity_context(*, db: Session, user_id: str | None) -> set[str]:
