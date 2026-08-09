@@ -207,6 +207,17 @@ def _load_due_memories(
     return selected
 
 
+def _clean_title(raw_title: str) -> str:
+    cleaned = urllib.parse.unquote(raw_title).strip()
+    if cleaned.isupper() and len(cleaned) > 4:
+        name, dot, ext = cleaned.rpartition(".")
+        if dot:
+            cleaned = name.title() + dot + ext.lower()
+        else:
+            cleaned = cleaned.title()
+    return cleaned
+
+
 def _build_recall_summary(*, memory: Memory, source: Source) -> str:
     clean_title = _clean_title(source.title) if (source.title and source.title != "Captured text") else None
 
