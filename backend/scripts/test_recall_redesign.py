@@ -1,5 +1,9 @@
 import sys
 import os
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "app", ".env"))
 sys.path.insert(0, os.path.abspath("backend"))
 
 from app.db.session import SessionLocal
