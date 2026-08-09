@@ -185,7 +185,7 @@ export default function SignInScreen() {
       });
       await finishSignIn(session);
     } catch (err) {
-      setErrorMessage(readableAuthError(err));
+      setEmailError(readableAuthError(err));
     } finally {
       setBusy(null);
     }
@@ -196,7 +196,7 @@ export default function SignInScreen() {
     setCode("");
     setCodeSent(false);
     setToast(null);
-    setErrorMessage(null);
+    setEmailError(null);
   }
 
   const isSignup = mode === "signup";

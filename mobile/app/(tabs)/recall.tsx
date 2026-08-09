@@ -197,20 +197,8 @@ export default function RecallScreen() {
           ) : (
             <MemoryDetail
               memory={activeItem.memory}
-              answering={answering}
-              evaluation={evaluation}
-              answer={writtenAnswer}
-              onChangeAnswer={setWrittenAnswer}
-              onQuickAnswer={(answer, rating) =>
-                submitQuickRecall(activeItem.memory, answer, rating)
-              }
-              onSubmit={() =>
-                submitQuickRecall(
-                  activeItem.memory,
-                  writtenAnswer.trim() || "I reviewed this memory.",
-                  4
-                )
-              }
+              working={reminderWorking}
+              onQuickAction={(action) => handleQuickAction(activeItem.memory, action)}
             />
           )}
         </ScrollView>
@@ -416,7 +404,39 @@ function MemoryDetail({
       </View>
 
       <View style={styles.checkBox}>
-      ) : null}
+        <Text style={styles.checkLabel}>QUICK ACTIONS</Text>
+        <View style={styles.quickGrid3}>
+          <Pressable
+            style={styles.quickActionButton}
+            disabled={working}
+            onPress={() => onQuickAction("snooze_7d")}
+          >
+            <Icons.Clock3 size={18} color="#4b5563" />
+            <Text style={styles.quickActionTitle}>Snooze</Text>
+            <Text style={styles.quickActionSub}>1 week</Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.quickActionButton, styles.quickActionUsed]}
+            disabled={working}
+            onPress={() => onQuickAction("applied")}
+          >
+            <Icons.CheckCircle size={18} color="#166534" />
+            <Text style={[styles.quickActionTitle, { color: "#166534" }]}>Used it</Text>
+            <Text style={styles.quickActionSub}>Completed</Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.quickActionButton, styles.quickActionChat]}
+            disabled={working}
+            onPress={() => onQuickAction("ask_agent")}
+          >
+            <Icons.MessageCircle size={18} color="#1e40af" />
+            <Text style={[styles.quickActionTitle, { color: "#1e40af" }]}>Ask Agent</Text>
+            <Text style={styles.quickActionSub}>Chat context</Text>
+          </Pressable>
+        </View>
+      </View>
     </View>
   );
 }
