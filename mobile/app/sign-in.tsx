@@ -51,7 +51,8 @@ export default function SignInScreen() {
   const [busy, setBusy] = useState<BusyState>(null);
   const [resendIn, setResendIn] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [googleError, setGoogleError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!resendIn) return;
@@ -77,16 +78,17 @@ export default function SignInScreen() {
   );
 
   async function handleGoogleSignIn() {
-    setErrorMessage(null);
+    setGoogleError(null);
+    setEmailError(null);
     if (IS_EXPO_GO) {
-      setErrorMessage(
+      setGoogleError(
         "Expo Go cannot complete Google sign-in securely. Please use email code in Expo Go, or use a development build."
       );
       return;
     }
 
     if (!WEB_CLIENT_ID || (Platform.OS === "ios" && !IOS_CLIENT_ID)) {
-      setErrorMessage(
+      setGoogleError(
         "Google sign-in is not configured. Add the Web OAuth client ID to the mobile build environment."
       );
       return;
@@ -131,16 +133,17 @@ export default function SignInScreen() {
         })
       );
     } catch (err) {
-      setErrorMessage(readableGoogleNativeError(err));
+      setGoogleError(readableGoogleNativeError(err));
       setBusy(null);
     }
   }
 
   async function requestEmailCode(kind: BusyState = "email-start") {
-    setErrorMessage(null);
+    setGoogleError(null);
+    setEmailError(null);
     const normalized = email.trim().toLowerCase();
     if (!normalized || !normalized.includes("@")) {
-      setErrorMessage("Please enter a valid email address.");
+      setEmailError("Please enter a valid email address.");
       return;
     }
 
@@ -157,7 +160,7 @@ export default function SignInScreen() {
       setResendIn(result.resend_after_seconds);
       setToast(`We sent a code to ${result.email}.`);
     } catch (err) {
-      setErrorMessage(readableAuthError(err));
+      setEmailError(readableAuthError(err));
     } finally {
       setBusy(null);
     }
@@ -165,10 +168,11 @@ export default function SignInScreen() {
   }
 
   async function verifyEmailCode() {
-    setErrorMessage(null);
+    setGoogleError(null);
+    setEmailError(null);
     const cleanCode = code.replace(/\D/g, "");
     if (cleanCode.length !== 6) {
-      setErrorMessage("Invalid verification code. Please try again.");
+      setEmailError("Invalid verification code. Please try again.");
       return;
     }
 
@@ -244,6 +248,13 @@ export default function SignInScreen() {
           )}
         </Pressable>
 
+        {googleError ? (
+          <View style={styles.googleErrorBanner}>
+            <Icons.AlertCircle size={14} color="#f87171" />
+            <Text style={styles.googleErrorText}>{googleError}</Text>
+          </View>
+        ) : null}
+
         <View style={styles.dividerRow}>
           <View style={styles.divider} />
           <Text style={styles.dividerText}>OR</Text>
@@ -255,7 +266,7 @@ export default function SignInScreen() {
           <View
             style={[
               styles.inputWrap,
-              errorMessage && !codeSent ? styles.inputErrorBorder : null,
+              emailError && !codeSent ? styles.inputErrorBorder : null,
             ]}
           >
             <TextInput
@@ -263,14 +274,13 @@ export default function SignInScreen() {
               value={email}
               onChangeText={(value) => {
                 setEmail(value);
-                setErrorMessage(null);
+                setEmailError(null);
                 if (codeSent) {
                   setCode("");
                   setCodeSent(false);
                 }
               }}
               placeholder="Enter your email address"
-
               placeholderTextColor="#5a5e66"
               keyboardType="email-address"
               autoCapitalize="none"
@@ -287,7 +297,7 @@ export default function SignInScreen() {
                   setEmail("");
                   setCode("");
                   setCodeSent(false);
-                  setErrorMessage(null);
+                  setEmailError(null);
                 }}
                 hitSlop={8}
               >
@@ -295,8 +305,8 @@ export default function SignInScreen() {
               </Pressable>
             ) : null}
           </View>
-          {errorMessage && !codeSent ? (
-            <Text style={styles.errorText}>{errorMessage}</Text>
+          {emailError && !codeSent ? (
+            <Text style={styles.errorText}>{emailError}</Text>
           ) : null}
         </View>
 
@@ -306,7 +316,7 @@ export default function SignInScreen() {
             <View
               style={[
                 styles.inputWrap,
-                errorMessage ? styles.inputErrorBorder : null,
+                emailError ? styles.inputErrorBorder : null,
               ]}
             >
               <TextInput
@@ -314,7 +324,7 @@ export default function SignInScreen() {
                 value={code}
                 onChangeText={(value) => {
                   setCode(value.replace(/\D/g, "").slice(0, 6));
-                  setErrorMessage(null);
+                  setEmailError(null);
                 }}
                 placeholder="676767"
                 placeholderTextColor="#5a5e66"
@@ -325,8 +335,8 @@ export default function SignInScreen() {
                 onSubmitEditing={verifyEmailCode}
               />
             </View>
-            {errorMessage ? (
-              <Text style={styles.errorText}>{errorMessage}</Text>
+            {emailError ? (
+              <Text style={styles.errorText}>{emailError}</Text>
             ) : (
               <Text style={styles.helper}>We sent a 6-digit code to your inbox</Text>
             )}
@@ -515,6 +525,25 @@ const styles = StyleSheet.create({
   },
   googleSpacer: {
     width: 18,
+  },
+  googleErrorBanner: {
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: "#2a1515",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#4a1e1e",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  googleErrorText: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: fontFamily.medium,
+    color: "#f87171",
+    lineHeight: 17,
   },
   pressed: {
     opacity: 0.8,
