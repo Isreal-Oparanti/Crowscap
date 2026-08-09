@@ -19,6 +19,8 @@ class DueRecallMemoryResponse(BaseModel):
     memory_id: str
     source_id: str
     source_title: str | None
+    source_type: str | None = None
+    created_at: datetime | None = None
     memory_type: MemoryType
     epistemic_label: EpistemicLabel | None
     content: str

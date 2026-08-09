@@ -83,6 +83,8 @@ def get_due_recalls(
             memory_id=memory.id,
             source_id=source.id,
             source_title=source.title,
+            source_type=source.source_type,
+            created_at=_aware(memory.created_at) if memory.created_at else None,
             memory_type=memory.memory_type,
             epistemic_label=memory.epistemic_label,
             content=memory.content,
@@ -171,14 +173,15 @@ def _load_due_memories(
         )
         for memory, source in rows
     ]
-    scored_rows.sort(
-        key=lambda row: (
-            -row[0],
-            _aware(row[1].next_review_at).timestamp() if row[1].next_review_at else 0,
-        ),
-    )
-
-    selected = [(memory, source, reason, False) for _score, memory, source, reason in scored_rows[:limit]]
+    seen_sources: set[str] = set()
+    selected: list[tuple[Memory, Source, str, bool]] = []
+    for _score, memory, source, reason in scored_rows:
+        if source.id in seen_sources:
+            continue
+        seen_sources.add(source.id)
+        selected.append((memory, source, reason, False))
+        if len(selected) >= limit:
+            break
 
     if target_memory_id:
         target_query = (
@@ -233,19 +236,26 @@ def _build_recall_summary(*, memory: Memory, source: Source) -> str:
 
     parts: list[str] = []
 
-    # 1. Source Title & Link
+    # 1. Source Title
     if clean_title:
         parts.append(f"**Source**: {clean_title}")
+
+    # 2. Clean URL Link (printed ONCE at the top)
     if url and not url.startswith("file://"):
         parts.append(f"**Link**: {url}")
 
-    # 2. User's Note / Reason if distinct and short (< 150 chars)
+    # 3. User's Note / Reason (Cleaned of embedded URLs & boilerplate)
     user_note = memory.content.strip() if memory.content else ""
-    if user_note and user_note != memory.summary and len(user_note) < 150:
-        clean_note = re.sub(r"^#{1,6}\s+", "", user_note).strip()
-        parts.append(f"**Why you saved this**: {clean_note}")
+    clean_note = ""
+    if user_note and user_note != memory.summary and len(user_note) < 200:
+        clean_note = re.sub(r"^Saved reference link for:\s*", "", user_note, flags=re.I)
+        clean_note = re.sub(r"Link:\s*https?://[^\s]+", "", clean_note, flags=re.I)
+        clean_note = re.sub(r"https?://[^\s]+", "", clean_note).strip()
+        clean_note = re.sub(r"^#{1,6}\s+", "", clean_note).strip()
+        if clean_note and len(clean_note) > 3:
+            parts.append(f"**Why you saved this**: {clean_note}")
 
-    # 3. Content / Key Insights Summary
+    # 4. Key Summary / Extracted Points
     summary_text: str | None = None
     if memory.summary and len(memory.summary.strip()) >= 25:
         summary_text = re.sub(r"^#{1,6}\s+.*?\n+", "", memory.summary.strip()).strip()
@@ -256,14 +266,16 @@ def _build_recall_summary(*, memory: Memory, source: Source) -> str:
             lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
             meaningful_points: list[str] = []
             for line in lines:
-                if line.startswith("http://") or line.startswith("https://"):
+                if line.startswith("http://") or line.startswith("https://") or "Reference link:" in line:
+                    continue
+                if clean_note and clean_note.lower() in line.lower():
                     continue
                 if len(line) < 6 or re.match(r"^[\d\.\s\-#]+$", line):
                     continue
-                if re.match(r"^(YouTube video title|Channel|URL|Transcript status|Description)\s*:", line, re.I):
+                if re.match(r"^(YouTube video title|Channel|URL|Transcript status|Description|Why it matters)\s*:", line, re.I):
                     continue
                 clean_line = re.sub(r"^[-*#\d\.\s]+", "", line).strip()
-                if len(clean_line) >= 15:
+                if len(clean_line) >= 12:
                     meaningful_points.append(clean_line)
                 if len(meaningful_points) >= 5:
                     break
@@ -271,9 +283,21 @@ def _build_recall_summary(*, memory: Memory, source: Source) -> str:
                 summary_text = "\n".join(f"- {pt}" for pt in meaningful_points)
 
     if summary_text:
-        parts.append(f"**Key Summary**:\n{summary_text}")
-    elif user_note and len(user_note) >= 150:
-        parts.append(f"**Summary**:\n{user_note}")
+        cleaned_summary_lines = []
+        for l in summary_text.split("\n"):
+            line_str = l.strip()
+            if not line_str or line_str == "-":
+                continue
+            if "Reference link:" in line_str or "http://" in line_str or "https://" in line_str:
+                continue
+            if clean_note and clean_note.lower() in line_str.lower():
+                continue
+            if "WHY IT MATTERS" in line_str.upper() and clean_note:
+                continue
+            cleaned_summary_lines.append(l)
+
+        if cleaned_summary_lines:
+            parts.append(f"**Key Summary**:\n" + "\n".join(cleaned_summary_lines))
 
     if parts:
         return "\n\n".join(parts)
@@ -282,27 +306,14 @@ def _build_recall_summary(*, memory: Memory, source: Source) -> str:
 
 
 def _human_recall_title(*, memory: Memory, source: Source, now: datetime) -> str:
-    created_at = _aware(memory.created_at or now)
-    days_ago = max(0, (now - created_at).days)
-    time_str = (
-        "Today"
-        if days_ago == 0
-        else ("Yesterday" if days_ago == 1 else f"{days_ago} days ago")
-    )
     if source.title and source.title != "Captured text":
-        clean_name = _clean_title(source.title)
-        title_snippet = clean_name[:32] + "..." if len(clean_name) > 32 else clean_name
-        return f"{time_str} · {title_snippet}"
-    source_kind = (
-        "YouTube"
-        if source.source_type == "youtube"
-        else (
-            "PDF"
-            if source.source_type == "pdf"
-            else ("Article" if source.source_type == "article" else "Saved note")
-        )
-    )
-    return f"{time_str} · {source_kind}"
+        return _clean_title(source.title)
+    if memory.human_title:
+        return _clean_title(memory.human_title)
+    if memory.summary:
+        first_line = memory.summary.strip().split("\n")[0]
+        return _clean_title(first_line)
+    return memory.content[:50].strip() if memory.content else "Saved memory"
 
 
 def _human_recall_prompt(*, memory: Memory, source: Source) -> str:
