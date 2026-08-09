@@ -2381,17 +2381,17 @@ def _process_self_question(message: str) -> ChatResponse:
         next_step = "Save something, search your memory, or ask me to audit an idea."
     elif any(marker in normalized for marker in ("limit", "can't", "cannot", "not do", "what can't")):
         answer = (
-            "Crowscap helps you reason with your saved knowledge; it does not replace your judgment. "
+            "I help you reason with your saved knowledge; I do not replace your judgment. "
             "Public evidence in audits is treated as source leads, not final truth, and sensitive decisions "
-            "still need context from the user.\n\n"
+            "still need context from you.\n\n"
             "Current limits: reminders surface inside the app, native push notifications are not complete, "
             "passive capture from other apps is not built, and social-platform integrations are still future work."
         )
         next_step = "Tell me what you want to save, search, revisit, or question."
     else:
         answer = (
-            "Crowscap is your private memory intelligence for learning.\n\n"
-            "It helps you keep important ideas, sources, reminders, and decisions, then brings them back "
+            "I'm Crowscap, your private memory intelligence for learning.\n\n"
+            "I help you keep important ideas, sources, reminders, and decisions, then bring them back "
             "when they can help you think or act."
         )
         next_step = "Send me something worth keeping, or ask what you already know."
