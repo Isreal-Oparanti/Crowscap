@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import urllib.parse
 from datetime import datetime, timezone
 
 from sqlalchemy import or_, select
@@ -206,6 +207,17 @@ def _load_due_memories(
     return selected
 
 
+def _clean_title(raw_title: str) -> str:
+    cleaned = urllib.parse.unquote(raw_title).strip()
+    if cleaned.isupper() and len(cleaned) > 4:
+        name, dot, ext = cleaned.rpartition(".")
+        if dot:
+            cleaned = name.title() + dot + ext.lower()
+        else:
+            cleaned = cleaned.title()
+    return cleaned
+
+
 def _human_recall_title(*, memory: Memory, source: Source, now: datetime) -> str:
     created_at = _aware(memory.created_at or now)
     days_ago = max(0, (now - created_at).days)
@@ -214,6 +226,10 @@ def _human_recall_title(*, memory: Memory, source: Source, now: datetime) -> str
         if days_ago == 0
         else ("Yesterday" if days_ago == 1 else f"{days_ago} days ago")
     )
+    if source.title and source.title != "Captured text":
+        clean_name = _clean_title(source.title)
+        title_snippet = clean_name[:32] + "..." if len(clean_name) > 32 else clean_name
+        return f"{time_str} · {title_snippet}"
     source_kind = (
         "YouTube"
         if source.source_type == "youtube"
@@ -223,26 +239,30 @@ def _human_recall_title(*, memory: Memory, source: Source, now: datetime) -> str
             else ("Article" if source.source_type == "article" else "Saved note")
         )
     )
-    if source.title and source.title != "Captured text":
-        title_snippet = (
-            source.title[:32] + "..." if len(source.title) > 32 else source.title
-        )
-        return f"{time_str} · {title_snippet}"
     return f"{time_str} · {source_kind}"
 
 
 def _human_recall_prompt(*, memory: Memory, source: Source) -> str:
+    source_title = _clean_title(source.title) if (source.title and source.title != "Captured text") else None
     content_text = memory.summary or memory.content
-    snippet = (
-        content_text[:110] + "..." if len(content_text) > 110 else content_text
-    )
+    snippet = content_text[:90].strip() + "..." if len(content_text) > 90 else content_text.strip()
+
+    if source_title:
+        if memory.memory_type == "intention":
+            return f"You saved an intention from '{source_title}'. Still something you want to do?"
+        if memory.memory_type == "action":
+            return f"You saved an action item from '{source_title}'. Would you like to review it?"
+        if memory.memory_type == "question":
+            return f"You saved a question from '{source_title}'. Still unresolved?"
+        return f"You saved '{source_title}'. Would you like to review it?"
+
     if memory.memory_type == "intention":
-        return f'You saved an intention: "{snippet}". Still something you want to do?'
-    if memory.memory_type == "question":
-        return f'You saved a question: "{snippet}". Still unresolved?'
+        return f"You saved an intention: '{snippet}'. Still something you want to do?"
     if memory.memory_type == "action":
-        return f'You noted an action item: "{snippet}". Have you tried or applied this?'
-    return f'You saved: "{snippet}". Do you still want to revisit this?'
+        return f"You saved an action item: '{snippet}'. Have you tried this out?"
+    if memory.memory_type == "question":
+        return f"You saved a question: '{snippet}'. Still unresolved?"
+    return f"You saved: '{snippet}'. Do you still want to revisit this?"
 
 
 def _recent_activity_context(*, db: Session, user_id: str | None) -> set[str]:
