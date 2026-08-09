@@ -125,10 +125,7 @@ def create_app() -> FastAPI:
             return JSONResponse(
                 status_code=503,
                 content={
-                    "detail": (
-                        "Crowscap could not reach one of its services right now. "
-                        "Please check your internet connection and try again."
-                    ),
+                    "detail": "Network Disconnect. Please try again.",
                     "error_code": "service_unavailable",
                     "retryable": True,
                 },
@@ -136,10 +133,23 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=500,
             content={
-                "detail": "Crowscap hit an unexpected internal error. Please try again.",
+                "detail": "Network Disconnect. Please try again.",
                 "error_code": "internal_error",
                 "retryable": False,
             },
+        )
+
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        detail = str(exc.detail) if exc.detail else "Network Disconnect. Please try again."
+        if exc.status_code in (404, 500, 502, 503, 504):
+            detail = "Network Disconnect. Please try again."
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": detail},
+            headers=getattr(exc, "headers", None),
         )
 
     @app.get("/", tags=["root"])
