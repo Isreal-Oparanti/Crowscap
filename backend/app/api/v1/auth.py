@@ -516,6 +516,9 @@ def _verify_google_id_token(id_token: str) -> dict[str, Any]:
             settings.google_client_id,
             settings.google_mobile_ios_client_id,
             settings.google_mobile_android_client_id,
+            "1021218071446-g3fvih6bt05gbtaiv9djmkgj15facu8d.apps.googleusercontent.com",
+            "1021218071446-4vj6ah6ifssvm4gq7rlpoapc6covk9hk.apps.googleusercontent.com",
+            "1021218071446-o9qcbq9gv0a1bc3v63v7q7404amgk3ju.apps.googleusercontent.com",
         )
         if value and value.strip()
     }
