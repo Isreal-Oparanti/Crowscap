@@ -4297,15 +4297,17 @@ def _create_reference_link_capture(
     if clean_intent:
         raw_text += f"\nWhy it matters: {clean_intent}"
 
-    memory_parts = ["Saved reference link"]
-    if clean_intent:
-        memory_parts.append(f"for: {clean_intent}")
+    memory_parts = []
     if known_title:
-        memory_parts.append(f"\nTitle: {known_title}")
+        memory_parts.append(f"Saved reference for: {known_title}")
+    else:
+        memory_parts.append("Saved reference link")
+    if clean_intent:
+        memory_parts.append(f"Reason: {clean_intent}")
     if known_description:
-        memory_parts.append(f"\nAbout: {_snippet(known_description, max_chars=300)}")
-    memory_parts.append(f"\nLink: {url}")
-    memory_content = " ".join(memory_parts).replace(" \n", "\n")
+        memory_parts.append(f"About: {_snippet(known_description, max_chars=300)}")
+    memory_parts.append(f"URL: {url}")
+    memory_content = "\n".join(memory_parts)
     embedding = embedder.embed_texts([memory_content])[0]
     content_hash = hashlib.sha256(f"{user_id or 'anon'}:{url}:{clean_intent or ''}".encode("utf-8")).hexdigest()
     reference_metadata.update(

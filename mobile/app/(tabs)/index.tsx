@@ -851,19 +851,8 @@ function CaptureReceipt({ data }: { data: CaptureResponse }) {
 
                 {/* Enriched memories section — matches web "Details found" green box */}
                 {enrichedCapture ? (
-                  <View style={styles.enrichedSection}>
-                    <Text style={styles.enrichedSectionLabel}>
-                      {enrichmentMode === "metadata_only"
-                        ? "VIDEO DETAILS SAVED"
-                        : "DETAILS FOUND"}
-                    </Text>
-                    <Text style={styles.enrichedSectionSub}>
-                      {enrichmentMode === "metadata_only"
-                        ? "Crowscap saved the reliable video details. A full transcript was not available."
-                        : "Crowscap finished reading the link and added these memory cards."}
-                    </Text>
-                    <View style={styles.enrichedMemoryList}>
-                      {enrichedCapture.memories.map((mem) => (
+                  <View style={styles.enrichedMemoryList}>
+                    {enrichedCapture.memories.map((mem) => (
                         <Pressable
                           key={mem.id}
                           style={styles.receiptMemoryCard}
@@ -891,7 +880,6 @@ function CaptureReceipt({ data }: { data: CaptureResponse }) {
                         </Pressable>
                       ))}
                     </View>
-                  </View>
                 ) : null}
               </View>
             ) : (

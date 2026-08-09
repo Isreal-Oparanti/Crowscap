@@ -42,9 +42,11 @@ export function MemoryCardView({
             <span className="text-[10px] font-semibold text-[#85888b]">
               {memory.confidence} confidence
             </span>
-            <span className="rounded bg-[#f1f2f3] px-1.5 py-0.5 text-[9px] font-extrabold uppercase text-[#727679]">
-              {sourceType}
-            </span>
+            {sourceType.toLowerCase() !== memory.memory_type.toLowerCase() ? (
+              <span className="rounded bg-[#f1f2f3] px-1.5 py-0.5 text-[9px] font-extrabold uppercase text-[#727679]">
+                {sourceType}
+              </span>
+            ) : null}
             {score !== null ? (
               <span className="ml-auto text-[10px] font-bold text-[#2d7058]">
                 {Math.round(score * 100)}% match

@@ -775,22 +775,10 @@ function MemoryReceipt({ data }: { data: CaptureResponse }) {
                 <MemoryCardView key={memory.id} memory={memory} compact />
               ))}
               {enrichedCapture ? (
-                <div className="mt-2 rounded-lg border border-[#d7e5dc] bg-[#f1f7f4] p-3">
-                  <p className="text-[9px] font-extrabold uppercase text-[#2d7058]">
-                    {enrichmentMode === "metadata_only"
-                      ? "Video details saved"
-                      : "Details found"}
-                  </p>
-                  <p className="mt-1 text-[11px] font-semibold leading-relaxed text-[#49685b]">
-                    {enrichmentMode === "metadata_only"
-                      ? "Crowscap saved the reliable video details and your reason. A full transcript was not available."
-                      : "Crowscap finished reading the link and added these memory cards."}
-                  </p>
-                  <div className="mt-3 grid gap-2">
-                    {enrichedCapture.memories.map((memory) => (
-                      <MemoryCardView key={memory.id} memory={memory} compact />
-                    ))}
-                  </div>
+                <div className="mt-1 grid gap-2">
+                  {enrichedCapture.memories.map((memory) => (
+                    <MemoryCardView key={memory.id} memory={memory} compact />
+                  ))}
                 </div>
               ) : null}
             </div>
