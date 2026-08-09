@@ -24,7 +24,7 @@ _SECRET_RE = re.compile(
 _PRIVATE_KEY_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 _FINANCIAL_ACCOUNT_RE = re.compile(
     r"(?im)\b(bank account|account number|routing number|iban|swift|sort code)\b"
-    r"\s*[:#-]?\s*[A-Z0-9 -]{6,}"
+    r"\s*[:#-]?\s*\d{6,}"
 )
 _PERSONAL_MEDICAL_RE = re.compile(
     r"(?im)\b("
@@ -50,7 +50,7 @@ _GOV_ID_RE = re.compile(
 _ADDRESS_LABEL_RE = re.compile(r"(?im)\b(home address|residential address)\b\s*[:#-]?\s*[^\n]{8,}")
 
 
-def guard_capture_content(text: str) -> CaptureSafetyResult:
+def guard_capture_content(text: str, *, force_save: bool = False) -> CaptureSafetyResult:
     """Reject secrets/high-risk private data and mask contact identifiers.
 
     This is intentionally deterministic. It is not a full moderation system,
@@ -64,22 +64,23 @@ def guard_capture_content(text: str) -> CaptureSafetyResult:
             "I did not save it. Remove the secret first, then try again."
         )
 
-    if _contains_credit_card_number(text) or _FINANCIAL_ACCOUNT_RE.search(text):
-        raise CaptureSafetyError(
-            "This looks like it contains credit card or financial account details. "
-            "I did not save it because Crowscap is for ideas and learning, not sensitive account data."
-        )
-
-    if _PERSONAL_MEDICAL_RE.search(text):
-        raise CaptureSafetyError(
-            "This looks like it contains private patient or medical-record details. "
-            "I did not save it. Public health research is fine, but private medical identifiers should stay out of memory."
-        )
-
     if _HARMFUL_INSTRUCTION_RE.search(text):
         raise CaptureSafetyError(
             "This looks like operational harmful or illegal material. I did not save it."
         )
+
+    if not force_save:
+        if _contains_credit_card_number(text) or _FINANCIAL_ACCOUNT_RE.search(text):
+            raise CaptureSafetyError(
+                "This looks like it contains credit card or financial account details. "
+                "I did not save it because Crowscap is for ideas and learning, not sensitive account data."
+            )
+
+        if _PERSONAL_MEDICAL_RE.search(text):
+            raise CaptureSafetyError(
+                "This looks like it contains private patient or medical-record details. "
+                "I did not save it. Public health research is fine, but private medical identifiers should stay out of memory."
+            )
 
     return _mask_personal_identifiers(text)
 
