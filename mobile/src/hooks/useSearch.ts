@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { searchMemories } from "@/api/search";
 import { deleteMemory, getRecentMemories } from "@/api/memories";
 import type { SearchResponse, RecentMemory } from "@/types/api";
@@ -27,6 +27,13 @@ export function useSearch() {
     } finally {
       setLoadingRecent(false);
     }
+  }, []);
+
+  const fetchRecentRef = useRef(fetchRecent);
+  fetchRecentRef.current = fetchRecent;
+
+  const refetchRecent = useCallback(() => {
+    fetchRecentRef.current(0);
   }, []);
 
   useEffect(() => {
@@ -90,7 +97,7 @@ export function useSearch() {
     executeSearch,
     clearSearch,
     loadMoreRecent: () => fetchRecent(recentOffset),
-    refetchRecent: () => fetchRecent(0),
+    refetchRecent,
     handleDelete,
   };
 }

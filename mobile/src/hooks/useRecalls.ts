@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getDueRecalls, answerRecall } from "@/api/recalls";
 import type { RecallDueResponse, RecallMemory, RecallAnswerResponse } from "@/types/api";
 import { scheduleOrUpdateLocalReminder } from "@/utils/notifications";
@@ -33,6 +33,13 @@ export function useRecalls(targetMemoryId?: string) {
       setLoading(false);
     }
   }, [targetMemoryId]);
+
+  const fetchDueRef = useRef(fetchDue);
+  fetchDueRef.current = fetchDue;
+
+  const refresh = useCallback(() => {
+    fetchDueRef.current();
+  }, []);
 
   useEffect(() => {
     fetchDue();
