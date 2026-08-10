@@ -129,8 +129,8 @@ export function InstallBanner() {
 
   if (!canInstall && !manualOnly) {
     return (
-      <div className="fixed bottom-4 left-4 right-4 z-[120] mx-auto max-w-xl md:bottom-6">
-        <div className="flex items-center gap-3 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-[0_12px_34px_rgba(17,17,17,0.18)]">
+      <div className="fixed bottom-4 left-4 right-4 z-[120] mx-auto max-w-xl md:hidden">
+        <div className="flex items-center gap-3 rounded-2xl border border-[#d8dbdc] bg-white px-4 py-3">
           <div className="flex size-[38px] shrink-0 items-center justify-center rounded-[10px] border border-[#e5e7e8] bg-white">
             <BrandIcon className="size-[31px]" />
           </div>
@@ -148,8 +148,8 @@ export function InstallBanner() {
   }
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 z-[120] mx-auto max-w-xl md:bottom-6">
-      <div className="flex items-center gap-3 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-[0_12px_34px_rgba(17,17,17,0.18)]">
+    <div className="fixed bottom-4 left-4 right-4 z-[120] mx-auto max-w-xl md:hidden">
+      <div className="flex items-center gap-3 rounded-2xl border border-[#d8dbdc] bg-white px-4 py-3">
         <div className="flex size-[38px] shrink-0 items-center justify-center rounded-[10px] border border-[#e5e7e8] bg-white">
           <BrandIcon className="size-[31px]" />
         </div>
@@ -165,7 +165,7 @@ export function InstallBanner() {
           type="button"
           onClick={handleInstall}
           disabled={installing}
-          className="inline-flex shrink-0 items-center gap-2 rounded-full px-2 py-2 text-sm font-semibold text-[#202124] transition hover:bg-[#f2f3f4] disabled:opacity-60"
+          className="inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-[#202124] transition hover:bg-[#f2f3f4] disabled:opacity-60"
         >
           <Download size={15} />
           {installing ? "Opening..." : manualOnly ? "How" : "Install"}

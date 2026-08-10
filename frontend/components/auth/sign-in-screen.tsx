@@ -92,11 +92,34 @@ export function SignInScreen() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {/* <div className="hidden items-center gap-2 rounded-full border border-[#dedfdf] bg-white px-3 py-1.5 text-[11px] font-extrabold text-[#4d5154] sm:flex"> */}
-              {/* <LockKeyhole size={13} /> */}
-              {/* Private by default */}
-            {/* </div> */}
+
+          {/* Desktop Navigation Links */}
+          <nav aria-label="Desktop navigation" className="hidden items-center gap-7 md:flex">
+            {navLinks.map((link) => (
+              <a
+                key={link.href}
+                href={link.href}
+                className="text-[13px] font-extrabold text-[#3f4447] transition hover:text-[#111111]"
+              >
+                {link.label}
+              </a>
+            ))}
+            <a
+              href="mailto:contact@crowscap.xyz"
+              className="text-[13px] font-extrabold text-[#3f4447] transition hover:text-[#111111]"
+            >
+              Contact
+            </a>
+            <a
+              href="/auth?mode=login"
+              className="rounded-full bg-[#111111] px-5 py-2 text-[12px] font-extrabold text-white transition hover:bg-[#282a2c]"
+            >
+              Open App
+            </a>
+          </nav>
+
+          {/* Mobile Hamburger Button (Strictly md:hidden) */}
+          <div className="flex items-center gap-2 md:hidden">
             <button
               type="button"
               aria-label={menuOpen ? "Close menu" : "Open menu"}
@@ -126,8 +149,8 @@ export function SignInScreen() {
         </header>
 
         {menuOpen ? (
-          <div className="absolute right-5 top-[74px] z-30 w-[min(calc(100vw-40px),260px)] rounded-[16px] border border-[#d9dcde] bg-white p-2 shadow-[0_24px_70px_rgba(17,17,17,0.14)] md:right-8">
-            <nav aria-label="Landing page navigation" className="grid gap-1">
+          <div className="absolute right-5 top-[74px] z-30 w-[min(calc(100vw-40px),260px)] rounded-[16px] border border-[#d9dcde] bg-white p-2 shadow-[0_24px_70px_rgba(17,17,17,0.14)] md:hidden">
+            <nav aria-label="Mobile navigation" className="grid gap-1">
               {navLinks.map((link) => (
                 <a
                   key={link.href}
@@ -138,27 +161,40 @@ export function SignInScreen() {
                   {link.label}
                 </a>
               ))}
+              <a
+                href="mailto:contact@crowscap.xyz"
+                onClick={() => setMenuOpen(false)}
+                className="rounded-[12px] px-3 py-3 text-[13px] font-extrabold text-[#202223] transition hover:bg-[#f3f4f4]"
+              >
+                Contact
+              </a>
+              <a
+                href="/auth?mode=login"
+                onClick={() => setMenuOpen(false)}
+                className="mt-1 rounded-[12px] bg-[#111111] px-3 py-3 text-center text-[13px] font-extrabold text-white transition hover:bg-[#25282a]"
+              >
+                Open App
+              </a>
             </nav>
           </div>
         ) : null}
 
-        <div className="mx-auto grid w-full max-w-[1220px] flex-1 items-center gap-10 px-5 pb-28 pt-8 md:px-8 lg:grid-cols-[minmax(0,0.92fr)_minmax(430px,0.8fr)] lg:gap-16 lg:pb-24 lg:pt-2">
-          <div className="max-w-[760px]">
-            <h1 className="text-[48px] font-[880] leading-[0.95] tracking-[-0.058em] md:text-[76px] lg:text-[92px]">
+        <div className="mx-auto grid w-full max-w-[1220px] flex-1 items-center gap-10 px-5 pb-28 pt-8 md:px-8 lg:grid-cols-[minmax(0,0.95fr)_minmax(400px,0.85fr)] lg:gap-14 lg:pb-24 lg:pt-2">
+          <div className="max-w-[720px]">
+            <h1 className="text-[36px] font-[880] leading-[1.02] tracking-[-0.045em] sm:text-[46px] md:text-[54px] lg:text-[64px]">
               Stop losing what you learn. Start actually using it.
             </h1>
-            <p className="mt-7 max-w-[680px] text-[17px] font-medium leading-8 text-[#464a4d] md:text-[19px]">
+            <p className="mt-6 max-w-[640px] text-[16px] font-medium leading-7 text-[#464a4d] md:text-[18px]">
               Crowscap AI is your personal intelligent memory that saves what you read and watch, 
               connects it to what you already know, 
               and brings the right idea back the moment you actually need it.
             </p>
 
-            <div className="mt-9 flex flex-col gap-3 sm:max-w-[430px]">
+            <div className="mt-8 flex flex-col gap-3 sm:max-w-[430px]">
               <a
                 href="/auth?mode=login"
-                className="relative inline-flex h-12 items-center justify-center rounded-[10px] bg-[#111111] px-4 text-center text-[13px] font-extrabold text-white shadow-[0_16px_44px_rgba(17,17,17,0.18)] transition hover:bg-[#1f2122]"
+                className="relative inline-flex h-12 items-center justify-center rounded-[10px] bg-[#111111] px-4 text-center text-[13px] font-extrabold text-white transition hover:bg-[#1f2122]"
               >
-
                 Continue on Web
                 <span className="absolute right-4 flex size-5 items-center justify-center">
                   <ArrowRight size={14} />
@@ -188,7 +224,7 @@ export function SignInScreen() {
 
             <a
               href="#features"
-              className="mt-7 inline-flex items-center gap-2 text-[12px] font-extrabold text-[#3f4447] transition hover:text-[#111111]"
+              className="mt-6 inline-flex items-center gap-2 text-[12px] font-extrabold text-[#3f4447] transition hover:text-[#111111]"
             >
               See what it remembers
               <ArrowRight size={14} />
@@ -196,7 +232,7 @@ export function SignInScreen() {
           </div>
 
           <div className="relative">
-            <div className="relative overflow-hidden rounded-[22px] border border-[#d8dbdc] bg-white shadow-[0_32px_100px_rgba(17,17,17,0.13)]">
+            <div className="relative overflow-hidden rounded-[22px] border border-[#d8dbdc] bg-white">
               <div className="flex items-center justify-between border-b border-[#e5e7e8] px-4 py-3">
                 <div className="flex items-center gap-3">
                   <div className="flex size-9 items-center justify-center rounded-[10px] border border-[#e2e3e4] bg-white">
@@ -209,7 +245,6 @@ export function SignInScreen() {
                     </p>
                   </div>
                 </div>
-                <span className="size-2 rounded-full bg-[#0f5132]" />
               </div>
 
               <div className="space-y-4 px-4 py-5">
@@ -278,7 +313,7 @@ export function SignInScreen() {
               <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#7d8184]">
                 Features
               </p>
-              <h2 className="mt-4 max-w-[520px] text-[34px] font-[840] leading-[1.02] tracking-[-0.045em] md:text-[52px]">
+              <h2 className="mt-4 max-w-[520px] text-[32px] font-[840] leading-[1.05] tracking-[-0.04em] md:text-[46px]">
                 A memory layer for the things you cannot afford to lose.
               </h2>
               <p className="mt-5 max-w-[500px] text-[15px] font-medium leading-7 text-[#555a5d]">
@@ -306,7 +341,7 @@ export function SignInScreen() {
               <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#7d8184]">
                 How it works
               </p>
-              <h2 className="mt-4 text-[34px] font-[840] leading-[1.02] tracking-[-0.045em] md:text-[52px]">
+              <h2 className="mt-4 text-[32px] font-[840] leading-[1.05] tracking-[-0.04em] md:text-[46px]">
                 Save naturally. Retrieve precisely.
               </h2>
             </div>
@@ -332,39 +367,68 @@ export function SignInScreen() {
           </div>
         </section>
 
-        <footer className="border-t border-[#dfe1e2] bg-[#101112] px-5 py-8 text-white md:px-8">
-          <div className="mx-auto flex w-full max-w-[1220px] flex-col gap-8 md:flex-row md:items-end md:justify-between">
+        <footer className="border-t border-[#333537] bg-[#101112] px-5 py-14 text-white md:px-8">
+          <div className="mx-auto grid w-full max-w-[1220px] gap-10 md:grid-cols-3">
             <div>
               <div className="flex items-center gap-3">
                 <div className="flex size-10 items-center justify-center rounded-[11px] border border-white/15 bg-white">
                   <BrandIcon className="size-7" />
                 </div>
                 <div>
-                  <p className="text-[15px] font-[850]">Crowscap</p>
+                  <p className="text-[16px] font-[850]">Crowscap AI</p>
                   <p className="text-[11px] font-semibold text-white/55">
-                    Private memory for serious learning.
+                    Personal intelligent Memory
                   </p>
                 </div>
               </div>
-              <p className="mt-5 max-w-[460px] text-[13px] font-medium leading-6 text-white/62">
+              <p className="mt-4 max-w-[360px] text-[13px] font-medium leading-6 text-white/60">
                 Your memory should not depend on the tab you forgot to reopen.
                 Keep the idea, its source, and the reason it mattered.
               </p>
             </div>
-            <div className="flex flex-col gap-4 text-[11px] font-bold text-white/62 md:items-end">
-              <nav className="flex items-center gap-4" aria-label="Footer navigation">
-                {navLinks.map((link) => (
-                  <a
-                    key={link.href}
-                    href={link.href}
-                    className="transition hover:text-white"
-                  >
-                    {link.label}
+
+            <div>
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-white/40">
+                Navigation
+              </p>
+              <ul className="mt-4 space-y-2.5 text-[13px] font-semibold text-white/70">
+                <li>
+                  <a href="#features" className="transition hover:text-white">
+                    Features
                   </a>
-                ))}
-              </nav>
-              <p>Copyright 2026 Crowscap. All rights reserved.</p>
+                </li>
+                <li>
+                  <a href="#how-it-works" className="transition hover:text-white">
+                    How it works
+                  </a>
+                </li>
+                <li>
+                  <a href="/auth?mode=login" className="transition hover:text-white">
+                    Open Web App
+                  </a>
+                </li>
+              </ul>
             </div>
+
+            <div>
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-white/40">
+                Contact & Support
+              </p>
+              <div className="mt-4 space-y-2.5 text-[13px] font-semibold">
+                <p className="text-white/60">Have questions or feedback?</p>
+                <a
+                  href="mailto:contact@crowscap.xyz"
+                  className="inline-block rounded-lg border border-white/20 bg-white/5 px-3.5 py-2 text-[13px] font-extrabold text-white transition hover:border-white/40 hover:bg-white/10"
+                >
+                  contact@crowscap.xyz
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <div className="mx-auto mt-12 flex w-full max-w-[1220px] flex-col items-center justify-between border-t border-white/10 pt-6 text-[12px] font-medium text-white/45 sm:flex-row">
+            <p>Copyright 2026 Crowscap. All rights reserved.</p>
+            <p className="mt-2 sm:mt-0">Private memory for serious learning.</p>
           </div>
         </footer>
         <InstallBanner />
@@ -396,7 +460,7 @@ function FeatureCard({
   body: string;
 }) {
   return (
-    <div className="rounded-[12px] border border-[#e1e3e4] bg-white/78 p-4 shadow-sm">
+    <div className="rounded-[14px] border border-[#e1e3e4] bg-white p-5">
       <div className="flex items-center gap-2 text-[#111111]">
         {icon}
         <p className="text-[11px] font-extrabold uppercase">{title}</p>

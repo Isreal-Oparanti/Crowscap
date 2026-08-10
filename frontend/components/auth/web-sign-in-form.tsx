@@ -160,7 +160,7 @@ export function WebSignInForm({
     <main className="relative flex min-h-screen flex-col bg-[#f5f5f3] text-[#101112]">
       {/* Toast popup */}
       {toast ? (
-        <div className="fixed top-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[#d5d8da] bg-white px-5 py-2.5 text-[13px] font-bold text-[#111111] shadow-[0_12px_40px_rgba(17,17,17,0.12)]">
+        <div className="fixed top-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[#d5d8da] bg-white px-5 py-2.5 text-[13px] font-bold text-[#111111]">
           <span className="flex size-4 items-center justify-center rounded-full bg-[#0f5132] text-white">
             <Check size={10} />
           </span>
@@ -191,8 +191,8 @@ export function WebSignInForm({
       </header>
 
       {/* Vertically Centralized Auth Card */}
-      <div className="mx-auto flex flex-1 w-full max-w-[440px] flex-col items-center justify-center px-5 py-6">
-        <div className="w-full rounded-[22px] border border-[#d8dbdc] bg-white p-7 shadow-[0_32px_100px_rgba(17,17,17,0.10)] sm:p-9">
+      <div className="mx-auto flex flex-1 w-full max-w-[480px] sm:max-w-[500px] flex-col items-center justify-center px-5 py-6">
+        <div className="w-full rounded-[22px] border border-[#d8dbdc] bg-white p-7 sm:p-10">
           {/* Headline & Tagline (No icon inside card) */}
           <div className="text-center">
             <h1 className="text-[28px] font-[880] tracking-[-0.035em]">
@@ -209,7 +209,7 @@ export function WebSignInForm({
               type="button"
               onClick={handleGoogleSignIn}
               disabled={busyNow}
-              className="relative inline-flex h-12 w-full items-center justify-center rounded-[10px] border border-[#d5d8da] bg-white px-4 text-[13px] font-extrabold text-[#111111] shadow-[0_4px_20px_rgba(17,17,17,0.06)] transition hover:border-[#a8adb0] hover:bg-[#fbfbfb] disabled:cursor-wait disabled:opacity-60"
+              className="relative inline-flex h-12 w-full items-center justify-center rounded-[10px] border border-[#d5d8da] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:border-[#a8adb0] hover:bg-[#fbfbfb] disabled:cursor-wait disabled:opacity-60"
             >
               <span className="absolute left-4">
                 <GoogleMark />
@@ -330,7 +330,7 @@ export function WebSignInForm({
               onClick={() => (codeSent ? verifyEmailCode() : requestEmailCode())}
               disabled={busyNow}
               style={{ color: "#ffffff" }}
-              className="flex h-12 w-full items-center justify-center rounded-[10px] bg-[#111111] px-4 text-[13px] font-extrabold !text-white shadow-[0_12px_32px_rgba(17,17,17,0.15)] transition hover:bg-[#25282a] disabled:cursor-wait disabled:opacity-60"
+              className="flex h-12 w-full items-center justify-center rounded-[10px] bg-[#111111] px-4 text-[13px] font-extrabold !text-white transition hover:bg-[#25282a] disabled:cursor-wait disabled:opacity-60"
             >
               {busy === "email-start" || busy === "email-verify" ? (
                 <Loader2 size={18} className="animate-spin !text-white" />
