@@ -15,10 +15,10 @@ export default function TermsPage() {
           <span className="text-[16px] font-[880] tracking-tight">Crowscap AI</span>
         </Link>
         <Link
-          href="/auth?mode=login"
+          href="/chat"
           className="rounded-full bg-[#111111] px-5 py-2 text-[12px] font-extrabold text-white transition hover:bg-[#282a2c]"
         >
-          Open App
+          Chat
         </Link>
       </header>
 
@@ -79,18 +79,11 @@ export default function TermsPage() {
             </section>
 
             <section>
-              <h2 className="text-[18px] font-[800] text-[#111111]">7. Modifications and Termination</h2>
+              <h2 className="text-[18px] font-[800] text-[#111111]">7. Contact Support</h2>
               <p className="mt-2">
-                We reserve the right to modify or update these Terms at any time. Continued use of the Service after changes take effect constitutes acceptance of the new Terms. You may delete your account or discontinue use at any time.
-              </p>
-            </section>
-
-            <section>
-              <h2 className="text-[18px] font-[800] text-[#111111]">8. Contact Us</h2>
-              <p className="mt-2">
-                If you have questions regarding these Terms &amp; Conditions, please contact us at{" "}
-                <a href="mailto:contact@crowscap.xyz" className="font-bold underline text-[#111111]">
-                  contact@crowscap.xyz
+                If you have questions regarding these Terms &amp; Conditions or need support, please contact us at{" "}
+                <a href="mailto:support@crowscap.xyz" className="font-bold text-[#111111] underline">
+                  support@crowscap.xyz
                 </a>.
               </p>
             </section>

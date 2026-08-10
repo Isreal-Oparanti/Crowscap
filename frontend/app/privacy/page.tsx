@@ -15,10 +15,10 @@ export default function PrivacyPage() {
           <span className="text-[16px] font-[880] tracking-tight">Crowscap AI</span>
         </Link>
         <Link
-          href="/auth?mode=login"
+          href="/chat"
           className="rounded-full bg-[#111111] px-5 py-2 text-[12px] font-extrabold text-white transition hover:bg-[#282a2c]"
         >
-          Open App
+          Chat
         </Link>
       </header>
 
@@ -75,8 +75,8 @@ export default function PrivacyPage() {
               <h2 className="text-[18px] font-[800] text-[#111111]">6. Your Rights and Data Deletion</h2>
               <p className="mt-2">
                 You have the right to export your saved memories or request complete deletion of your account and data at any time by contacting our support team at{" "}
-                <a href="mailto:contact@crowscap.xyz" className="font-bold underline text-[#111111]">
-                  contact@crowscap.xyz
+                <a href="mailto:support@crowscap.xyz" className="font-bold text-[#111111] underline">
+                  support@crowscap.xyz
                 </a>.
               </p>
             </section>
@@ -84,9 +84,9 @@ export default function PrivacyPage() {
             <section>
               <h2 className="text-[18px] font-[800] text-[#111111]">7. Contact Support</h2>
               <p className="mt-2">
-                For privacy questions or data privacy requests, email us at{" "}
-                <a href="mailto:contact@crowscap.xyz" className="font-bold underline text-[#111111]">
-                  contact@crowscap.xyz
+                For privacy questions, account deletion requests, or general support, email us at{" "}
+                <a href="mailto:support@crowscap.xyz" className="font-bold text-[#111111] underline">
+                  support@crowscap.xyz
                 </a>.
               </p>
             </section>

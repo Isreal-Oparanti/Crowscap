@@ -1,6 +1,7 @@
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -381,7 +382,20 @@ export default function SignInScreen() {
         </View>
 
         <Text style={styles.terms}>
-          By continuing, you acknowledge that you understand and agree to the Terms & Conditions and Privacy Policy
+          By continuing, you acknowledge that you understand and agree to the{" "}
+          <Text
+            style={styles.termsLink}
+            onPress={() => Linking.openURL("https://crowscap.xyz/terms")}
+          >
+            Terms &amp; Conditions
+          </Text>{" "}
+          and{" "}
+          <Text
+            style={styles.termsLink}
+            onPress={() => Linking.openURL("https://crowscap.xyz/privacy")}
+          >
+            Privacy Policy
+          </Text>
         </Text>
       </ScrollView>
 
@@ -657,6 +671,11 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.regular,
     color: "#60646a",
     paddingHorizontal: 12,
+  },
+  termsLink: {
+    fontFamily: fontFamily.bold,
+    color: "#ffffff",
+    textDecorationLine: "underline",
   },
   toast: {
     position: "absolute",

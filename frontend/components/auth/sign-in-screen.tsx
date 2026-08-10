@@ -96,7 +96,7 @@ export function SignInScreen({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
   const [downloadStarted, setDownloadStarted] = useState(false);
 
   const appHref = isLoggedIn ? "/chat" : "/auth?mode=login";
-  const buttonLabel = "Open App";
+  const buttonLabel = "Chat";
 
   function handleDownload() {
     setDownloadStarted(true);
@@ -139,7 +139,7 @@ export function SignInScreen({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
               </a>
             ))}
             <a
-              href="mailto:contact@crowscap.xyz"
+              href="mailto:support@crowscap.xyz"
               className="text-[13px] font-extrabold text-[#3f4447] transition hover:text-[#111111]"
             >
               Contact
@@ -196,7 +196,7 @@ export function SignInScreen({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
                 </a>
               ))}
               <a
-                href="mailto:contact@crowscap.xyz"
+                href="mailto:support@crowscap.xyz"
                 onClick={() => setMenuOpen(false)}
                 className="rounded-[12px] px-3 py-3 text-[13px] font-extrabold text-[#202223] transition hover:bg-[#f3f4f4]"
               >
@@ -472,10 +472,10 @@ export function SignInScreen({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
               <div className="mt-4 space-y-2.5 text-[13px] font-semibold">
                 <p className="text-white/60">Have questions or feedback?</p>
                 <a
-                  href="mailto:contact@crowscap.xyz"
+                  href="mailto:support@crowscap.xyz"
                   className="inline-block rounded-lg border border-white/20 bg-white/5 px-3.5 py-2 text-[13px] font-extrabold text-white transition hover:border-white/40 hover:bg-white/10"
                 >
-                  contact@crowscap.xyz
+                  support@crowscap.xyz
                 </a>
               </div>
             </div>
