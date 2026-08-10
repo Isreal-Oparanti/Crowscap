@@ -116,12 +116,14 @@ export function SignInScreen({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
         {/* Top Announcement Bar / Minimal Web Header */}
         <header className="mx-auto flex w-full max-w-[1220px] items-center justify-between px-5 py-5 md:px-8">
           <a href="/" className="flex items-center gap-3">
-            <BrandIcon className="size-8 text-[#111111]" />
+            <div className="flex size-11 items-center justify-center rounded-[12px] border border-[#dedfdf] bg-white">
+              <BrandIcon className="size-8 text-[#111111]" />
+            </div>
             <div>
-              <p className="text-[15px] font-[880] tracking-tight text-[#111111]">
+              <p className="text-[17px] font-[850] tracking-[-0.02em]">
                 Crowscap AI
               </p>
-              <p className="text-[11px] font-semibold text-[#686c6f]">
+              <p className="text-[12px] font-semibold text-[#6f7376]">
                 Personal intelligent Memory
               </p>
             </div>
