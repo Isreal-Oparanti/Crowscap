@@ -247,8 +247,11 @@ export function auditBelief(topic: string): Promise<BeliefAuditResponse> {
   });
 }
 
-export function getDueRecalls(limit = 12): Promise<DueRecallsResponse> {
-  return request<DueRecallsResponse>(`recalls/due?limit=${limit}`);
+export function getDueRecalls(limit = 12, targetMemoryId?: string | null): Promise<DueRecallsResponse> {
+  const query = targetMemoryId
+    ? `recalls/due?limit=${limit}&target_memory_id=${encodeURIComponent(targetMemoryId)}`
+    : `recalls/due?limit=${limit}`;
+  return request<DueRecallsResponse>(query);
 }
 
 export function completeReminder(reminderId: string): Promise<ReminderResponse> {
