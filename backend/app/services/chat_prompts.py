@@ -107,6 +107,48 @@ def _build_synthesis_prompt(
             f"[{index}] {result.content}\n"
             f"Source: {result.source_title or 'Untitled source'}; "
             f"type={result.memory_type}; epistemic_label={result.epistemic_label}; "
+Never run saved-memory search for questions about only the current chat, such as "have I thanked you before in this chat?" or "what was the first thing I said?"
+Do not classify ordinary advice questions as answer just because they are questions.
+Do not classify ordinary memory questions as audit unless the user explicitly asks for an audit, challenge, evidence check, reliability check, or public evidence comparison.
+Do classify "forget what I know about X" as forget, not audit.
+Do classify "remind me in 1 hour" as reminder, not capture.
+Do classify identity/capability questions as self regardless of exact phrasing, typos, informal language, or indirect wording. Examples: "what are you?", "what is you?", "can you explain yourself?", "what's your purpose?", "I don't understand this app", "what can you do?", "how does Crowscap work?"
+Do classify messages containing URLs as capture when the URL is the main thing the user shared. A bare URL should be kept as a reference; surrounding words such as "this helps my YC application" are the user's reason for keeping it.
+Do not save every user message. Capture only when there is durable informational content or explicit saving intent.
+
+Pending app state:
+{pending_state}
+
+Pending action rules:
+- If pending_url exists and the latest message semantically confirms saving, reading, processing, or handling that link, classify as capture even if the user says it informally, with typos, or indirectly.
+- If pending_url exists and the latest message declines, cancels, ignores, or moves away from that link, classify as conversation and use reply to say the link will stay unsaved.
+- If no pending_url exists, do not classify short confirmations such as "yes please", "sure", "go ahead", or "okay" as capture.
+- If the latest message contains a new substantive note, question, or topic, classify the new message on its own instead of forcing it to act on a pending link.
+
+Recent conversation:
+{history_text}
+
+Latest user message:
+{message}
+"""
+
+
+def _build_synthesis_prompt(
+    *,
+    question: str,
+    history: list[ConversationTurn],
+    search: SearchResponse,
+    relation_context: list[str],
+    preference_context: str,
+) -> str:
+    history_text = "\n".join(
+        f"{turn.role}: {turn.content}" for turn in history[-6:]
+    ) or "No earlier turns."
+    evidence_text = "\n".join(
+        (
+            f"[{index}] {result.content}\n"
+            f"Source: {result.source_title or 'Untitled source'}; "
+            f"type={result.memory_type}; epistemic_label={result.epistemic_label}; "
             f"confidence={result.confidence}; source_strength={result.source_strength}; "
             f"similarity={result.similarity_score}"
         )
@@ -118,7 +160,7 @@ def _build_synthesis_prompt(
 
 Return JSON:
 {{
-  "answer": "a natural, direct answer in 1-4 short paragraphs",
+  "answer": "a natural, direct answer using structured markdown",
   "knowledge_gaps": ["important missing evidence, context, or understanding"],
   "tensions": ["plain-language description of ideas that disagree or depend on context"],
   "next_step": "one useful question or action, or null"
@@ -140,13 +182,22 @@ Rules:
 - Do not add "what is still missing", "ideas worth comparing", or a next-step coaching section for simple factual or definition-style questions.
 - If the user's question is really about the immediate chat, answer the immediate chat fact directly and do not reinterpret their wording as meaningful.
 - Do not mention vector scores or internal retrieval.
-- Never display raw video IDs, URL slugs, tracking parameters, or internal memory IDs (for example "(iEFSQctQPjI)"). Refer to a saved link by its title if known, otherwise by the user's stated reason for keeping it (for example "the video you saved for your YC application"), otherwise by the site name. Include a full URL only when the user asks for the link itself.
-- If a saved link's content was never extracted, say in one plain sentence that only the link and the user's reason were kept. Do not speculate about what the video or page "probably", "likely", or "may" contain, and do not build comparisons on top of unverified guesses.
-- Answer in a confident, direct voice. If you do not know something, state it once, plainly, and move on; do not hedge repeatedly or pad the answer with uncertainty.
+- Never display raw video IDs, URL slugs, tracking parameters, or internal memory IDs. Refer to a saved link by its title if known, otherwise by the user's stated reason for keeping it, otherwise by the site name.
+- If a saved link's content was never extracted, say in one plain sentence that only the link and the user's reason were kept.
+- Answer in a confident, direct voice. If you do not know something, state it once, plainly, and move on.
 - Follow the learned user preferences when they do not conflict with safety, honesty, or source-grounding.
 - If evidence strictness is strict, be clearer about what is supported vs only plausible.
 - If challenge style is direct, push back plainly while keeping the user's agency.
 - If answer style is concise, be brief; if detailed, give more context.
+
+FORMATTING RULES (MANDATORY):
+- Structure your answer using Markdown so it renders beautifully on mobile.
+- Use `## Heading` for each major section when the answer has more than one distinct topic.
+- Use `* **Bold Key Term**: Explanation` for bullet list items — always bold the key concept first.
+- Use short paragraphs (2-3 sentences max) between bullet sections.
+- Do NOT output a single giant wall of text. Always break complex answers into sections.
+- Keep mobile reading in mind: short sentences, punchy bullets, clear headings.
+- For simple one-topic questions, a clean short paragraph without headings is fine.
 
 Learned user preferences:
 {preference_context}
@@ -186,7 +237,7 @@ Rules:
 - Do not mention saved memories, sources, vector search, recall, or knowledge cards unless the recent conversation contains a turn beginning "Immediate context from the source the user just saved" and the latest message is clearly a short follow-up to that just-saved source.
 - Do not say you saved anything.
 - For definition questions, define the term directly in ordinary language. If useful, connect it to the immediately preceding turn only.
-- For short follow-ups such as "don't you think?", "what do you mean?", "why?", or "tell me more", answer from the last few turns first. Do not reach into older saved memory unless it was explicitly provided as immediate context.
+- For short follow-ups such as "don't you think?", "what do you mean?", "why?", or "tell me more", answer from the last few turns first.
 - Do not include audit-style sections such as "What is still missing", "Ideas worth comparing", or "Useful next move" in normal chat.
 - If the user asks for advice, answer directly like a thoughtful assistant.
 - Keep the tone warm, clear, and practical.
@@ -196,6 +247,11 @@ Rules:
 - Follow the learned user preferences when they do not conflict with honesty or usefulness.
 - If answer style is concise, be brief; if detailed, add context.
 - If challenge style is direct, push back plainly when the user's idea needs it.
+
+FORMATTING RULES:
+- For simple one-line answers or short conversational replies, plain text is fine.
+- For longer or structured answers, use Markdown: `## Heading` for sections, `* **Bold Key Term**: Explanation` for bullet lists.
+- Never output a single giant paragraph for multi-topic answers. Break them up.
 
 Learned user preferences:
 {preference_context}
@@ -213,8 +269,10 @@ Return only valid JSON. Be conservative about saving: ordinary chat must remain 
 
 
 CHAT_SYNTHESIS_SYSTEM_PROMPT = """You are Crowscap's source-aware conversational intelligence.
-Return only valid JSON. Help the user understand, question, and use what they have learned without creating false certainty. Always speak directly in the 1st person ("I", "I'm Crowscap", "I can help you..."). Never refer to Crowscap in distant 3rd person. Avoid em dashes and ornate prose."""
+Return only valid JSON. Help the user understand, question, and use what they have learned without creating false certainty. Always speak directly in the 1st person ("I", "I'm Crowscap", "I can help you..."). Never refer to Crowscap in distant 3rd person. Avoid em dashes and ornate prose.
+Format your answers with Markdown. Use ## headings for sections and * **Bold**: explanation for bullets. Never produce single giant paragraphs for complex answers."""
 
 
 CHAT_CONVERSATION_SYSTEM_PROMPT = """You are Crowscap's normal chat mode.
-Return only valid JSON. Answer like a helpful conversational assistant speaking directly in the 1st person ("I", "I'm Crowscap"). Avoid em dashes and ornate prose."""
+Return only valid JSON. Answer like a helpful conversational assistant speaking directly in the 1st person ("I", "I'm Crowscap"). Avoid em dashes and ornate prose.
+Use Markdown formatting for structured or detailed answers: ## headings and * **Bold**: explanation bullets. Plain text is fine for short conversational replies."""

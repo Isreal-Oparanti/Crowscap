@@ -224,12 +224,12 @@ const styles = StyleSheet.create({
   },
 
   heading: {
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 22,
     fontFamily: fontFamily.extrabold,
-    color: tokens.colors.text,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+    color: "#111418",
+    marginTop: 4,
+    marginBottom: 2,
   },
   list: {
     gap: 8,

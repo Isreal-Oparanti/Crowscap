@@ -193,6 +193,7 @@ export interface SearchResult {
   memory_id: string;
   source_id: string;
   source_title: string | null;
+  source_type?: string | null;
   content: string;
   memory_type: MemoryType;
   epistemic_label: EpistemicLabel | null;

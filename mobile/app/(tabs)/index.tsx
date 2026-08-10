@@ -1124,7 +1124,22 @@ function ReminderCard({ reminder, fallbackText }: { reminder?: ReminderResponse 
 
 function AnswerFooter({ data }: { data: ChatResponse }) {
   const isReminder = data.action === "reminder" || Boolean(data.reminder);
-  if (!data.preference_updates?.length && !data.evidence?.length && !data.next_step && !isReminder) return null;
+
+  // Deduplicate evidence sources to show clean citation pills
+  const citationSources = (() => {
+    if (!data.evidence?.length) return [];
+    const seen = new Set<string>();
+    return data.evidence
+      .filter((e) => {
+        const key = e.source_title || e.source_id;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 4);
+  })();
+
+  if (!data.preference_updates?.length && !citationSources.length && !data.next_step && !isReminder) return null;
 
   return (
     <View style={styles.answerFooter}>
@@ -1134,18 +1149,23 @@ function AnswerFooter({ data }: { data: ChatResponse }) {
       {data.preference_updates?.length ? (
         <InsightBlock label="Preference learned" items={data.preference_updates} tone="green" />
       ) : null}
+      {citationSources.length ? (
+        <View style={styles.citationRow}>
+          {citationSources.map((src) => {
+            const title = cleanSourceTitle(src.source_title) || "Saved memory";
+            const icon = src.source_type === "youtube" ? "▶ " : "📄 ";
+            return (
+              <View key={src.source_id} style={styles.citationPill}>
+                <Text style={styles.citationPillText} numberOfLines={1}>{icon}{title}</Text>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
       {data.next_step ? (
         <View style={styles.nextStep}>
           <Text style={styles.nextStepLabel}>Useful next move</Text>
           <MarkdownText text={data.next_step} compact />
-        </View>
-      ) : null}
-      {data.evidence?.length ? (
-        <View style={styles.evidenceToggle}>
-          <Text style={styles.evidenceToggleText}>
-            {data.evidence.length} memories informed this answer
-          </Text>
-          <Icons.ChevronRight size={16} color={tokens.colors.text} />
         </View>
       ) : null}
     </View>
@@ -1754,6 +1774,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: fontFamily.extrabold,
     color: tokens.colors.text,
+  },
+  citationRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 4,
+  },
+  citationPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f1f7f4",
+    borderWidth: 1,
+    borderColor: "#d1e4d9",
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    maxWidth: 220,
+  },
+  citationPillText: {
+    fontSize: 11.5,
+    fontFamily: fontFamily.semibold,
+    color: "#2d7058",
   },
   enrichmentBoxGreen: {
     backgroundColor: "#f1f7f4",

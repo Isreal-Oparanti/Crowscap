@@ -578,7 +578,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#e8f4ed",
   },
   reminderIcon: {
-    backgroundColor: "#fff7df",
+    backgroundColor: "#e8f4ed",
   },
   rowBody: {
     flex: 1,
