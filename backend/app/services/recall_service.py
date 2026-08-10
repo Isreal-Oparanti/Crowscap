@@ -468,9 +468,7 @@ def _load_due_reminders(
 ) -> list[Reminder]:
     query = (
         select(Reminder)
-        .where(Reminder.status == "scheduled")
-        .where(Reminder.memory_id.is_(None))
-        .where(Reminder.due_at <= now)
+        .where(Reminder.status.in_(["scheduled", "snoozed"]))
         .order_by(Reminder.due_at.asc())
         .limit(limit)
     )

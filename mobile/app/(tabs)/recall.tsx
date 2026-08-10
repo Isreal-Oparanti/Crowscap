@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -9,7 +10,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { completeReminder, snoozeReminder, submitQuickRecall as apiSubmitQuickRecall } from "@/api/recalls";
 import { BrandMark } from "@/components/shell/BrandMark";
@@ -78,6 +78,12 @@ export default function RecallScreen() {
     error,
     refresh,
   } = useRecalls(targetMemoryId);
+
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh])
+  );
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [reminderWorking, setReminderWorking] = useState(false);
 
