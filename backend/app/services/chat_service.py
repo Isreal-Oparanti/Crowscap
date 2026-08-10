@@ -44,6 +44,7 @@ from app.schemas.chat import (
     ChatResponse,
     ConversationResponse,
     ConversationTurn,
+    PaginatedMessagesResponse,
 )
 from app.schemas.memory import ArchiveMemoryRequest
 from app.schemas.search import SearchRequest, SearchResponse, SearchResult
