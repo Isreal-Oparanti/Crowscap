@@ -699,7 +699,32 @@ def process_chat_message(
         )
 
     if route.action == "self":
-        response = _process_self_question(payload.message)
+        retrieved_chunks = _retrieve_self_knowledge(payload.message, limit=4)
+        knowledge_text = "\n\n".join(f"[{chunk.title}]: {chunk.body}" for chunk in retrieved_chunks)
+        rag_prompt_turn = ConversationTurn(
+            role="user",
+            content=(
+                f"[OFFICIAL CROWSCAP PRODUCT & THESIS KNOWLEDGE BASE]:\n{knowledge_text}\n\n"
+                f"Question about Crowscap: {payload.message}\n"
+                f"Answer the user's question dynamically in Crowscap's authentic, helpful voice based on the product context above. Focus on the user experience and solution, without technical code jargon."
+            ),
+        )
+        try:
+            reply = conversation_responder.respond(
+                message=payload.message,
+                history=[rag_prompt_turn, *model_history],
+                preferences=preferences,
+            )
+            response = ChatResponse(
+                action="self",
+                message=reply,
+                saved=False,
+                next_step="Save something, search your memory, or check your Recall tab.",
+            )
+        except Exception:
+            logger.exception("\u26a0\ufe0f chat.self.llm_fallback conversation_id=%s", conversation.id)
+            response = _process_self_question(payload.message)
+
         response = _with_preference_learning(response, preference_learning)
         logger.info("\u2705 chat.message.complete action=self saved=False")
         return _persist_assistant_response(
