@@ -1,10 +1,11 @@
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Pressable,
+  ActivityIndicator,
   Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -13,10 +14,67 @@ import { useAuth } from "@/hooks/useAuth";
 import { tokens } from "@/theme/tokens";
 import { fontFamily } from "@/theme/typography";
 
+import { useState } from "react";
+import { checkNativeAndroidUpdate, checkOtaUpdate } from "@/utils/updates";
+
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { session, signOut } = useAuth();
   const router = useRouter();
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateStatusText, setUpdateStatusText] = useState("v1.0.0");
+
+  const handleCheckForUpdates = async () => {
+    if (checkingUpdate) return;
+    setCheckingUpdate(true);
+    try {
+      const nativeRes = await checkNativeAndroidUpdate();
+      if (nativeRes.available) {
+        setUpdateStatusText("Update ready");
+        Alert.alert(
+          "Update Available",
+          "A new version of Crowscap is available. Would you like to download it?",
+          [
+            { text: "Later", style: "cancel" },
+            {
+              text: "Download",
+              onPress: () => {
+                const { Linking } = require("react-native");
+                Linking.openURL(nativeRes.update.apkUrl);
+              },
+            },
+          ]
+        );
+        return;
+      }
+
+      const otaRes = await checkOtaUpdate();
+      if (otaRes.available) {
+        setUpdateStatusText("Restart ready");
+        Alert.alert(
+          "Update Ready",
+          "A new update has been downloaded. Restart app now?",
+          [
+            { text: "Later", style: "cancel" },
+            {
+              text: "Restart Now",
+              onPress: () => {
+                otaRes.reload();
+              },
+            },
+          ]
+        );
+        return;
+      }
+
+      setUpdateStatusText("Up to date");
+      Alert.alert("Up to Date", "Crowscap is up to date with the latest features.");
+    } catch {
+      setUpdateStatusText("Up to date");
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
 
   const handleSignOut = async () => {
     Alert.alert("Sign Out", "Are you sure you want to sign out of Crowscap?", [
@@ -132,6 +190,41 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* App Updates & System */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>APP UPDATES & SYSTEM</Text>
+          <View style={styles.settingsGroup}>
+            <Pressable
+              style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
+              onPress={handleCheckForUpdates}
+              disabled={checkingUpdate}
+            >
+              <View style={styles.rowLeft}>
+                <Icons.RefreshCw size={16} color="#4d5154" />
+                <Text style={styles.rowTitle}>Check for updates</Text>
+              </View>
+              <View style={styles.valueBadge}>
+                {checkingUpdate ? (
+                  <ActivityIndicator size="small" color="#111111" />
+                ) : (
+                  <Text style={styles.valueText}>{updateStatusText}</Text>
+                )}
+              </View>
+            </Pressable>
+
+            <View style={styles.divider} />
+
+            <View style={styles.row}>
+              <View style={styles.rowLeft}>
+                <Icons.Info size={16} color="#4d5154" />
+                <Text style={styles.rowTitle}>Version</Text>
+              </View>
+              <View style={styles.valueBadge}>
+                <Text style={styles.valueText}>v1.0.0</Text>
+              </View>
+            </View>
+          </View>
+        </View>
 
         {/* Sign Out Button */}
         <Pressable
