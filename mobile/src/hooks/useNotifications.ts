@@ -44,7 +44,7 @@ export function useNotifications(enabled = true) {
           const actionId = response.actionIdentifier;
           const data = response.notification.request.content.data;
           const reminderId = typeof data?.reminderId === "string" ? data.reminderId : null;
-          const url = typeof data?.url === "string" ? data.url : "";
+          const memoryId = typeof data?.memoryId === "string" ? data.memoryId : null;
 
           if (actionId === "MARK_DONE" && reminderId) {
             try {
@@ -54,10 +54,14 @@ export function useNotifications(enabled = true) {
           }
 
           if (actionId === "READ_MORE" || actionId === Notifications.DEFAULT_ACTION_IDENTIFIER) {
-            if (url === "/recall" || url.startsWith("/recall") || url.includes("recall")) {
-              router.push("/(tabs)/recall");
+            // Build the target URL with the specific memory/reminder ID so recall.tsx
+            // can open and highlight the exact card that was notified
+            if (memoryId) {
+              router.push(`/(tabs)/recall?target_memory_id=${encodeURIComponent(memoryId)}` as never);
+            } else if (reminderId) {
+              router.push(`/(tabs)/recall?target_reminder_id=${encodeURIComponent(reminderId)}` as never);
             } else {
-              router.push("/(tabs)/recall");
+              router.push("/(tabs)/recall" as never);
             }
           }
         },

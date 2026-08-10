@@ -1,5 +1,5 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -69,8 +69,9 @@ function itemSubtitle(item: ReadyItem) {
 export default function RecallScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ target_memory_id?: string; memory_id?: string }>();
+  const params = useLocalSearchParams<{ target_memory_id?: string; memory_id?: string; target_reminder_id?: string }>();
   const targetMemoryId = params.target_memory_id || params.memory_id;
+  const targetReminderId = params.target_reminder_id;
 
   const {
     data,
@@ -100,6 +101,18 @@ export default function RecallScreen() {
     }));
     return [...reminders, ...memories];
   }, [data]);
+
+  // Auto-open the exact card the notification was about
+  useEffect(() => {
+    if (!data || activeKey) return;
+    if (targetMemoryId) {
+      const match = readyItems.find((item) => item.kind === "memory" && item.id === targetMemoryId);
+      if (match) setActiveKey(itemKey(match));
+    } else if (targetReminderId) {
+      const match = readyItems.find((item) => item.kind === "reminder" && item.id === targetReminderId);
+      if (match) setActiveKey(itemKey(match));
+    }
+  }, [data, readyItems, targetMemoryId, targetReminderId, activeKey]);
 
   const activeItem = readyItems.find((item) => itemKey(item) === activeKey) ?? null;
 

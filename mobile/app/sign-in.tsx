@@ -387,7 +387,7 @@ export default function SignInScreen() {
             style={styles.termsLink}
             onPress={() => Linking.openURL("https://crowscap.xyz/terms")}
           >
-            Terms &amp; Conditions
+            Terms {"&"} Conditions
           </Text>{" "}
           and{" "}
           <Text
@@ -497,6 +497,7 @@ const styles = StyleSheet.create({
   content: {
     flexGrow: 1,
     paddingHorizontal: 22,
+    justifyContent: "center",
   },
 
   logoWrap: {
