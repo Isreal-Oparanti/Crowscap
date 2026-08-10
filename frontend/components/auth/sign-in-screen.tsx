@@ -76,7 +76,6 @@ export function SignInScreen() {
     <main className="min-h-screen bg-[#f5f5f3] text-[#101112]">
       <section className="relative flex min-h-screen flex-col overflow-hidden">
         <div className="absolute inset-x-0 top-0 h-px bg-[#d7d9da]" />
-        <div className="absolute inset-y-0 left-1/2 hidden w-px bg-[#e4e5e5] lg:block" />
 
         <header className="relative z-20 mx-auto flex w-full max-w-[1220px] items-center justify-between px-5 py-5 md:px-8">
           <div className="flex items-center gap-3">
@@ -179,12 +178,12 @@ export function SignInScreen() {
           </div>
         ) : null}
 
-        <div className="mx-auto grid w-full max-w-[1220px] flex-1 items-center gap-10 px-5 pb-28 pt-8 md:px-8 lg:grid-cols-[minmax(0,0.95fr)_minmax(400px,0.85fr)] lg:gap-14 lg:pb-24 lg:pt-2">
-          <div className="max-w-[720px]">
-            <h1 className="text-[36px] font-[880] leading-[1.02] tracking-[-0.045em] sm:text-[46px] md:text-[54px] lg:text-[64px]">
+        <div className="mx-auto grid w-full max-w-[1220px] flex-1 items-center gap-10 px-5 pb-20 pt-8 md:px-8 lg:grid-cols-[minmax(0,1fr)_minmax(400px,0.85fr)] lg:gap-16 lg:pb-20 lg:pt-4">
+          <div className="max-w-[580px] lg:pr-4">
+            <h1 className="text-[36px] font-[880] leading-[1.02] tracking-[-0.045em] sm:text-[46px] md:text-[54px] lg:text-[62px]">
               Stop losing what you learn. Start actually using it.
             </h1>
-            <p className="mt-6 max-w-[640px] text-[16px] font-medium leading-7 text-[#464a4d] md:text-[18px]">
+            <p className="mt-6 text-[15px] font-medium leading-7 text-[#464a4d] md:text-[17px]">
               Crowscap AI is your personal intelligent memory that saves what you read and watch, 
               connects it to what you already know, 
               and brings the right idea back the moment you actually need it.
@@ -427,8 +426,7 @@ export function SignInScreen() {
           </div>
 
           <div className="mx-auto mt-12 flex w-full max-w-[1220px] flex-col items-center justify-between border-t border-white/10 pt-6 text-[12px] font-medium text-white/45 sm:flex-row">
-            <p>Copyright 2026 Crowscap. All rights reserved.</p>
-            <p className="mt-2 sm:mt-0">Private memory for serious learning.</p>
+            <p>© 2026 Crowscap. All rights reserved.</p>
           </div>
         </footer>
         <InstallBanner />
