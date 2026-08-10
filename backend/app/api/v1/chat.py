@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
@@ -56,6 +56,21 @@ def conversation(
     if found is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     return found
+
+
+@router.get("/messages", response_model=PaginatedMessagesResponse)
+def paginated_messages(
+    limit: int = Query(default=20, ge=1, le=100),
+    before_id: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_current_user),
+) -> PaginatedMessagesResponse:
+    return get_paginated_chat_messages(
+        db=db,
+        user_id=current_user.id,
+        limit=limit,
+        before_id=before_id,
+    )
 
 
 @router.post("", response_model=ChatResponse)
