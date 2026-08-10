@@ -3110,3 +3110,21 @@ def test_fix_user_perspective_converts_user_to_you() -> None:
     assert fix_user_perspective("User intends to learn Python") == "You intend to learn Python"
     assert fix_user_perspective("The user wants to save this link") == "You want to save this link"
 
+
+def test_recall_timing_and_platform_self_questions() -> None:
+    from app.services.chat_service import _deterministic_route, _process_self_question
+    
+    # "When will I start getting recalls?" must route to self
+    route = _deterministic_route("When will I start getting recalls?", history=[])
+    assert route is not None
+    assert route.action == "self"
+    
+    resp = _process_self_question("When will I start getting recalls?")
+    assert "24 to 72 hours" in resp.message
+    assert "Recall tab" in resp.message
+    
+    # "tell me all you know about crowscap" must provide full platform overview
+    resp_all = _process_self_question("tell me all you know about crowscap")
+    assert "Multi-Format Capture" in resp_all.message
+    assert "Spaced Repetition" in resp_all.message
+

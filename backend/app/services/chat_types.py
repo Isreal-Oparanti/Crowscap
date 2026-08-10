@@ -91,13 +91,14 @@ CROWSCAP_SELF_KNOWLEDGE: tuple[SelfKnowledgeChunk, ...] = (
         keywords=("memory", "capture", "source", "extract", "search", "youtube", "pdf", "url"),
     ),
     SelfKnowledgeChunk(
-        title="Recall and reminders",
+        title="Recall engine and timing",
         body=(
-            "I can schedule saved memories for recall. I can also create plain reminders "
-            "without saving the reminder text as long-term semantic memory when you ask for "
-            "a practical nudge rather than knowledge storage."
+            "Recalls in Crowscap are scheduled resurfacing check-ins for your saved memories based on spaced repetition. "
+            "When you save a link, video, or intention, Crowscap schedules an initial check-in within 24 to 72 hours. "
+            "For learned principles, claims, and ideas, recalls recur at expanding intervals (1 day, 3 days, 7 days, 14 days, 30 days). "
+            "Recalls appear on your Recall tab and as notification check-ins, surfacing one useful thought at a time with a prompt to help you review or act."
         ),
-        keywords=("recall", "remind", "reminder", "schedule", "notification", "forgetting"),
+        keywords=("recall", "recalls", "timing", "when", "start", "schedule", "spaced", "repetition", "interval", "decay", "nudge", "happen", "getting"),
     ),
     SelfKnowledgeChunk(
         title="Belief audit",
@@ -107,6 +108,14 @@ CROWSCAP_SELF_KNOWLEDGE: tuple[SelfKnowledgeChunk, ...] = (
             "evidence strength, uncertainty, missing context, and ideas worth comparing."
         ),
         keywords=("audit", "belief", "truth", "evidence", "public", "reliable", "verify"),
+    ),
+    SelfKnowledgeChunk(
+        title="Intentions and references",
+        body=(
+            "When you save a source to watch or read later, Crowscap classifies it as an intention or reference memory. "
+            "It preserves your stated intent for saving it and checks back in on the Recall tab to ask if it's still something you want to explore or apply."
+        ),
+        keywords=("intention", "intentions", "watch later", "read later", "reference", "later"),
     ),
     SelfKnowledgeChunk(
         title="Forgetting and limits",

@@ -2385,7 +2385,27 @@ def _is_first_message_question(normalized: str) -> bool:
 def _process_self_question(message: str) -> ChatResponse:
     normalized = re.sub(r"\s+", " ", message.strip().lower())
 
-    if _is_save_capability_question(normalized):
+    if any(k in normalized for k in ("recall", "recalls", "when will i start getting", "when do i get recall")):
+        answer = (
+            "Recalls in Crowscap are scheduled resurfacing check-ins for your saved memories based on spaced repetition:\n\n"
+            "• **Saved links & intentions** (articles, videos, to-read notes): Scheduled for an initial check-in within 24 to 72 hours.\n"
+            "• **Learned principles & claims**: Recur at expanding intervals (1 day, 3 days, 7 days, 14 days, 30 days).\n"
+            "• **Where they appear**: On your **Recall tab** in the app and as notification check-ins, surfacing one useful thought at a time with a prompt to help you review or act.\n\n"
+            "Once you save content or an intention, Crowscap automatically queues its recall timing."
+        )
+        next_step = "Check your Recall tab or save a new link to schedule its first check-in."
+    elif any(k in normalized for k in ("tell me all", "all you know", "everything you know", "full overview", "how does crowscap work")):
+        answer = (
+            "Here is everything Crowscap does to help you keep and use what you learn:\n\n"
+            "1. **Multi-Format Capture**: Save notes, web links, YouTube videos (with transcripts automatically extracted), and PDFs directly in chat while preserving your intent.\n"
+            "2. **Atomic Memory Extraction**: Converts saved material into distinct memory cards (principles, claims, actions, warnings, definitions, intentions, references).\n"
+            "3. **Semantic Search**: Find your saved knowledge by meaning (e.g. 'What did I save about distribution?') rather than relying on exact keywords.\n"
+            "4. **Recalls & Spaced Repetition**: Resurfaces saved ideas on your Recall tab and via nudges at optimal time intervals (24–72h for links/intentions; 1, 3, 7, 14, 30 days for principles).\n"
+            "5. **Belief Audits**: Synthesizes supporting memories, missing context, and public evidence leads for any belief or topic you want to inspect.\n"
+            "6. **Archiving & Privacy**: Keep memories strictly private to your account, and archive items anytime to remove them from active search or recall."
+        )
+        next_step = "Save something, try a semantic search, or check your Recall tab."
+    elif _is_save_capability_question(normalized):
         answer = (
             "I can help you keep the things you do not want to lose.\n\n"
             "- Ideas you are still thinking through\n"
@@ -4006,12 +4026,14 @@ def _looks_like_self_question(normalized: str) -> bool:
     if not words:
         return False
     self_terms = {"you", "u", "yourself", "crowscap", "app", "product", "tool", "system"}
-    capability_terms = {"do", "does", "save", "keep", "remember", "help", "use", "purpose", "work", "built"}
+    capability_terms = {"do", "does", "save", "keep", "remember", "help", "use", "purpose", "work", "built", "recall", "recalls", "know"}
+    if any(marker in normalized for marker in ("when will i start getting", "recalls on crowscap", "tell me all you know", "everything you know")):
+        return True
     if not words.intersection(self_terms):
         return False
     if _is_explicit_memory_query(normalized) or _is_explicit_belief_audit_query(normalized):
         return False
-    if normalized.startswith(("what ", "who ", "why ", "how ", "can ", "could ", "explain ", "tell me ")):
+    if normalized.startswith(("what ", "who ", "why ", "how ", "can ", "could ", "explain ", "tell me ", "when ")):
         return bool(words.intersection(capability_terms) or {"what", "who", "why", "how"}.intersection(words))
     return any(
         marker in normalized
