@@ -14,3 +14,26 @@ export async function getCurrentConversation(): Promise<ConversationResponse | n
   return apiRequest<ConversationResponse | null>("/chat/conversations/current");
 }
 
+export type PaginatedMessagesResponse = {
+  messages: Array<{
+    id: string;
+    conversation_id: string;
+    role: "user" | "assistant";
+    content: string;
+    action?: string;
+    metadata_json?: Record<string, unknown>;
+    created_at: string;
+  }>;
+  has_more: boolean;
+};
+
+export async function getChatMessages(
+  limit = 20,
+  beforeId?: string
+): Promise<PaginatedMessagesResponse> {
+  const query = beforeId
+    ? `/chat/messages?limit=${limit}&before_id=${beforeId}`
+    : `/chat/messages?limit=${limit}`;
+  return apiRequest<PaginatedMessagesResponse>(query);
+}
+

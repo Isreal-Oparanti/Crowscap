@@ -86,31 +86,38 @@ def recent_memories(
         .join(Source, Memory.source_id == Source.id)
         .where(*filters)
         .order_by(Memory.created_at.desc(), Memory.id.desc())
-        .offset(offset)
-        .limit(limit)
+        .limit(limit * 4)
     ).all()
-    memories = [
-        RecentMemoryResponse(
-            memory_id=memory.id,
-            source_id=source.id,
-            source_type=source.source_type,
-            source_title=_clean_title(source.title) if source.title else None,
-            memory_type=memory.memory_type,
-            epistemic_label=memory.epistemic_label,
-            content=memory.content,
-            summary=memory.summary,
-            confidence=memory.confidence,
-            confidence_reason=memory.confidence_reason,
-            source_strength=memory.source_strength,
-            created_at=memory.created_at,
+    seen_sources: set[str] = set()
+    memories: list[RecentMemoryResponse] = []
+    for memory, source in rows:
+        if source.id in seen_sources:
+            continue
+        seen_sources.add(source.id)
+        memories.append(
+            RecentMemoryResponse(
+                memory_id=memory.id,
+                source_id=source.id,
+                source_type=source.source_type,
+                source_title=_clean_title(source.title) if source.title else None,
+                memory_type=memory.memory_type,
+                epistemic_label=memory.epistemic_label,
+                content=memory.content,
+                summary=memory.summary,
+                confidence=memory.confidence,
+                confidence_reason=memory.confidence_reason,
+                source_strength=memory.source_strength,
+                created_at=memory.created_at,
+            )
         )
-        for memory, source in rows
-    ]
+        if len(memories) >= limit:
+            break
+
     return RecentMemoryListResponse(
-        count=count,
+        count=len(memories),
         limit=limit,
         offset=offset,
-        has_more=offset + len(memories) < count,
+        has_more=len(rows) > len(memories),
         memories=memories,
     )
 

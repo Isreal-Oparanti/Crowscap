@@ -290,7 +290,7 @@ export default function MemoryDetailModal() {
                 {/* Top header row */}
                 <View style={styles.atomTopRow}>
                   <View style={styles.atomIconWrap}>
-                    <Icons.Lightbulb size={16} color="#356b8f" />
+                    <Icons.Lightbulb size={16} color="#374151" />
                   </View>
                   <View style={styles.atomMeta}>
                     <Text style={styles.atomTypeLabel}>
@@ -352,7 +352,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   sourceTypeBadge: {
-    backgroundColor: "#e8f1f5",
+    backgroundColor: "#f3f4f6",
     borderRadius: 6,
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -360,7 +360,7 @@ const styles = StyleSheet.create({
   sourceTypeBadgeText: {
     fontSize: 10,
     fontFamily: fontFamily.extrabold,
-    color: "#356b8f",
+    color: "#374151",
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
@@ -391,9 +391,9 @@ const styles = StyleSheet.create({
     marginHorizontal: tokens.spacing[5],
     marginTop: 10,
     marginBottom: 2,
-    backgroundColor: "#eef4fb",
+    backgroundColor: "#f9fafb",
     borderWidth: 1,
-    borderColor: "#c5daf5",
+    borderColor: "#e5e7eb",
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 7,
@@ -402,7 +402,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 12,
     fontFamily: fontFamily.medium,
-    color: "#1a6ebd",
+    color: "#111827",
   },
 
   centered: {
@@ -464,7 +464,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 8,
-    backgroundColor: "#eaf2f7",
+    backgroundColor: "#f3f4f6",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -524,9 +524,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "#eef4fb",
+    backgroundColor: "#f9fafb",
     borderWidth: 1,
-    borderColor: "#c5daf5",
+    borderColor: "#e5e7eb",
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 7,
@@ -535,7 +535,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 12,
     fontFamily: fontFamily.medium,
-    color: "#1a6ebd",
+    color: "#111827",
   },
   summaryBox: {
     borderWidth: 1,

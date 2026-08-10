@@ -46,12 +46,24 @@ function itemKey(item: ReadyItem) {
 
 function itemTitle(item: ReadyItem) {
   if (item.kind === "reminder") return item.reminder.content;
-  return item.memory.summary || item.memory.content;
+  const raw = item.memory.source_title || item.memory.human_title || item.memory.summary || item.memory.content;
+  return raw
+    .replace(/^\*\*(Source|Link|Why you saved this|Key Summary)\*\*:\s*/i, "")
+    .replace(/^#{1,6}\s+/, "")
+    .replace(/\s*(#[A-Za-z0-9_]+\s*)+$/, "")
+    .trim();
 }
 
 function itemSubtitle(item: ReadyItem) {
   if (item.kind === "reminder") return formatDue(item.reminder.due_at);
-  return item.memory.source_title || "Saved memory";
+  const created = item.memory.created_at ? new Date(item.memory.created_at) : null;
+  const typeName = item.memory.source_type ? item.memory.source_type.toUpperCase() : "MEMORY";
+  if (created && !isNaN(created.getTime())) {
+    const daysAgo = Math.max(0, Math.floor((Date.now() - created.getTime()) / (1000 * 60 * 60 * 24)));
+    const timeAgoStr = daysAgo === 0 ? "Today" : daysAgo === 1 ? "Yesterday" : `${daysAgo} days ago`;
+    return `${timeAgoStr} · ${typeName}`;
+  }
+  return typeName;
 }
 
 export default function RecallScreen() {
@@ -130,7 +142,17 @@ export default function RecallScreen() {
       if (action === "ask_agent") {
         await apiSubmitQuickRecall(memory.memory_id, action);
         closeDetail();
-        router.push(`/(tabs)/?context_memory_id=${memory.memory_id}` as never);
+        const rawTitle = memory.human_title || memory.source_title || memory.content;
+        const cleanTitle = rawTitle.replace(/^#{1,6}\s+/, "").replace(/\s*(#[A-Za-z0-9_]+\s*)+$/, "").trim();
+        let curatedPrompt = `Help me explore and break down key insights from "${cleanTitle}".`;
+        if (memory.memory_type === "intention") {
+          curatedPrompt = `How can I apply "${cleanTitle}" to what I am building right now?`;
+        } else if (memory.memory_type === "action") {
+          curatedPrompt = `What is the best way to execute and complete "${cleanTitle}"?`;
+        } else if (memory.memory_type === "question") {
+          curatedPrompt = `Can you help me answer and resolve "${cleanTitle}"?`;
+        }
+        router.push(`/(tabs)/?prompt=${encodeURIComponent(curatedPrompt)}&context_memory_id=${memory.memory_id}` as never);
         return;
       }
       await apiSubmitQuickRecall(memory.memory_id, action);
@@ -306,7 +328,6 @@ function ReadyRow({ item, index, onPress }: { item: ReadyItem; index: number; on
             <Text style={styles.pinnedBadgeText}>🔔 From Today's Nudge</Text>
           </View>
         ) : null}
-        <Text style={styles.rowLabel}>{label}</Text>
         <Text style={styles.rowTitle} numberOfLines={2}>
           {title}
         </Text>
@@ -392,15 +413,15 @@ function MemoryDetail({
       ) : null}
 
       <View style={styles.detailLabelRow}>
-        <Icons.BookOpenCheck size={17} color="#2f7b60" />
+        <Icons.BookOpenCheck size={16} color="#2d7058" />
         <Text style={styles.detailLabel}>{title.toUpperCase()}</Text>
       </View>
 
       <Text style={styles.detailTitle}>{promptText}</Text>
 
       <View style={styles.ideaBox}>
-        <Text style={styles.ideaLabel}>ORIGINAL MEMORY</Text>
-        <MarkdownText text={memory.content} compact />
+        <Text style={styles.ideaLabel}>MEMORY SUMMARY</Text>
+        <MarkdownText text={memory.summary || memory.content} />
       </View>
 
       <View style={styles.checkBox}>
@@ -411,28 +432,28 @@ function MemoryDetail({
             disabled={working}
             onPress={() => onQuickAction("snooze_7d")}
           >
-            <Icons.Clock3 size={18} color="#4b5563" />
+            <Icons.Clock3 size={18} color="#374151" />
             <Text style={styles.quickActionTitle}>Snooze</Text>
             <Text style={styles.quickActionSub}>1 week</Text>
           </Pressable>
 
           <Pressable
-            style={[styles.quickActionButton, styles.quickActionUsed]}
+            style={styles.quickActionButton}
             disabled={working}
             onPress={() => onQuickAction("applied")}
           >
-            <Icons.CheckCircle size={18} color="#166534" />
-            <Text style={[styles.quickActionTitle, { color: "#166534" }]}>Used it</Text>
+            <Icons.CheckCircle size={18} color="#374151" />
+            <Text style={styles.quickActionTitle}>Used it</Text>
             <Text style={styles.quickActionSub}>Completed</Text>
           </Pressable>
 
           <Pressable
-            style={[styles.quickActionButton, styles.quickActionChat]}
+            style={styles.quickActionButton}
             disabled={working}
             onPress={() => onQuickAction("ask_agent")}
           >
-            <Icons.MessageCircle size={18} color="#1e40af" />
-            <Text style={[styles.quickActionTitle, { color: "#1e40af" }]}>Ask Agent</Text>
+            <Icons.MessageCircle size={18} color="#374151" />
+            <Text style={styles.quickActionTitle}>Ask Crowscap</Text>
             <Text style={styles.quickActionSub}>Chat context</Text>
           </Pressable>
         </View>
@@ -601,10 +622,10 @@ const styles = StyleSheet.create({
     color: "#2f7b60",
   },
   detailTitle: {
-    fontSize: 30,
-    lineHeight: 36,
-    fontFamily: fontFamily.extrabold,
-    color: tokens.colors.text,
+    fontSize: 19,
+    lineHeight: 26,
+    fontFamily: fontFamily.bold,
+    color: "#111827",
   },
   detailMeta: {
     marginTop: -8,
@@ -686,16 +707,16 @@ const styles = StyleSheet.create({
   },
   checkBox: {
     borderWidth: 1,
-    borderColor: "#c9e0d3",
+    borderColor: "#e5e7eb",
     borderRadius: 12,
-    backgroundColor: "#f1faf5",
+    backgroundColor: "#ffffff",
     padding: 18,
     gap: 12,
   },
   checkLabel: {
     fontSize: 11,
     fontFamily: fontFamily.extrabold,
-    color: "#2f7b60",
+    color: "#2d7058",
   },
   checkQuestion: {
     fontSize: 15,
@@ -865,32 +886,27 @@ const styles = StyleSheet.create({
   },
   quickActionButton: {
     flex: 1,
-    backgroundColor: "#f3f4f6",
+    backgroundColor: "#ffffff",
     borderColor: "#e5e7eb",
     borderWidth: 1,
     borderRadius: 12,
     paddingVertical: 12,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     alignItems: "center",
+    justifyContent: "center",
     gap: 4,
   },
   quickActionTitle: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontFamily: fontFamily.bold,
-    color: "#374151",
+    color: "#111827",
+    textAlign: "center",
   },
   quickActionSub: {
     fontSize: 10,
     fontFamily: fontFamily.medium,
-    color: "#6b7280",
-  },
-  quickActionUsed: {
-    backgroundColor: "#f0fdf4",
-    borderColor: "#bbf7d0",
-  },
-  quickActionChat: {
-    backgroundColor: "#eff6ff",
-    borderColor: "#bfdbfe",
+    color: "#2d7058",
+    textAlign: "center",
   },
 });
 

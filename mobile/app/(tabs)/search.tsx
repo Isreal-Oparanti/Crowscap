@@ -8,7 +8,8 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BrandMark } from "@/components/shell/BrandMark";
 import { Icons } from "@/components/ui/Icon";
@@ -23,7 +24,6 @@ type MemoryRowItem = RecentMemory | SearchResult;
 
 const PROMPTS = [
   "What do I know about distribution?",
-  "What have I learned but not applied?",
 ];
 
 function isRecentMemory(item: MemoryRowItem): item is RecentMemory {
@@ -49,8 +49,15 @@ export default function SearchScreen() {
     executeSearch,
     clearSearch,
     loadMoreRecent,
+    refetchRecent,
     handleDelete,
   } = useSearch();
+
+  useFocusEffect(
+    useCallback(() => {
+      refetchRecent();
+    }, [refetchRecent])
+  );
 
   const visibleMemories = searchResult ? searchResult.results : recent;
   const showingResults = Boolean(searchResult);

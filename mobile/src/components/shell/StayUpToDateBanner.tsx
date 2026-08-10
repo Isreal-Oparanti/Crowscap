@@ -1,16 +1,29 @@
 import { useState, useEffect, useCallback } from "react";
-
-import { View, Text, StyleSheet, Switch, Alert, Linking } from "react-native";
+import { View, Text, StyleSheet, Switch, Alert, Linking, Pressable } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "expo-router";
 import { tokens } from "@/theme/tokens";
 import { fontFamily } from "@/theme/typography";
 import { getNotificationsModule, requestPushPermissions } from "@/utils/notifications";
+import { Icons } from "@/components/ui/Icon";
+
+const DISMISS_KEY = "@crowscap_banner_dismissed_v1";
 
 export function StayUpToDateBanner() {
   const [permissionGranted, setPermissionGranted] = useState<boolean>(false);
+  const [dismissed, setDismissed] = useState<boolean>(false);
   const [checked, setChecked] = useState<boolean>(false);
 
   const checkStatus = useCallback(async () => {
+    try {
+      const isDismissed = await AsyncStorage.getItem(DISMISS_KEY);
+      if (isDismissed === "true") {
+        setDismissed(true);
+        setChecked(true);
+        return;
+      }
+    } catch {}
+
     const Notifications = getNotificationsModule();
     if (!Notifications) {
       setPermissionGranted(false);
@@ -37,7 +50,6 @@ export function StayUpToDateBanner() {
     }, [checkStatus])
   );
 
-
   const handleToggle = async () => {
     const granted = await requestPushPermissions();
     if (granted) {
@@ -54,21 +66,32 @@ export function StayUpToDateBanner() {
     }
   };
 
-  if (!checked || permissionGranted) {
+  const handleDismiss = async () => {
+    setDismissed(true);
+    try {
+      await AsyncStorage.setItem(DISMISS_KEY, "true");
+    } catch {}
+  };
+
+  if (!checked || permissionGranted || dismissed) {
     return null;
   }
-
 
   return (
     <View style={styles.banner}>
       <View style={styles.left}>
-        <Text style={styles.title}>Stay up to date</Text>
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>Stay up to date</Text>
+          <Pressable onPress={handleDismiss} hitSlop={8} style={styles.closeBtn}>
+            <Icons.X size={16} color="#6b7280" />
+          </Pressable>
+        </View>
         <Text style={styles.sub}>
           Turn on notifications to know right away when you have due recalls, reminders, and memory nudges.
         </Text>
       </View>
       <Switch
-        value={false}
+        value={permissionGranted}
         onValueChange={handleToggle}
         trackColor={{ false: "#d0d4d8", true: "#2d7058" }}
         thumbColor="#ffffff"
@@ -92,6 +115,14 @@ const styles = StyleSheet.create({
   left: {
     flex: 1,
     gap: 4,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  closeBtn: {
+    padding: 2,
   },
   title: {
     fontSize: 15,

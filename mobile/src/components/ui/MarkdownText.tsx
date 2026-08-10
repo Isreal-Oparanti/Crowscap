@@ -38,7 +38,7 @@ export function MarkdownText({ text, compact = false }: MarkdownTextProps) {
               {block.items.map((item, itemIndex) => (
                 <View key={`${item}-${itemIndex}`} style={styles.listItem}>
                   <Text style={styles.bullet}>{block.ordered ? `${itemIndex + 1}.` : "•"}</Text>
-                  <Text style={[styles.text, compact && styles.compactText]}>
+                  <Text style={[styles.text, compact && styles.compactText, styles.listItemText]}>
                     {renderInline(item)}
                   </Text>
                 </View>
@@ -241,6 +241,9 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 10,
     paddingLeft: 2,
+  },
+  listItemText: {
+    flex: 1,
   },
   bullet: {
     width: 14,

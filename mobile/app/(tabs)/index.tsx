@@ -18,9 +18,10 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 
 import { sendChatMessage, getCurrentConversation } from "@/api/chat";
+import { formatFriendlyError } from "@/api/client";
 import { capturePdf, getProcessingJob } from "@/api/captures";
 
 import { BrandMark } from "@/components/shell/BrandMark";
@@ -58,6 +59,7 @@ type AssistantErrorMessage = {
   kind: "error";
   text: string;
   retryText?: string;
+  fileToUpload?: DocumentPicker.DocumentPickerAsset;
 };
 
 type ChatMessage =
@@ -118,6 +120,9 @@ export default function ChatScreen() {
   const { session, isLoading: authLoading } = useAuth();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const searchParams = useLocalSearchParams<{ prompt?: string; initial_prompt?: string }>();
+  const initialPrompt = searchParams.prompt || searchParams.initial_prompt;
+
   const inputRef = useRef<TextInput>(null);
   const listRef = useRef<FlatList<ChatMessage>>(null);
   const shouldStickToBottomRef = useRef(true);
@@ -126,10 +131,16 @@ export default function ChatScreen() {
   const [messages, setMessages] = useState<ChatMessage[]>([openingMessage(session?.name)]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(initialPrompt ?? "");
   const [working, setWorking] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [workMode, setWorkMode] = useState<WorkMode>("chat");
+
+  useEffect(() => {
+    if (initialPrompt) {
+      setDraft(initialPrompt);
+    }
+  }, [initialPrompt]);
 
   const scrollToEnd = useCallback((animated = true) => {
     setTimeout(() => listRef.current?.scrollToEnd({ animated }), 80);
@@ -331,10 +342,9 @@ export default function ChatScreen() {
             id: makeId("msg"),
             role: "assistant",
             kind: "error",
-            text:
-              err instanceof Error
-                ? err.message
-                : "Crowscap could not complete that thought.",
+            text: formatFriendlyError(
+              err instanceof Error ? err.message : "Network Disconnect. Please try again."
+            ),
             retryText: text,
           },
         ]);
@@ -349,11 +359,67 @@ export default function ChatScreen() {
   );
 
   const retry = useCallback(
-    async (text: string) => {
-      if (!text.trim() || working) return;
-      await sendText(text);
+    async (msg: AssistantErrorMessage) => {
+      if (working || uploadingFile) return;
+
+      if (msg.fileToUpload) {
+        const fileToUpload = msg.fileToUpload;
+        const userMsg: UserMessage = {
+          id: makeId("msg"),
+          role: "user",
+          text: `Uploaded PDF: ${fileToUpload.name}`,
+        };
+        shouldStickToBottomRef.current = true;
+        setMessages((current) => [...current, userMsg]);
+        setWorkMode("save");
+        setUploadingFile(true);
+        scrollToEnd();
+
+        try {
+          const capture = await capturePdf({
+            uri: fileToUpload.uri,
+            name: fileToUpload.name || "uploaded.pdf",
+            mimeType: fileToUpload.mimeType || "application/pdf",
+          });
+
+          setMessages((current) => [
+            ...current,
+            {
+              id: makeId("msg"),
+              role: "assistant",
+              kind: "capture",
+              text: `I kept this PDF as ${
+                capture.memories.length === 1
+                  ? "1 memory"
+                  : `${capture.memories.length} memories`
+              }.`,
+              data: capture,
+            },
+          ]);
+        } catch (err) {
+          setMessages((current) => [
+            ...current,
+            {
+              id: makeId("msg"),
+              role: "assistant",
+              kind: "error",
+              text: formatFriendlyError(
+                err instanceof Error ? err.message : "Crowscap AI could not upload that PDF."
+              ),
+              fileToUpload: fileToUpload,
+            },
+          ]);
+        } finally {
+          setUploadingFile(false);
+          if (shouldStickToBottomRef.current) {
+            scrollToEnd();
+          }
+        }
+      } else if (msg.retryText && msg.retryText.trim()) {
+        await sendText(msg.retryText);
+      }
     },
-    [sendText, working],
+    [sendText, scrollToEnd, uploadingFile, working],
   );
 
   const [pendingFile, setPendingFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
@@ -424,10 +490,10 @@ export default function ChatScreen() {
             id: makeId("msg"),
             role: "assistant",
             kind: "error",
-            text:
-              err instanceof Error
-                ? err.message
-                : "Crowscap could not upload that PDF.",
+            text: formatFriendlyError(
+              err instanceof Error ? err.message : "Crowscap AI could not upload that PDF."
+            ),
+            fileToUpload: fileToUpload,
           },
         ]);
       } finally {
@@ -539,7 +605,7 @@ function ChatTurn({
   retryDisabled,
 }: {
   message: ChatMessage;
-  onRetry: (text: string) => void;
+  onRetry: (msg: AssistantErrorMessage) => void;
   retryDisabled: boolean;
 }) {
   if (message.role === "user") {
@@ -562,7 +628,7 @@ function ChatTurn({
         {message.kind === "error" ? (
           <Pressable
             style={({ pressed }) => [styles.retryButton, pressed && { opacity: 0.65 }]}
-            onPress={() => onRetry(message.retryText ?? message.text)}
+            onPress={() => onRetry(message)}
             disabled={retryDisabled}
           >
             <Icons.Loader2 size={12} color="#7b7e82" />
@@ -884,7 +950,18 @@ function CaptureReceipt({ data }: { data: CaptureResponse }) {
               </View>
             ) : (
             <View style={styles.receiptOriginalWrap}>
-              <Text style={styles.receiptOriginalEyebrow}>EXACTLY AS SAVED</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+                <Text style={[styles.receiptOriginalEyebrow, { flex: 1 }]}>EXACTLY AS SAVED</Text>
+                <Pressable
+                  style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 2, paddingHorizontal: 6 }}
+                  onPress={() => {
+                    router.push(`/(modals)/source/${data.source_id}` as never);
+                  }}
+                >
+                  <Icons.ExternalLink size={12} color="#374151" />
+                  <Text style={{ fontSize: 11, fontFamily: fontFamily.bold, color: "#374151" }}>View full document</Text>
+                </Pressable>
+              </View>
               {data.source_title ? (
                 <Text style={styles.receiptOriginalTitle}>
                   {cleanSourceTitle(data.source_title)}

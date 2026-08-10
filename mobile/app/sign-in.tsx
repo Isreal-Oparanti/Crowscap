@@ -25,13 +25,13 @@ import { useAuth } from "@/hooks/useAuth";
 import { fontFamily } from "@/theme/typography";
 
 const IOS_CLIENT_ID =
-  Constants.expoConfig?.extra?.googleClientIdIos ??
-  process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS ??
-  "";
+  Constants.expoConfig?.extra?.googleClientIdIos ||
+  process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS ||
+  "1021218071446-o9qcbq9gv0a1bc3v63v7q7404amgk3ju.apps.googleusercontent.com";
 const WEB_CLIENT_ID =
-  Constants.expoConfig?.extra?.googleClientIdWeb ??
-  process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB ??
-  "";
+  Constants.expoConfig?.extra?.googleClientIdWeb ||
+  process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB ||
+  "1021218071446-g3fvih6bt05gbtaiv9djmkgj15facu8d.apps.googleusercontent.com";
 
 
 
@@ -403,10 +403,12 @@ export default function SignInScreen() {
 
 function readableAuthError(error: unknown) {
   if (error instanceof ApiError) {
-    return error.message;
+    return typeof error.message === "string" ? error.message : "Authentication error. Please try again.";
   }
 
-  const msg = error instanceof Error ? error.message : String(error ?? "");
+  const raw = error instanceof Error ? error.message : String(error ?? "");
+  const msg = typeof raw === "string" && raw !== "[object Object]" ? raw : "Something went wrong. Please try again.";
+
   if (error instanceof TypeError || msg.includes("Failed to fetch") || msg.includes("Network request failed")) {
     return "Crowscap could not reach the server. Please check your internet connection.";
   }

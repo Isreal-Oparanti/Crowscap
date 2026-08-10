@@ -218,6 +218,8 @@ export interface RecallMemory {
   memory_id: string;
   source_id: string;
   source_title: string | null;
+  source_type?: string | null;
+  created_at?: string | null;
   memory_type: MemoryType;
   epistemic_label: EpistemicLabel | null;
   content: string;

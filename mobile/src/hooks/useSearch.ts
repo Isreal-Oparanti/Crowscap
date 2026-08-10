@@ -90,6 +90,7 @@ export function useSearch() {
     executeSearch,
     clearSearch,
     loadMoreRecent: () => fetchRecent(recentOffset),
+    refetchRecent: () => fetchRecent(0),
     handleDelete,
   };
 }

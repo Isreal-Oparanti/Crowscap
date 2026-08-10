@@ -13,15 +13,11 @@ const { withAppBuildGradle } = require("@expo/config-plugins");
 
 const withAbiSplits = (config) => {
   return withAppBuildGradle(config, (mod) => {
-    const buildGradle = mod.modResults.contents;
+    let buildGradle = mod.modResults.contents;
 
-    // Only inject if not already present
-    if (buildGradle.includes("splits {")) {
-      return mod;
-    }
-
-    // Inject ABI splits block right after `android {` opening
-    const abiSplitsBlock = `
+    // Inject ABI splits block if not present
+    if (!buildGradle.includes("splits {")) {
+      const abiSplitsBlock = `
     splits {
         abi {
             enable true
@@ -31,12 +27,21 @@ const withAbiSplits = (config) => {
         }
     }
 `;
+      buildGradle = buildGradle.replace(/android\s*\{/, `android {${abiSplitsBlock}`);
+    }
 
-    mod.modResults.contents = buildGradle.replace(
-      /android\s*\{/,
-      `android {${abiSplitsBlock}`
-    );
+    // Enable R8 ProGuard code & resource shrinking for Release buildType
+    if (buildGradle.includes("release {")) {
+      buildGradle = buildGradle.replace(
+        /release\s*\{/,
+        `release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"`
+      );
+    }
 
+    mod.modResults.contents = buildGradle;
     return mod;
   });
 };
