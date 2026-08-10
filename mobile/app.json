@@ -8,7 +8,7 @@
     },
     "updates": {
       "url": "https://u.expo.dev/e608ef6e-7ad3-47d8-b80e-eb4e592b7870",
-      "checkAutomatically": "NEVER"
+      "checkAutomatically": "ON_LOAD"
     },
     "orientation": "portrait",
     "icon": "./assets/icon.png",
