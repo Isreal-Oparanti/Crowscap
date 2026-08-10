@@ -36,12 +36,14 @@ class ConversationTurn(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=MAX_CHAT_MESSAGE_CHARS)
     conversation_id: str | None = None
+    context_memory_id: str | None = None
     history: list[ConversationTurn] = Field(default_factory=list)
 
     @field_validator("history", mode="after")
     @classmethod
     def _limit_history(cls, value: list[ConversationTurn]) -> list[ConversationTurn]:
         return value[-MAX_HISTORY_TURNS:]
+
 
 
 class ChatResponse(BaseModel):

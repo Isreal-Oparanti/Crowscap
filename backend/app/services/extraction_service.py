@@ -121,6 +121,7 @@ If the captured text contains conflicting claims, preserve both as separate memo
 Confidence means confidence that the memory is supported by the captured text, not confidence that it is objectively true.
 Source strength means evidence quality. Unsupported advice should not be "strong" only because it is stated clearly.
 Keep memory_type and epistemic_label separate. "intention" is a memory_type; an intention's epistemic_label should usually be "personal_reflection".
+Always write summaries, intentions, and memory content using 2nd person ("You intend to...", "You plan to...") or direct active voice. Never refer to the user in the 3rd person as "User" or "The user".
 """
 
 

@@ -36,20 +36,17 @@ function notifyApiIssue(message: string) {
 
 function errorMessageFromPayload(payload: unknown): string {
   if (typeof payload === "object" && payload !== null) {
-    if ("detail" in payload && typeof payload.detail === "string") {
-      return payload.detail;
-    }
-    // FastAPI validation errors return `detail` as an array of error objects.
-    // Surface the first human-readable message instead of a generic failure.
-    if ("detail" in payload && Array.isArray(payload.detail)) {
-      const first = payload.detail[0];
-      if (
-        typeof first === "object" &&
-        first !== null &&
-        "msg" in first &&
-        typeof first.msg === "string"
-      ) {
-        return `Crowscap could not accept that input: ${first.msg}`;
+    if ("detail" in payload) {
+      const detail = (payload as Record<string, unknown>).detail;
+      if (typeof detail === "string" && detail.trim()) {
+        return detail;
+      }
+      if (Array.isArray(detail) && detail[0]?.msg && typeof detail[0].msg === "string") {
+        return `Crowscap could not accept that input: ${detail[0].msg}`;
+      }
+      if (typeof detail === "object" && detail !== null) {
+        const msg = (detail as Record<string, unknown>).message;
+        return typeof msg === "string" ? msg : JSON.stringify(detail);
       }
     }
     if ("error" in payload && typeof payload.error === "string") {

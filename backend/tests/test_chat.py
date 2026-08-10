@@ -3088,3 +3088,25 @@ def test_recent_memories_endpoint_returns_active_user_memories() -> None:
         assert "real users" in payload["memories"][0]["content"]
     finally:
         app.dependency_overrides.clear()
+
+
+def test_fast_path_does_not_hijack_really_or_yes() -> None:
+    from app.services.chat_service import _deterministic_route
+    
+    # "Really??" must NOT match fast-path acknowledgement
+    route_really = _deterministic_route("Really??", history=[])
+    assert route_really is None or route_really.action != "acknowledge"
+    if route_really and route_really.action == "acknowledge":
+        assert "glad it makes sense" not in route_really.reply
+
+    # "yes" must NOT match fast-path acknowledgement
+    route_yes = _deterministic_route("yes", history=[])
+    assert route_yes is None or route_yes.action != "acknowledge"
+
+
+def test_fix_user_perspective_converts_user_to_you() -> None:
+    from app.api.v1.memories import fix_user_perspective
+    
+    assert fix_user_perspective("User intends to learn Python") == "You intend to learn Python"
+    assert fix_user_perspective("The user wants to save this link") == "You want to save this link"
+

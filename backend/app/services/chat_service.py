@@ -471,7 +471,15 @@ def process_chat_message(
         len(effective_history),
         conversation.id,
     )
-    if grounded_local_reply is not None:
+    if payload.context_memory_id:
+        route = ChatRoute(
+            action="answer",
+            reason="The user is asking a question via Recall about a specific memory.",
+            context_action="memory_search",
+            target="memory_topic",
+        )
+        logger.info("📍 chat.route.context_memory_id memory_id=%s", payload.context_memory_id)
+    elif grounded_local_reply is not None:
         route = ChatRoute(
             action="conversation",
             reply=grounded_local_reply,
@@ -1015,6 +1023,29 @@ def process_chat_message(
         embedder=embedder,
         user_id=user_id,
     )
+    if payload.context_memory_id:
+        target_mem = db.scalar(
+            select(Memory).where(Memory.id == payload.context_memory_id, Memory.user_id == user_id)
+        )
+        if target_mem:
+            src = db.get(Source, target_mem.source_id) if target_mem.source_id else None
+            clean_src_title = src.title.replace("#", "").strip() if (src and src.title) else None
+            target_res = SearchResult(
+                memory_id=target_mem.id,
+                source_id=target_mem.source_id,
+                source_title=clean_src_title,
+                source_type=src.source_type if src else "note",
+                memory_type=target_mem.memory_type,
+                epistemic_label=target_mem.epistemic_label,
+                content=target_mem.content,
+                summary=target_mem.summary,
+                confidence=target_mem.confidence,
+                confidence_reason=target_mem.confidence_reason,
+                source_strength=target_mem.source_strength,
+                similarity_score=1.0,
+            )
+            search.results = [target_res] + [r for r in search.results if r.memory_id != target_mem.id]
+
     search = _pack_memory_context(
         db=db,
         search=search,
@@ -1529,7 +1560,6 @@ def _looks_like_acknowledgement_only(normalized: str) -> bool:
         "that",
         "so",
         "much",
-        "really",
         "appreciate",
         "appreciated",
         "exactly",
@@ -1539,9 +1569,6 @@ def _looks_like_acknowledgement_only(normalized: str) -> bool:
         "helpful",
         "perfect",
         "nice",
-        "yes",
-        "yeah",
-        "yep",
         "hmm",
         "hmmm",
     }
@@ -3703,7 +3730,6 @@ def _deterministic_route(message: str, *, history: list[ConversationTurn]) -> Ch
         "that",
         "so",
         "much",
-        "really",
         "appreciate",
         "appreciated",
         "exactly",
@@ -3713,14 +3739,17 @@ def _deterministic_route(message: str, *, history: list[ConversationTurn]) -> Ch
         "helpful",
         "perfect",
         "nice",
-        "yes",
-        "yeah",
-        "yep",
     }
     if words and len(words) <= 12 and set(words).issubset(acknowledgement_words):
+        # Provide appropriate acknowledgment depending on whether user expressed thanks
+        if any(w in words for w in ("thanks", "thank", "appreciate", "appreciated")):
+            ack_reply = "You're welcome! Let me know if you want to dig into anything else."
+        else:
+            ack_reply = "Got it! Let me know what you'd like to work on or explore next."
+
         return ChatRoute(
             action="acknowledge",
-            reply="You are welcome. I am glad it makes sense.",
+            reply=ack_reply,
             reason="The message is a short acknowledgement and contains no learning to store.",
         )
 

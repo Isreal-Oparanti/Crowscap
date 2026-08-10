@@ -120,8 +120,9 @@ export default function ChatScreen() {
   const { session, isLoading: authLoading } = useAuth();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const searchParams = useLocalSearchParams<{ prompt?: string; initial_prompt?: string }>();
+  const searchParams = useLocalSearchParams<{ prompt?: string; initial_prompt?: string; context_memory_id?: string }>();
   const initialPrompt = searchParams.prompt || searchParams.initial_prompt;
+  const contextMemoryId = searchParams.context_memory_id;
 
   const inputRef = useRef<TextInput>(null);
   const listRef = useRef<FlatList<ChatMessage>>(null);
@@ -132,6 +133,7 @@ export default function ChatScreen() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [draft, setDraft] = useState(initialPrompt ?? "");
+  const [pendingContextMemoryId, setPendingContextMemoryId] = useState<string | undefined>(contextMemoryId);
   const [working, setWorking] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [workMode, setWorkMode] = useState<WorkMode>("chat");
@@ -140,7 +142,10 @@ export default function ChatScreen() {
     if (initialPrompt) {
       setDraft(initialPrompt);
     }
-  }, [initialPrompt]);
+    if (contextMemoryId) {
+      setPendingContextMemoryId(contextMemoryId);
+    }
+  }, [initialPrompt, contextMemoryId]);
 
   const scrollToEnd = useCallback((animated = true) => {
     setTimeout(() => listRef.current?.scrollToEnd({ animated }), 80);
@@ -337,7 +342,16 @@ export default function ChatScreen() {
           .slice(-12)
           .map((message) => ({ role: message.role, content: message.text }));
 
-        const raw = await sendChatMessage({ message: text, history });
+        const memoryIdToSend = pendingContextMemoryId;
+        if (pendingContextMemoryId) {
+          setPendingContextMemoryId(undefined);
+        }
+
+        const raw = await sendChatMessage({
+          message: text,
+          history,
+          context_memory_id: memoryIdToSend,
+        });
         const action: ChatAction = chatActions.includes(raw.action) ? raw.action : "conversation";
 
         const assistantMsg: ChatMessage =

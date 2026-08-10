@@ -73,6 +73,18 @@ from app.services.recall_service import _clean_title
 router = APIRouter(tags=["memories"])
 
 
+def fix_user_perspective(text: str) -> str:
+    if not text:
+        return text
+    text = re.sub(r"\bThe user intends?\b", "You intend", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bThe user wants?\b", "You want", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bThe user plans?\b", "You plan", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bUser intends?\b", "You intend", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bUser wants?\b", "You want", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bUser plans?\b", "You plan", text, flags=re.IGNORECASE)
+    return text
+
+
 def _clean_human_summary(raw_summary: str | None, raw_content: str | None) -> str | None:
     text = (raw_summary or raw_content or "").strip()
     if not text:
@@ -85,6 +97,8 @@ def _clean_human_summary(raw_summary: str | None, raw_content: str | None) -> st
         text,
         flags=re.IGNORECASE,
     ).strip()
+
+    text = fix_user_perspective(text)
 
     if text and len(text) > 1:
         text = text[0].upper() + text[1:]

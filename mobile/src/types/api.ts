@@ -67,6 +67,7 @@ export interface ChatMessage {
 export interface ChatRequest {
   message: string;
   history: ChatMessage[];
+  context_memory_id?: string;
 }
 
 export interface ChatMessageResponse {

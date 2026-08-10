@@ -219,7 +219,7 @@ export type RecallRelationship = {
   relationship_type: string;
   strength: string;
   explanation: string | null;
-  direction: "incoming" | "outgoing";
+  direction: "incoming" | "outgoing" | string;
 };
 
 export type DueRecall = {
@@ -239,6 +239,9 @@ export type DueRecall = {
   recall_score: number;
   overdue_seconds: number;
   recall_prompt: string;
+  human_title?: string | null;
+  human_prompt?: string | null;
+  pinned_from_notification?: boolean;
   epistemic_caution: string | null;
   surface_reason: string | null;
   relationships: RecallRelationship[];
@@ -310,7 +313,13 @@ export type RecallAnswerResponse = {
   recall_score: number;
 };
 
-export type RecallQuickAction = "still_relevant" | "applied" | "not_now";
+export type RecallQuickAction =
+  | "still_relevant"
+  | "applied"
+  | "not_now"
+  | "snooze_7d"
+  | "snooze_30d"
+  | "ask_agent";
 
 export type RecallQuickResponse = {
   memory_id: string;

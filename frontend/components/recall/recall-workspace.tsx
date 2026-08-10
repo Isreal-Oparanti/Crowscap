@@ -78,7 +78,7 @@ export function RecallWorkspace({
     let cancelled = false;
     const refreshDue = (isInitial = false) => {
       if (!isInitial && document.visibilityState === "hidden") return;
-      getDueRecalls(50)
+      getDueRecalls(50, requestedMemoryId)
         .then((response) => {
           if (!cancelled) {
             setData(response);
@@ -395,117 +395,96 @@ export function RecallWorkspace({
 
             {selected ? (
               <div className="rise-in">
-              <div className="flex items-center gap-2 text-[#2d7058]">
-                <BookOpenCheck size={15} />
-                <span className="text-[10px] font-extrabold uppercase">
-                  A thought is ready
-                </span>
-              </div>
-              <h2 className="mt-5 max-w-[650px] text-[24px] font-[750] leading-[1.35] md:text-[30px]">
-                {selected.summary ?? selected.content}
-              </h2>
-              <p className="mt-3 text-[11px] font-semibold text-[#85888b]">
-                Saved from {selected.source_title ?? "a saved source"} -{" "}
-                {formatRelativeOverdue(selected.overdue_seconds)}
-              </p>
+                {selected.pinned_from_notification ? (
+                  <div className="mb-4 inline-flex items-center gap-1.5 rounded-md border border-[#fde68a] bg-[#fef3c7] px-3 py-1 text-[11px] font-bold text-[#b45309]">
+                    <Bell size={13} /> From Today's Nudge
+                  </div>
+                ) : null}
 
-              <div className="mt-8 rounded-lg border border-[#d9dcde] bg-[#f8f9f9] p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-[10px] font-extrabold uppercase text-[#85888b]">
-                    The idea
-                  </p>
-                  <button
-                    type="button"
-                    onClick={toggleOriginal}
-                    className="flex items-center gap-1.5 text-[10px] font-extrabold text-[#555a5d] transition hover:text-[#111111]"
-                  >
-                    <FileText size={13} />
-                    {showOriginal ? "Show memory" : "View original"}
-                  </button>
+                <div className="flex items-center gap-2 text-[#2d7058]">
+                  <BookOpenCheck size={15} />
+                  <span className="text-[10px] font-extrabold uppercase">
+                    {selected.human_title || "A THOUGHT IS READY"}
+                  </span>
                 </div>
-                {showOriginal ? (
-                  sourceLoading ? (
-                    <p className="mt-3 text-[12px] font-medium text-[#85888b]">
-                      Loading the exact source...
+                <h2 className="mt-4 max-w-[650px] text-[19px] font-[750] leading-snug text-[#111827] md:text-[21px]">
+                  {selected.human_prompt || selected.summary || selected.content}
+                </h2>
+
+                <div className="mt-6 rounded-lg border border-[#d9dcde] bg-[#f8f9f9] p-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[10px] font-extrabold uppercase text-[#85888b]">
+                      MEMORY SUMMARY
                     </p>
-                  ) : source?.original_content ? (
-                    <p className="mt-3 max-h-[460px] overflow-y-auto whitespace-pre-wrap break-words text-[13px] font-medium leading-6">
-                      {source.original_content}
-                    </p>
+                    <button
+                      type="button"
+                      onClick={toggleOriginal}
+                      className="flex items-center gap-1.5 text-[10px] font-extrabold text-[#555a5d] transition hover:text-[#111111]"
+                    >
+                      <FileText size={13} />
+                      {showOriginal ? "Show memory" : "View original"}
+                    </button>
+                  </div>
+                  {showOriginal ? (
+                    sourceLoading ? (
+                      <p className="mt-3 text-[12px] font-medium text-[#85888b]">
+                        Loading the exact source...
+                      </p>
+                    ) : source?.original_content ? (
+                      <p className="mt-3 max-h-[460px] overflow-y-auto whitespace-pre-wrap break-words text-[13px] font-medium leading-6">
+                        {source.original_content}
+                      </p>
+                    ) : (
+                      <p className="mt-3 text-[12px] font-medium leading-relaxed text-[#74777a]">
+                        This earlier capture does not have its original text stored.
+                      </p>
+                    )
                   ) : (
-                    <p className="mt-3 text-[12px] font-medium leading-relaxed text-[#74777a]">
-                      This earlier capture does not have its original text stored.
-                      Save the same source once more to restore it.
-                    </p>
-                  )
-                ) : (
-                  <MarkdownText
-                    text={selected.content}
-                    className="mt-3 text-[15px] font-semibold leading-relaxed"
-                  />
-                )}
-              </div>
-
-              {selected.epistemic_caution ? (
-                <div className="mt-4 flex items-start gap-2 rounded-lg border border-[#eadbbd] bg-[#fcf6ea] px-4 py-3 text-[#85571e]">
-                  <CircleAlert className="mt-0.5 shrink-0" size={14} />
-                  <p className="text-[10px] font-semibold leading-relaxed">
-                    {selected.epistemic_caution}
-                  </p>
+                    <MarkdownText
+                      text={selected.summary || selected.content}
+                      className="mt-3 text-[15px] font-semibold leading-relaxed"
+                    />
+                  )}
                 </div>
-              ) : null}
 
-              {selected.surface_reason ? (
-                <div className="mt-4 rounded-lg border border-[#d7e5dc] bg-[#f5faf7] px-4 py-3">
+                <div className="mt-5 rounded-lg border border-[#e5e7eb] bg-white p-5">
                   <p className="text-[10px] font-extrabold uppercase text-[#2d7058]">
-                    Why this now
+                    QUICK ACTIONS
                   </p>
-                  <MarkdownText
-                    text={selected.surface_reason}
-                    className="mt-1 text-[12px] font-semibold leading-relaxed text-[#3f5d51]"
-                    compact
-                  />
-                </div>
-              ) : null}
+                  <div className="mt-4 grid grid-cols-3 gap-3">
+                    <button
+                      type="button"
+                      disabled={Boolean(quickResult) || quickSubmitting !== null}
+                      onClick={() => submitQuick("snooze_7d")}
+                      className="flex flex-col items-center justify-center rounded-xl border border-[#e5e7eb] bg-white p-3 text-center transition hover:border-[#2d7058]"
+                    >
+                      <Clock3 size={18} className="text-[#374151]" />
+                      <span className="mt-1 text-[13px] font-extrabold text-[#111827]">Snooze</span>
+                      <span className="text-[10px] font-medium text-[#2d7058]">1 week</span>
+                    </button>
 
-              <div className="mt-5 rounded-lg border border-[#d7e5dc] bg-[#f1f7f4] p-5">
-                <p className="text-[10px] font-extrabold uppercase text-[#2d7058]">
-                  Quick check
-                </p>
-                <p className="mt-2 text-[13px] font-semibold leading-relaxed text-[#3f5d51]">
-                  Does this still feel useful for what you are doing now?
-                </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <QuickRecallButton
-                    label="Still useful"
-                    action="still_relevant"
-                    activeAction={quickSubmitting}
-                    disabled={Boolean(quickResult)}
-                    onClick={submitQuick}
-                  />
-                  <QuickRecallButton
-                    label="I used it"
-                    action="applied"
-                    activeAction={quickSubmitting}
-                    disabled={Boolean(quickResult)}
-                    onClick={submitQuick}
-                  />
-                  <QuickRecallButton
-                    label="Not now"
-                    action="not_now"
-                    activeAction={quickSubmitting}
-                    disabled={Boolean(quickResult)}
-                    onClick={submitQuick}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowDeepReview((value) => !value)}
-                    className="rounded-md border border-[#d7dadc] bg-white px-3 py-2 text-[11px] font-extrabold text-[#4d5255] transition hover:border-[#9fa4a7]"
-                  >
-                    {showDeepReview ? "Hide context" : "Open deeper view"}
-                  </button>
+                    <button
+                      type="button"
+                      disabled={Boolean(quickResult) || quickSubmitting !== null}
+                      onClick={() => submitQuick("applied")}
+                      className="flex flex-col items-center justify-center rounded-xl border border-[#e5e7eb] bg-white p-3 text-center transition hover:border-[#2d7058]"
+                    >
+                      <CircleCheck size={18} className="text-[#374151]" />
+                      <span className="mt-1 text-[13px] font-extrabold text-[#111827]">Used it</span>
+                      <span className="text-[10px] font-medium text-[#2d7058]">Completed</span>
+                    </button>
+
+                    <Link
+                      href={`/chat?context_memory_id=${selected.memory_id}`}
+                      onClick={() => submitQuick("ask_agent")}
+                      className="flex flex-col items-center justify-center rounded-xl border border-[#e5e7eb] bg-white p-3 text-center transition hover:border-[#2d7058]"
+                    >
+                      <ArrowUp size={18} className="text-[#374151]" />
+                      <span className="mt-1 text-[13px] font-extrabold text-[#111827]">Ask Crowscap</span>
+                      <span className="text-[10px] font-medium text-[#2d7058]">Chat context</span>
+                    </Link>
+                  </div>
                 </div>
-              </div>
 
               {quickResult ? (
                 <QuickRecallResult
@@ -1073,17 +1052,24 @@ function RecallContext({
             key={memory.memory_id}
             href={`/recall/${memory.memory_id}`}
             className={`block rounded-lg border px-3 py-3 transition ${
-              memory.memory_id === selectedId
-                ? "border-[#c6d9ce] bg-[#edf5f1]"
-                : "border-transparent hover:border-[#e0e2e3] hover:bg-white"
+              memory.pinned_from_notification
+                ? "border-[#fde68a] bg-[#fffbeb]"
+                : memory.memory_id === selectedId
+                  ? "border-[#c6d9ce] bg-[#edf5f1]"
+                  : "border-transparent hover:border-[#e0e2e3] hover:bg-white"
             }`}
           >
+            {memory.pinned_from_notification ? (
+              <span className="mb-1 inline-block rounded bg-[#fef3c7] px-1.5 py-0.5 text-[9px] font-bold text-[#b45309]">
+                🔔 From Today's Nudge
+              </span>
+            ) : null}
             <p className="text-[9px] font-extrabold uppercase text-[#85888b]">
               {String(reminders.length + index + 1).padStart(2, "0")} -{" "}
-              {memory.memory_type}
+              {memory.human_title || memory.memory_type}
             </p>
             <p className="mt-1 line-clamp-2 text-[11px] font-semibold leading-relaxed">
-              {memory.summary ?? memory.content}
+              {memory.human_prompt || memory.summary || memory.content}
             </p>
           </Link>
         ))}

@@ -64,26 +64,22 @@ Target rules:
 
 Prefer recent over answer whenever the user is pointing at the most recent saved item ("the above", "that", "it", "the previous one", "the last one", "what I just sent") rather than asking a topic question across their whole memory. People almost always mean the immediately previous item, not something saved days ago. Only use answer when the user names a topic or explicitly asks across saved memories.
 Prefer update_recent_source_context over capture when a user statement names "the above/that/this video/link/source" and adds explanatory context rather than asking a question.
-Never classify thanks, "okay", "this makes sense", or simple agreement as capture.
+Never classify thanks, "okay", "this makes sense", "really?", "yes", "no", or simple agreement as capture.
+Never classify questions or prompt suggestions originating from Recall / Ask Crowscap (e.g. "Help me explore and break down...", "How can I apply...", "What is the best way to execute...", "Can you help me answer...") as capture. Always classify them as answer or conversation.
 Never run saved-memory search for questions about only the current chat, such as "have I thanked you before in this chat?" or "what was the first thing I said?"
 Do not classify ordinary advice questions as answer just because they are questions.
 Do not classify ordinary memory questions as audit unless the user explicitly asks for an audit, challenge, evidence check, reliability check, or public evidence comparison.
 Do classify "forget what I know about X" as forget, not audit.
 Do classify "remind me in 1 hour" as reminder, not capture.
 Do classify identity/capability questions as self regardless of exact phrasing, typos, informal language, or indirect wording. Examples: "what are you?", "what is you?", "can you explain yourself?", "what's your purpose?", "I don't understand this app", "what can you do?", "how does Crowscap work?"
-Do classify messages containing URLs as capture when the URL is the main thing the user shared. A bare URL should be kept as a reference; surrounding words such as "this helps my YC application" are the user's reason for keeping it.
+Do classify messages containing URLs as capture when the URL is the main thing the user shared.
 Do not save every user message. Capture only when there is durable informational content or explicit saving intent.
-
-Pending app state:
-{pending_state}
 
 Pending action rules:
 - If pending_url exists and the latest message semantically confirms saving, reading, processing, or handling that link, classify as capture even if the user says it informally, with typos, or indirectly.
 - If pending_url exists and the latest message declines, cancels, ignores, or moves away from that link, classify as conversation and use reply to say the link will stay unsaved.
 - If no pending_url exists, do not classify short confirmations such as "yes please", "sure", "go ahead", or "okay" as capture.
 - If the latest message contains a new substantive note, question, or topic, classify the new message on its own instead of forcing it to act on a pending link.
-
-Recent conversation:
 
 Recent conversation:
 {history_text}
