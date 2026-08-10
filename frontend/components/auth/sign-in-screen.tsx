@@ -10,6 +10,8 @@ import {
 import type { ReactNode } from "react";
 import { useState } from "react";
 
+import { useSession } from "next-auth/react";
+
 import { InstallBanner } from "@/components/pwa/install-banner";
 import { BrandIcon } from "@/components/ui/brand-icon";
 
@@ -58,8 +60,12 @@ const howItWorks = [
 ];
 
 export function SignInScreen() {
+  const { data: session } = useSession();
   const [menuOpen, setMenuOpen] = useState(false);
   const [downloadStarted, setDownloadStarted] = useState(false);
+
+  const appHref = session?.user ? "/" : "/auth?mode=login";
+  const buttonLabel = session?.user ? "Open Web App" : "Open App";
 
   function handleDownload() {
     setDownloadStarted(true);
@@ -110,10 +116,10 @@ export function SignInScreen() {
               Contact
             </a>
             <a
-              href="/auth?mode=login"
+              href={appHref}
               className="rounded-full bg-[#111111] px-5 py-2 text-[12px] font-extrabold text-white transition hover:bg-[#282a2c]"
             >
-              Open App
+              {buttonLabel}
             </a>
           </nav>
 
@@ -168,11 +174,11 @@ export function SignInScreen() {
                 Contact
               </a>
               <a
-                href="/auth?mode=login"
+                href={appHref}
                 onClick={() => setMenuOpen(false)}
                 className="mt-1 rounded-[12px] bg-[#111111] px-3 py-3 text-center text-[13px] font-extrabold text-white transition hover:bg-[#25282a]"
               >
-                Open App
+                {buttonLabel}
               </a>
             </nav>
           </div>
@@ -190,20 +196,12 @@ export function SignInScreen() {
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:max-w-[430px]">
-              <a
-                href="/auth?mode=login"
-                className="relative inline-flex h-12 items-center justify-center rounded-[10px] bg-[#111111] px-4 text-center text-[13px] font-extrabold text-white transition hover:bg-[#1f2122]"
-              >
-                Continue on Web
-                <span className="absolute right-4 flex size-5 items-center justify-center">
-                  <ArrowRight size={14} />
-                </span>
-              </a>
+              {/* TOP: Download the App */}
               <button
                 type="button"
                 onClick={handleDownload}
                 disabled={downloadStarted}
-                className="relative inline-flex h-12 items-center justify-center gap-2 rounded-[10px] border border-[#d5d8da] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:border-[#a8adb0] hover:bg-[#fbfbfb] disabled:cursor-default"
+                className="relative inline-flex h-12 items-center justify-center gap-2 rounded-[10px] bg-[#111111] px-4 text-[13px] font-extrabold text-white transition hover:bg-[#1f2122] disabled:cursor-default"
               >
                 {downloadStarted ? (
                   <>
@@ -219,6 +217,17 @@ export function SignInScreen() {
                   </>
                 )}
               </button>
+
+              {/* BOTTOM: Continue on Web / Open Web App */}
+              <a
+                href={appHref}
+                className="relative inline-flex h-12 items-center justify-center gap-2 rounded-[10px] border border-[#d5d8da] bg-white px-4 text-center text-[13px] font-extrabold text-[#111111] transition hover:border-[#a8adb0] hover:bg-[#fbfbfb]"
+              >
+                {session?.user ? "Open Web App" : "Continue on Web"}
+                <span className="absolute right-4 flex size-5 items-center justify-center">
+                  <ArrowRight size={14} />
+                </span>
+              </a>
             </div>
 
             <a
