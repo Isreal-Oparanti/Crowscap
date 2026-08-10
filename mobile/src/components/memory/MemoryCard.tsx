@@ -19,7 +19,7 @@ export function MemoryCard({
   const router = useRouter();
   const id = "id" in memory ? memory.id : memory.memory_id;
   const sourceTitle = "source_title" in memory ? memory.source_title : null;
-  const sourceType = "source_type" in memory ? memory.source_type : "text";
+  const sourceType = ("source_type" in memory && memory.source_type) ? memory.source_type : "text";
   const relationships = "relationships" in memory ? memory.relationships : undefined;
   const score = "similarity_score" in memory ? memory.similarity_score : null;
 
