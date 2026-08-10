@@ -706,7 +706,8 @@ def process_chat_message(
             content=(
                 f"[OFFICIAL CROWSCAP PRODUCT & THESIS KNOWLEDGE BASE]:\n{knowledge_text}\n\n"
                 f"Question about Crowscap: {payload.message}\n"
-                f"Answer the user's question dynamically in Crowscap's authentic, helpful voice based on the product context above. Focus on the user experience and solution, without technical code jargon."
+                f"Answer the user's question dynamically in Crowscap's authentic, helpful voice based on the product context above. Focus on the user experience and solution, without technical code jargon.\n"
+                f"STRICT FORMATTING RULE: If comparing with another tool or answering with multiple points, start with a direct 1-sentence answer, then use bold lead-ins (**Key Concept**:) and bullet points (•) separated by double line breaks (\\n\\n). Never output a single dense wall-of-text paragraph."
             ),
         )
         try:

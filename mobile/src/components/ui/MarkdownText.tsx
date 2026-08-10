@@ -114,7 +114,7 @@ function parseBlocks(text: string): Block[] {
       continue;
     }
 
-    const listMatch = line.match(/^([-*+]\s+|\d+[.)]\s+)(.+)$/);
+    const listMatch = line.match(/^([-*+•]\s+|\d+[.)]\s+)(.+)$/);
     if (listMatch) {
       flushParagraph();
       const ordered = /^\d/.test(listMatch[1]);
