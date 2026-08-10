@@ -308,8 +308,9 @@ def _build_recall_summary(*, memory: Memory, source: Source) -> str:
 def _human_recall_title(*, memory: Memory, source: Source, now: datetime) -> str:
     if source.title and source.title != "Captured text":
         return _clean_title(source.title)
-    if memory.human_title:
-        return _clean_title(memory.human_title)
+    human_title = getattr(memory, "human_title", None)
+    if human_title:
+        return _clean_title(human_title)
     if memory.summary:
         first_line = memory.summary.strip().split("\n")[0]
         return _clean_title(first_line)
