@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+import re
 from typing import Optional, List
 
 from app.core.auth import CurrentUser, require_current_user
