@@ -10,8 +10,6 @@ import {
 import type { ReactNode } from "react";
 import { useState } from "react";
 
-import { useSession } from "next-auth/react";
-
 import { InstallBanner } from "@/components/pwa/install-banner";
 import { BrandIcon } from "@/components/ui/brand-icon";
 
@@ -59,13 +57,12 @@ const howItWorks = [
   },
 ];
 
-export function SignInScreen() {
-  const { data: session } = useSession();
+export function SignInScreen({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [downloadStarted, setDownloadStarted] = useState(false);
 
-  const appHref = session?.user ? "/" : "/auth?mode=login";
-  const buttonLabel = session?.user ? "Open Web App" : "Open App";
+  const appHref = isLoggedIn ? "/" : "/auth?mode=login";
+  const buttonLabel = isLoggedIn ? "Open Web App" : "Open App";
 
   function handleDownload() {
     setDownloadStarted(true);
@@ -223,7 +220,7 @@ export function SignInScreen() {
                 href={appHref}
                 className="relative inline-flex h-12 items-center justify-center gap-2 rounded-[10px] border border-[#d5d8da] bg-white px-4 text-center text-[13px] font-extrabold text-[#111111] transition hover:border-[#a8adb0] hover:bg-[#fbfbfb]"
               >
-                {session?.user ? "Open Web App" : "Continue on Web"}
+                {isLoggedIn ? "Open Web App" : "Continue on Web"}
                 <span className="absolute right-4 flex size-5 items-center justify-center">
                   <ArrowRight size={14} />
                 </span>
