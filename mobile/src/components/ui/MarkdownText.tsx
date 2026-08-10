@@ -203,7 +203,9 @@ function readableUrl(value: string): string {
 
 const styles = StyleSheet.create({
   root: {
+    flex: 1,
     flexShrink: 1,
+    width: "100%",
   },
   gap: {
     marginTop: 12,
@@ -216,6 +218,7 @@ const styles = StyleSheet.create({
     lineHeight: 23,
     fontFamily: fontFamily.medium,
     color: "#1a1c1e",
+    flexWrap: "wrap",
   },
   compactText: {
     fontSize: 13,
@@ -230,6 +233,7 @@ const styles = StyleSheet.create({
     color: "#111418",
     marginTop: 4,
     marginBottom: 2,
+    flexWrap: "wrap",
   },
   list: {
     gap: 8,

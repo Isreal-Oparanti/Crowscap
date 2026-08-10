@@ -1425,6 +1425,7 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.medium,
     color: "#17191a",
     lineHeight: 20,
+    flexWrap: "wrap",
   },
   userBubbleLink: {
     fontSize: 13,
@@ -1432,6 +1433,7 @@ const styles = StyleSheet.create({
     color: "#1a6ebd",
     lineHeight: 20,
     textDecorationLine: "underline",
+    flexWrap: "wrap",
   },
   assistantTurnRow: {
     flexDirection: "row",
