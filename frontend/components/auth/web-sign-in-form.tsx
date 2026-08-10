@@ -373,8 +373,14 @@ export function WebSignInForm({
 
           {/* Terms Footer */}
           <p className="mt-7 text-center text-[11px] font-medium leading-4 text-[#9a9fa3]">
-            By continuing, you acknowledge that you understand and agree to the
-            Terms & Conditions and Privacy Policy
+            By continuing, you acknowledge that you understand and agree to the{" "}
+            <a href="/terms" target="_blank" rel="noopener noreferrer" className="font-bold text-[#464a4d] underline hover:text-[#111111]">
+              Terms &amp; Conditions
+            </a>{" "}
+            and{" "}
+            <a href="/privacy" target="_blank" rel="noopener noreferrer" className="font-bold text-[#464a4d] underline hover:text-[#111111]">
+              Privacy Policy
+            </a>
           </p>
         </div>
       </div>

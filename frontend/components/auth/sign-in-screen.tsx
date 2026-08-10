@@ -57,43 +57,75 @@ const howItWorks = [
   },
 ];
 
+function AndroidIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10 10h.01M14 10h.01M12 2a9 9 0 0 0-9 9v11l3-3 3 3 3-3 3 3 3-3 3 3V11a9 9 0 0 0-9-9z" />
+    </svg>
+  );
+}
+
+function PreviewPill({ label, text, icon }: { label: string; text: string; icon: ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 rounded-[12px] border border-[#e2e4e5] bg-white p-3">
+      <div className="flex size-7 shrink-0 items-center justify-center rounded-[8px] bg-[#f5f5f5]">
+        {icon}
+      </div>
+      <div>
+        <p className="text-[11px] font-extrabold uppercase text-[#303437]">{label}</p>
+        <p className="text-[11px] font-medium text-[#6f7376]">{text}</p>
+      </div>
+    </div>
+  );
+}
+
+function FeatureCard({ icon, title, body }: { icon: ReactNode; title: string; body: string }) {
+  return (
+    <div className="rounded-[18px] border border-[#e2e4e5] bg-[#fbfbfb] p-5">
+      <div className="flex size-8 items-center justify-center rounded-[9px] border border-[#dcdfe0] bg-white">
+        {icon}
+      </div>
+      <h3 className="mt-4 text-[15px] font-extrabold tracking-tight text-[#111111]">{title}</h3>
+      <p className="mt-2 text-[13px] font-medium leading-6 text-[#555a5d]">{body}</p>
+    </div>
+  );
+}
+
 export function SignInScreen({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [downloadStarted, setDownloadStarted] = useState(false);
 
-  const appHref = isLoggedIn ? "/" : "/auth?mode=login";
-  const buttonLabel = isLoggedIn ? "Open Web App" : "Open App";
+  const appHref = isLoggedIn ? "/chat" : "/auth?mode=login";
+  const buttonLabel = "Open App";
 
   function handleDownload() {
     setDownloadStarted(true);
     const link = document.createElement("a");
-    link.href = "https://api.crowscap.xyz/downloads/crowscap-latest.apk";
-    link.download = "crowscap.apk";
+    link.href = "/downloads/crowscap-release.apk";
+    link.download = "crowscap-release.apk";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    setTimeout(() => setDownloadStarted(false), 5000);
   }
 
   return (
-    <main className="min-h-screen bg-[#f5f5f3] text-[#101112]">
-      <section className="relative flex min-h-screen flex-col overflow-hidden">
-        <div className="absolute inset-x-0 top-0 h-px bg-[#d7d9da]" />
+    <div className="relative min-h-screen bg-[#f5f5f3] text-[#111111] antialiased">
+      <InstallBanner />
 
-        <header className="relative z-20 mx-auto flex w-full max-w-[1220px] items-center justify-between px-5 py-5 md:px-8">
-          <div className="flex items-center gap-3">
-            <div className="flex size-11 items-center justify-center rounded-[12px] border border-[#dedfdf] bg-white">
-              <BrandIcon className="size-8" />
-            </div>
+      <main className="relative z-10 flex min-h-screen flex-col">
+        {/* Top Announcement Bar / Minimal Web Header */}
+        <header className="mx-auto flex w-full max-w-[1220px] items-center justify-between px-5 py-5 md:px-8">
+          <a href="/" className="flex items-center gap-3">
+            <BrandIcon className="size-8 text-[#111111]" />
             <div>
-              <p className="text-[17px] font-[850] tracking-[-0.02em]">
+              <p className="text-[15px] font-[880] tracking-tight text-[#111111]">
                 Crowscap AI
               </p>
-              <p className="text-[12px] font-semibold text-[#6f7376]">
+              <p className="text-[11px] font-semibold text-[#686c6f]">
                 Personal intelligent Memory
               </p>
             </div>
-          </div>
+          </a>
 
           {/* Desktop Navigation Links */}
           <nav aria-label="Desktop navigation" className="hidden items-center gap-7 md:flex">
@@ -120,7 +152,7 @@ export function SignInScreen({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
             </a>
           </nav>
 
-          {/* Mobile Hamburger Button (Strictly md:hidden) */}
+          {/* Mobile Hamburger Button */}
           <div className="flex items-center gap-2 md:hidden">
             <button
               type="button"
@@ -193,19 +225,19 @@ export function SignInScreen({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:max-w-[430px]">
-              {/* TOP: Download the App */}
+              {/* TOP BUTTON: Download the App */}
               <button
                 type="button"
                 onClick={handleDownload}
                 disabled={downloadStarted}
-                className="relative inline-flex h-12 items-center justify-center gap-2 rounded-[10px] bg-[#111111] px-4 text-[13px] font-extrabold text-white transition hover:bg-[#1f2122] disabled:cursor-default"
+                className="relative inline-flex h-12 items-center justify-center gap-2 rounded-[10px] border border-[#d5d8da] bg-white px-4 text-[13px] font-extrabold text-[#111111] transition hover:border-[#a8adb0] hover:bg-[#fbfbfb] disabled:cursor-default"
               >
                 {downloadStarted ? (
                   <>
                     <span className="flex size-4 items-center justify-center rounded-full bg-[#0f5132]">
                       <Check size={10} className="text-white" />
                     </span>
-                    Download started — check your notifications
+                    Download started...
                   </>
                 ) : (
                   <>
@@ -215,12 +247,12 @@ export function SignInScreen({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
                 )}
               </button>
 
-              {/* BOTTOM: Continue on Web / Open Web App */}
+              {/* BOTTOM BUTTON: Continue on Web */}
               <a
                 href={appHref}
-                className="relative inline-flex h-12 items-center justify-center gap-2 rounded-[10px] border border-[#d5d8da] bg-white px-4 text-center text-[13px] font-extrabold text-[#111111] transition hover:border-[#a8adb0] hover:bg-[#fbfbfb]"
+                className="relative inline-flex h-12 items-center justify-center rounded-[10px] bg-[#111111] px-4 text-center text-[13px] font-extrabold text-white transition hover:bg-[#1f2122]"
               >
-                {isLoggedIn ? "Open Web App" : "Continue on Web"}
+                Continue on Web
                 <span className="absolute right-4 flex size-5 items-center justify-center">
                   <ArrowRight size={14} />
                 </span>
@@ -373,11 +405,11 @@ export function SignInScreen({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
         </section>
 
         <footer className="border-t border-[#333537] bg-[#101112] px-5 py-14 text-white md:px-8">
-          <div className="mx-auto grid w-full max-w-[1220px] gap-10 md:grid-cols-3">
+          <div className="mx-auto grid w-full max-w-[1220px] gap-10 md:grid-cols-4">
             <div>
               <div className="flex items-center gap-3">
                 <div className="flex size-10 items-center justify-center rounded-[11px] border border-white/15 bg-white">
-                  <BrandIcon className="size-7" />
+                  <BrandIcon className="size-7 text-[#111111]" />
                 </div>
                 <div>
                   <p className="text-[16px] font-[850]">Crowscap AI</p>
@@ -408,7 +440,7 @@ export function SignInScreen({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
                   </a>
                 </li>
                 <li>
-                  <a href="/auth?mode=login" className="transition hover:text-white">
+                  <a href={appHref} className="transition hover:text-white">
                     Open Web App
                   </a>
                 </li>
@@ -417,7 +449,25 @@ export function SignInScreen({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
 
             <div>
               <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-white/40">
-                Contact & Support
+                Legal
+              </p>
+              <ul className="mt-4 space-y-2.5 text-[13px] font-semibold text-white/70">
+                <li>
+                  <a href="/terms" className="transition hover:text-white">
+                    Terms &amp; Conditions
+                  </a>
+                </li>
+                <li>
+                  <a href="/privacy" className="transition hover:text-white">
+                    Privacy Policy
+                  </a>
+                </li>
+              </ul>
+            </div>
+
+            <div>
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-white/40">
+                Contact &amp; Support
               </p>
               <div className="mt-4 space-y-2.5 text-[13px] font-semibold">
                 <p className="text-white/60">Have questions or feedback?</p>
@@ -433,67 +483,14 @@ export function SignInScreen({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
 
           <div className="mx-auto mt-12 flex w-full max-w-[1220px] flex-col items-center justify-between border-t border-white/10 pt-6 text-[12px] font-medium text-white/45 sm:flex-row">
             <p>© 2026 Crowscap. All rights reserved.</p>
+            <div className="mt-2 flex gap-5 sm:mt-0">
+              <a href="/terms" className="transition hover:text-white">Terms &amp; Conditions</a>
+              <a href="/privacy" className="transition hover:text-white">Privacy Policy</a>
+            </div>
           </div>
         </footer>
         <InstallBanner />
-      </section>
-    </main>
-  );
-}
-
-function AndroidIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="size-4 shrink-0"
-      fill="currentColor"
-    >
-      <path d="M17.523 15.341A5.005 5.005 0 0 0 20 11V9a8 8 0 1 0-16 0v2a5.005 5.005 0 0 0 2.477 4.341A2 2 0 0 0 8 17h8a2 2 0 0 0 1.523-1.659ZM6 11V9a6 6 0 1 1 12 0v2a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3Zm4.5-6.5a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 0 1h-2a.5.5 0 0 1-.5-.5ZM8 19h8v1a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-1Z" />
-    </svg>
-  );
-}
-
-function FeatureCard({
-  icon,
-  title,
-  body,
-}: {
-  icon: ReactNode;
-  title: string;
-  body: string;
-}) {
-  return (
-    <div className="rounded-[14px] border border-[#e1e3e4] bg-white p-5">
-      <div className="flex items-center gap-2 text-[#111111]">
-        {icon}
-        <p className="text-[11px] font-extrabold uppercase">{title}</p>
-      </div>
-      <p className="mt-2 text-[12px] font-medium leading-5 text-[#64686b]">
-        {body}
-      </p>
-    </div>
-  );
-}
-
-function PreviewPill({
-  icon,
-  label,
-  text,
-}: {
-  icon: ReactNode;
-  label: string;
-  text: string;
-}) {
-  return (
-    <div className="rounded-[12px] border border-[#e2e4e5] bg-white p-3">
-      <div className="flex items-center gap-2 text-[#111111]">
-        {icon}
-        <p className="text-[11px] font-extrabold uppercase">{label}</p>
-      </div>
-      <p className="mt-2 text-[12px] font-medium leading-5 text-[#676b6e]">
-        {text}
-      </p>
+      </main>
     </div>
   );
 }
