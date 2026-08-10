@@ -2,6 +2,7 @@ import { Stack, useRouter, useSegments } from "expo-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
+import * as Updates from "expo-updates";
 import {
   Manrope_400Regular,
   Manrope_500Medium,
@@ -25,6 +26,23 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+/**
+ * Silently checks for an OTA update on startup and reloads the app immediately
+ * if one is found. Runs in the background — user never has to tap anything.
+ * Works regardless of the checkAutomatically native config in the APK binary.
+ */
+async function silentlyApplyOtaUpdate() {
+  if (__DEV__) return;
+  try {
+    const check = await Updates.checkForUpdateAsync();
+    if (!check.isAvailable) return;
+    await Updates.fetchUpdateAsync();
+    await Updates.reloadAsync();
+  } catch {
+    // Silently fail — don't interrupt the user experience
+  }
+}
 
 function AuthGate() {
   const { session, isLoading } = useAuth();
@@ -57,6 +75,11 @@ export default function RootLayout() {
     Manrope_700Bold,
     Manrope_800ExtraBold,
   });
+
+  useEffect(() => {
+    // Run silent OTA update check on every cold start
+    silentlyApplyOtaUpdate();
+  }, []);
 
   if (!fontsLoaded) {
     return null;
