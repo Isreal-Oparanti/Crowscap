@@ -4037,6 +4037,19 @@ def _is_forget_command(normalized: str) -> bool:
 
 
 def _is_reminder_command(normalized: str) -> bool:
+    question_patterns = (
+        "how do you remind",
+        "how can you remind",
+        "how does reminding",
+        "how do reminders",
+        "how will you remind",
+        "can you explain how you remind",
+        "tell me how you remind",
+    )
+    if any(q in normalized for q in question_patterns):
+        return False
+    if normalized.startswith(("how do you", "how can you", "how will you", "how to")) and "remind" in normalized:
+        return False
     return any(
         marker in normalized
         for marker in (
@@ -4052,8 +4065,8 @@ def _looks_like_self_question(normalized: str) -> bool:
     if not words:
         return False
     self_terms = {"you", "u", "yourself", "crowscap", "app", "product", "tool", "system"}
-    capability_terms = {"do", "does", "save", "keep", "remember", "help", "use", "purpose", "work", "built", "recall", "recalls", "know"}
-    if any(marker in normalized for marker in ("when will i start getting", "recalls on crowscap", "tell me all you know", "everything you know")):
+    capability_terms = {"do", "does", "save", "keep", "remember", "help", "use", "purpose", "work", "built", "recall", "recalls", "know", "remind", "reminders"}
+    if any(marker in normalized for marker in ("when will i start getting", "recalls on crowscap", "tell me all you know", "everything you know", "how do you remind", "how do reminders", "how will you remind")):
         return True
     if not words.intersection(self_terms):
         return False

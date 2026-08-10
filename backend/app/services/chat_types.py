@@ -128,6 +128,14 @@ CROWSCAP_SELF_KNOWLEDGE: tuple[SelfKnowledgeChunk, ...] = (
         keywords=("intention", "intentions", "watch later", "read later", "reference", "later"),
     ),
     SelfKnowledgeChunk(
+        title="Reminders and Timed Nudges",
+        body=(
+            "You can set a timed reminder in chat anytime by stating what to remember and when (for example: 'Remind me tomorrow at 9am to watch the YC video'). "
+            "Crowscap schedules the timed notification and surfaces it on your Recall tab and via check-in nudges when due."
+        ),
+        keywords=("remind", "reminder", "reminders", "timer", "schedule", "nudge", "nudges", "time", "clock"),
+    ),
+    SelfKnowledgeChunk(
         title="Archiving and Privacy",
         body=(
             "Your memories are strictly private to your account. You can archive any memory at any time to remove it from active search, recall, and belief audits, "

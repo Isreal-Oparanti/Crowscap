@@ -3128,3 +3128,8 @@ def test_recall_timing_and_platform_self_questions() -> None:
     assert "Multi-Format Capture" in resp_all.message
     assert "Spaced Repetition" in resp_all.message
 
+    # "How do you remind me of something?" must route to self (NOT reminder)
+    route_remind = _deterministic_route("How do you remind me of something?", history=[])
+    assert route_remind is not None
+    assert route_remind.action == "self"
+
