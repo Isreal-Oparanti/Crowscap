@@ -178,8 +178,8 @@ export function SignInScreen() {
           </div>
         ) : null}
 
-        <div className="mx-auto grid w-full max-w-[1220px] flex-1 items-center gap-10 px-5 pb-20 pt-8 md:px-8 lg:grid-cols-[minmax(0,1fr)_minmax(400px,0.85fr)] lg:gap-16 lg:pb-20 lg:pt-4">
-          <div className="max-w-[580px] lg:pr-4">
+        <div className="mx-auto grid w-full max-w-[1220px] flex-1 items-center gap-10 px-5 pb-20 pt-8 md:px-8 lg:grid-cols-[minmax(0,1fr)_minmax(400px,0.85fr)] lg:gap-14 lg:pb-20 lg:pt-4">
+          <div className="max-w-[580px] lg:border-r lg:border-[#e2e4e5] lg:pr-12">
             <h1 className="text-[36px] font-[880] leading-[1.02] tracking-[-0.045em] sm:text-[46px] md:text-[54px] lg:text-[62px]">
               Stop losing what you learn. Start actually using it.
             </h1>
@@ -307,7 +307,7 @@ export function SignInScreen() {
           id="features"
           className="border-t border-[#e1e3e4] bg-white px-5 py-16 md:px-8 md:py-22"
         >
-          <div className="mx-auto grid w-full max-w-[1220px] gap-10 lg:grid-cols-[0.78fr_1.22fr] lg:gap-16">
+          <div className="mx-auto grid w-full max-w-[1220px] items-start gap-10 lg:grid-cols-[0.78fr_1.22fr] lg:gap-16">
             <div>
               <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#7d8184]">
                 Features
@@ -323,7 +323,7 @@ export function SignInScreen() {
               </p>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-3 items-start">
               {featureCards.map((card) => (
                 <FeatureCard key={card.title} {...card} />
               ))}
