@@ -20,7 +20,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { useRouter, useLocalSearchParams } from "expo-router";
 
-import { sendChatMessage, getCurrentConversation } from "@/api/chat";
+import { sendChatMessage, getCurrentConversation, getChatMessages } from "@/api/chat";
 import { formatFriendlyError } from "@/api/client";
 import { capturePdf, getProcessingJob } from "@/api/captures";
 
@@ -159,6 +159,9 @@ export default function ChatScreen() {
     }
   }, [scrollToEnd]);
 
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
+
   const loadConversation = useCallback(
     async ({ silent = false }: { silent?: boolean } = {}) => {
       if (!session) return;
@@ -172,10 +175,15 @@ export default function ChatScreen() {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
           const conv = await getCurrentConversation();
-          const loaded: ChatMessage[] = conv?.messages?.length
-            ? conv.messages.map((m) => {
+          const paginated = await getChatMessages(30);
+          setHasMoreHistory(paginated.has_more);
+
+          const rawList = conv?.messages?.length ? conv.messages : paginated.messages;
+
+          const loaded: ChatMessage[] = rawList.length
+            ? rawList.map((m: any) => {
                 if (m.role === "user") {
-                  return { id: m.id, role: "user", text: m.content };
+                  return { id: m.id, role: "user", text: m.content || m.text };
                 }
                 const meta = m.metadata_json || {};
                 if (m.action === "capture" && meta.capture) {
@@ -183,7 +191,7 @@ export default function ChatScreen() {
                     id: m.id,
                     role: "assistant",
                     kind: "capture",
-                    text: m.content,
+                    text: m.content || m.text,
                     data: meta.capture as any,
                   };
                 }
@@ -196,7 +204,7 @@ export default function ChatScreen() {
                 ) {
                   const dataObj: ChatResponse = {
                     action: (m.action as any) || "conversation",
-                    message: m.content,
+                    message: m.content || m.text,
                     saved: false,
                     capture: (meta.capture as any) || null,
                     reminder: (meta.reminder as any) || null,
@@ -211,7 +219,7 @@ export default function ChatScreen() {
                     id: m.id,
                     role: "assistant",
                     kind: "answer",
-                    text: m.content,
+                    text: m.content || m.text,
                     data: dataObj,
                   };
                 }
@@ -219,7 +227,7 @@ export default function ChatScreen() {
                   id: m.id,
                   role: "assistant",
                   kind: "text",
-                  text: m.content,
+                  text: m.content || m.text,
                 };
               })
             : [openingMessage(session.name)];
@@ -249,6 +257,53 @@ export default function ChatScreen() {
     },
     [scrollToEnd, session],
   );
+
+  const loadPreviousMessages = useCallback(async () => {
+    if (loadingMoreHistory || !hasMoreHistory || messages.length === 0) return;
+    const firstMsg = messages.find((m) => !m.id.startsWith("msg_opening"));
+    if (!firstMsg) return;
+
+    setLoadingMoreHistory(true);
+    try {
+      const paginated = await getChatMessages(20, firstMsg.id);
+      setHasMoreHistory(paginated.has_more);
+      if (paginated.messages.length > 0) {
+        const olderMessages: ChatMessage[] = paginated.messages.map((m: any) => {
+          if (m.role === "user") {
+            return { id: m.id, role: "user", text: m.content };
+          }
+          const meta = m.metadata_json || {};
+          if (m.action === "capture" && meta.capture) {
+            return { id: m.id, role: "assistant", kind: "capture", text: m.content, data: meta.capture as any };
+          }
+          if (m.action === "reminder" || m.action === "answer" || m.action === "self" || meta.reminder || meta.evidence) {
+            const dataObj: ChatResponse = {
+              action: (m.action as any) || "conversation",
+              message: m.content,
+              saved: false,
+              capture: (meta.capture as any) || null,
+              reminder: (meta.reminder as any) || null,
+              evidence: (meta.evidence as any) || [],
+              knowledge_gaps: (meta.knowledge_gaps as any) || [],
+              tensions: (meta.tensions as any) || [],
+              next_step: (meta.next_step as any) || null,
+              preference_updates: (meta.preference_updates as any) || [],
+              preferences: (meta.preferences as any) || null,
+            };
+            return { id: m.id, role: "assistant", kind: "answer", text: m.content, data: dataObj };
+          }
+          return { id: m.id, role: "assistant", kind: "text", text: m.content };
+        });
+
+        shouldStickToBottomRef.current = false;
+        setMessages((current) => [...olderMessages, ...current]);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingMoreHistory(false);
+    }
+  }, [hasMoreHistory, loadingMoreHistory, messages]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -571,15 +626,32 @@ export default function ChatScreen() {
         onScroll={handleListScroll}
         scrollEventThrottle={16}
         onContentSizeChange={handleContentSizeChange}
-        ListHeaderComponent={historyError ? (
-          <Pressable
-            style={({ pressed }) => [styles.historyError, pressed && { opacity: 0.72 }]}
-            onPress={() => void loadConversation()}
-          >
-            <Text style={styles.historyErrorText}>{historyError}</Text>
-            <Text style={styles.historyErrorAction}>Tap to retry</Text>
-          </Pressable>
-        ) : null}
+        ListHeaderComponent={
+          <View>
+            {hasMoreHistory ? (
+              <Pressable
+                style={({ pressed }) => [styles.historyError, pressed && { opacity: 0.72 }, { marginBottom: 12 }]}
+                onPress={loadPreviousMessages}
+                disabled={loadingMoreHistory}
+              >
+                {loadingMoreHistory ? (
+                  <ActivityIndicator size="small" color="#7b7e82" />
+                ) : (
+                  <Text style={styles.historyErrorAction}>Load earlier messages</Text>
+                )}
+              </Pressable>
+            ) : null}
+            {historyError ? (
+              <Pressable
+                style={({ pressed }) => [styles.historyError, pressed && { opacity: 0.72 }]}
+                onPress={() => void loadConversation()}
+              >
+                <Text style={styles.historyErrorText}>{historyError}</Text>
+                <Text style={styles.historyErrorAction}>Tap to retry</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        }
         ListFooterComponent={working || uploadingFile ? <ThinkingTurn mode={workMode} /> : null}
       />
 

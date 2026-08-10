@@ -72,6 +72,24 @@ from app.services.recall_service import _clean_title
 router = APIRouter(tags=["memories"])
 
 
+def _clean_human_summary(raw_summary: str | None, raw_content: str | None) -> str | None:
+    text = (raw_summary or raw_content or "").strip()
+    if not text:
+        return None
+
+    # Clean academic/compliance prefix phrases
+    text = re.sub(
+        r"^(assess applicability of the framework to|assess applicability of|complete, standardized|asterisked courses are)\s*",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).strip()
+
+    if text and len(text) > 1:
+        text = text[0].upper() + text[1:]
+    return text
+
+
 @router.get("/recent", response_model=RecentMemoryListResponse)
 def recent_memories(
     limit: int = Query(default=20, ge=1, le=50),
@@ -103,7 +121,7 @@ def recent_memories(
                 memory_type=memory.memory_type,
                 epistemic_label=memory.epistemic_label,
                 content=memory.content,
-                summary=memory.summary,
+                summary=_clean_human_summary(memory.summary, memory.content),
                 confidence=memory.confidence,
                 confidence_reason=memory.confidence_reason,
                 source_strength=memory.source_strength,

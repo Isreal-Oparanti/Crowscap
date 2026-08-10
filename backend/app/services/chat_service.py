@@ -1586,7 +1586,7 @@ def get_paginated_chat_messages(
     conv = db.scalar(
         select(Conversation)
         .where(Conversation.status == "active", Conversation.user_id == user_id)
-        .order_by(Conversation.created_at.asc())
+        .order_by(Conversation.created_at.desc())
     )
     if not conv:
         return PaginatedMessagesResponse(messages=[], has_more=False)

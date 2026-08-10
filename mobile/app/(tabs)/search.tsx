@@ -207,13 +207,9 @@ export default function SearchScreen() {
           </View>
         )}
 
-        {!showingResults && recentHasMore ? (
+        {!showingResults && recentHasMore && !loadingRecent ? (
           <Pressable style={styles.loadMoreButton} onPress={loadMoreRecent} disabled={loadingRecent}>
-            {loadingRecent ? (
-              <ActivityIndicator size="small" color={tokens.colors.text} />
-            ) : (
-              <Text style={styles.loadMoreText}>Load more</Text>
-            )}
+            <Text style={styles.loadMoreText}>Load more</Text>
           </Pressable>
         ) : null}
       </ScrollView>
@@ -222,7 +218,7 @@ export default function SearchScreen() {
 }
 
 function cleanSourceTitle(raw: string | null | undefined): string {
-  if (!raw) return "Saved source";
+  if (!raw) return "";
   try {
     return decodeURIComponent(raw).replace(/%20/g, " ");
   } catch {
@@ -243,7 +239,10 @@ function MemoryRow({
 }) {
   const sourceType = isRecentMemory(item) ? item.source_type : null;
   const date = isRecentMemory(item) ? formatDate(item.created_at) : null;
-  const sourceTitle = cleanSourceTitle(item.source_title);
+  const rawTitle = cleanSourceTitle(item.source_title);
+  const displayTitle = rawTitle || (isRecentMemory(item) ? item.summary || item.content : item.content);
+  const displaySubtitle = rawTitle ? (isRecentMemory(item) ? item.summary || item.content : item.content) : null;
+  const badgeLabel = sourceType ? sourceType.toUpperCase() : "MEMORY";
 
   return (
     <View style={styles.memoryRow}>
@@ -260,9 +259,8 @@ function MemoryRow({
         </View>
         <View style={styles.memoryBody}>
           <View style={styles.metaRow}>
-            <Text style={styles.metaText}>{memoryTypeLabel(item.memory_type).toUpperCase()}</Text>
-            {sourceType ? <Text style={styles.metaDot}>·</Text> : null}
-            {sourceType ? <Text style={styles.metaText}>{sourceType.toUpperCase()}</Text> : null}
+            <Text style={styles.metaText}>{badgeLabel}</Text>
+            {date ? <Text style={styles.metaDot}>·</Text> : null}
             {date ? (
               <View style={styles.dateMeta}>
                 <Icons.Clock3 size={11} color="#8c9096" />
@@ -270,12 +268,14 @@ function MemoryRow({
               </View>
             ) : null}
           </View>
-          <Text style={styles.memoryTitle} numberOfLines={2}>
-            {isRecentMemory(item) ? item.summary || item.content : item.content}
+          <Text style={styles.memoryTitle} numberOfLines={1}>
+            {displayTitle}
           </Text>
-          <Text style={styles.memorySource} numberOfLines={1}>
-            {sourceTitle}
-          </Text>
+          {displaySubtitle ? (
+            <Text style={styles.memorySource} numberOfLines={2}>
+              {displaySubtitle}
+            </Text>
+          ) : null}
         </View>
       </Pressable>
       <Pressable onPress={onDelete} hitSlop={8} style={styles.deleteButton} disabled={deleting}>
