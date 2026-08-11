@@ -121,26 +121,32 @@ def recent_memories(
         .order_by(Memory.created_at.desc(), Memory.id.desc())
         .limit(limit * 4)
     ).all()
-    seen_sources: set[str] = set()
-    memories: list[RecentMemoryResponse] = []
+    source_rows: dict[str, list[tuple[Memory, Source]]] = {}
     for memory, source in rows:
-        if source.id in seen_sources:
-            continue
-        seen_sources.add(source.id)
+        if source.id not in source_rows:
+            source_rows[source.id] = []
+        source_rows[source.id].append((memory, source))
+
+    memories: list[RecentMemoryResponse] = []
+    for source_id, items in source_rows.items():
+        # Prefer non-reference memory (extracted insights like youtube, claim, principle)
+        non_ref = [item for item in items if item[0].memory_type != "reference"]
+        chosen_memory, chosen_source = non_ref[0] if non_ref else items[0]
+
         memories.append(
             RecentMemoryResponse(
-                memory_id=memory.id,
-                source_id=source.id,
-                source_type=source.source_type,
-                source_title=_clean_title(source.title) if source.title else None,
-                memory_type=memory.memory_type,
-                epistemic_label=memory.epistemic_label,
-                content=memory.content,
-                summary=_clean_human_summary(memory.summary, memory.content),
-                confidence=memory.confidence,
-                confidence_reason=memory.confidence_reason,
-                source_strength=memory.source_strength,
-                created_at=memory.created_at,
+                memory_id=chosen_memory.id,
+                source_id=chosen_source.id,
+                source_type=chosen_source.source_type,
+                source_title=_clean_title(chosen_source.title) if chosen_source.title else None,
+                memory_type=chosen_memory.memory_type,
+                epistemic_label=chosen_memory.epistemic_label,
+                content=chosen_memory.content,
+                summary=_clean_human_summary(chosen_memory.summary, chosen_memory.content),
+                confidence=chosen_memory.confidence,
+                confidence_reason=chosen_memory.confidence_reason,
+                source_strength=chosen_memory.source_strength,
+                created_at=chosen_memory.created_at,
             )
         )
         if len(memories) >= limit:

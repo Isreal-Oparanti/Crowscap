@@ -104,7 +104,7 @@ export default function RecallScreen() {
 
   // Auto-open the exact card the notification was about
   useEffect(() => {
-    if (!data || activeKey) return;
+    if (!data) return;
     if (targetMemoryId) {
       const match = readyItems.find((item) => item.kind === "memory" && item.id === targetMemoryId);
       if (match) setActiveKey(itemKey(match));
@@ -112,7 +112,7 @@ export default function RecallScreen() {
       const match = readyItems.find((item) => item.kind === "reminder" && item.id === targetReminderId);
       if (match) setActiveKey(itemKey(match));
     }
-  }, [data, readyItems, targetMemoryId, targetReminderId, activeKey]);
+  }, [data, readyItems, targetMemoryId, targetReminderId]);
 
   const activeItem = readyItems.find((item) => itemKey(item) === activeKey) ?? null;
 

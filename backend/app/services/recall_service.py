@@ -152,6 +152,7 @@ def _load_due_memories(
         select(Memory, Source)
         .join(Source, Memory.source_id == Source.id)
         .where(Memory.status == "active")
+        .where(Memory.memory_type != "reference")
         .where(Memory.next_review_at.is_not(None))
         .where(Memory.next_review_at <= now)
         .order_by(Memory.next_review_at.asc())
