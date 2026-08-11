@@ -14,7 +14,7 @@
     "icon": "./assets/icon.png",
     "notification": {
       "icon": "./assets/notification-icon.png",
-      "color": "#2d7058"
+      "color": "#111111"
     },
     "scheme": "crowscap",
     "userInterfaceStyle": "automatic",
