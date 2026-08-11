@@ -94,7 +94,7 @@ export async function checkNativeAndroidUpdate(): Promise<NativeUpdateResult> {
 }
 
 export async function checkOtaUpdate(): Promise<OtaUpdateResult> {
-  if (__DEV__ || !("isEnabled" in Updates) || !Updates.isEnabled) {
+  if (__DEV__) {
     return { available: false };
   }
 
