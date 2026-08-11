@@ -352,6 +352,10 @@ def delete_memory(
     # Delete all memories attached to the item/link
     db.execute(delete(Memory).where(Memory.id.in_(mem_ids_list)))
 
+    # Delete captures referencing target_source_ids
+    if target_source_ids:
+        db.execute(delete(Capture).where(Capture.source_id.in_(list(target_source_ids))))
+
     # Delete all related sources for this link
     if target_source_ids:
         db.execute(delete(Source).where(Source.id.in_(list(target_source_ids))))
