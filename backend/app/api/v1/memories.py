@@ -302,20 +302,60 @@ def delete_memory(
     if memory is None:
         raise HTTPException(status_code=404, detail="Memory not found.")
 
-    db.execute(delete(RecallReview).where(RecallReview.memory_id == memory_id))
-    db.execute(delete(MemoryArchiveEvent).where(MemoryArchiveEvent.memory_id == memory_id))
-    db.execute(delete(MemoryPerspectiveNote).where(MemoryPerspectiveNote.memory_id == memory_id))
+    source = db.get(Source, memory.source_id) if memory.source_id else None
+
+    # Collect all related source IDs (by source_id directly or matching original_url / resolved_url)
+    target_source_ids = set()
+    if source:
+        target_source_ids.add(source.id)
+        url = source.resolved_url or source.original_url
+        if url:
+            matching_sources = db.scalars(
+                select(Source.id).where(
+                    Source.user_id == current_user.id,
+                    or_(Source.resolved_url == url, Source.original_url == url),
+                )
+            ).all()
+            for s_id in matching_sources:
+                target_source_ids.add(s_id)
+
+    # Collect all memory IDs attached to these sources
+    all_memory_ids = set()
+    if target_source_ids:
+        attached_mems = db.scalars(
+            select(Memory.id).where(
+                Memory.user_id == current_user.id,
+                Memory.source_id.in_(list(target_source_ids)),
+            )
+        ).all()
+        for m_id in attached_mems:
+            all_memory_ids.add(m_id)
+    all_memory_ids.add(memory_id)
+
+    mem_ids_list = list(all_memory_ids)
+
+    # Clean up memory references
+    db.execute(delete(RecallReview).where(RecallReview.memory_id.in_(mem_ids_list)))
+    db.execute(delete(MemoryArchiveEvent).where(MemoryArchiveEvent.memory_id.in_(mem_ids_list)))
+    db.execute(delete(MemoryPerspectiveNote).where(MemoryPerspectiveNote.memory_id.in_(mem_ids_list)))
     db.execute(
         delete(MemoryRelation).where(
             or_(
-                MemoryRelation.source_memory_id == memory_id,
-                MemoryRelation.target_memory_id == memory_id,
+                MemoryRelation.source_memory_id.in_(mem_ids_list),
+                MemoryRelation.target_memory_id.in_(mem_ids_list),
             )
         )
     )
-    db.execute(update(Reminder).where(Reminder.memory_id == memory_id).values(memory_id=None))
-    db.execute(update(ActionItem).where(ActionItem.memory_id == memory_id).values(memory_id=None))
-    db.delete(memory)
+    db.execute(update(Reminder).where(Reminder.memory_id.in_(mem_ids_list)).values(memory_id=None))
+    db.execute(update(ActionItem).where(ActionItem.memory_id.in_(mem_ids_list)).values(memory_id=None))
+
+    # Delete all memories attached to the item/link
+    db.execute(delete(Memory).where(Memory.id.in_(mem_ids_list)))
+
+    # Delete all related sources for this link
+    if target_source_ids:
+        db.execute(delete(Source).where(Source.id.in_(list(target_source_ids))))
+
     db.commit()
     return Response(status_code=204)
 

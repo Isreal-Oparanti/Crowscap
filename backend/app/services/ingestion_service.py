@@ -253,7 +253,26 @@ def create_youtube_capture(
 
     youtube_metadata = {**fallback_metadata, **_youtube_reference_metadata(info, video_id=video_id)}
     track = _choose_caption_track(info)
-    if track is None:
+    transcript = None
+
+    if track:
+        try:
+            caption_text = _download_caption_text(track["url"])
+            transcript = clean_transcript(caption_text)
+        except Exception as exc:
+            logger.warning(
+                "⚠️ capture.youtube.caption_download_failed video_id=%s error_type=%s error=%s",
+                video_id,
+                type(exc).__name__,
+                str(exc)[:400],
+            )
+
+    if not transcript:
+        fallback_transcript = _fetch_youtube_transcript_fallback(video_id)
+        if fallback_transcript:
+            transcript = clean_transcript(fallback_transcript)
+
+    if not transcript:
         logger.info(
             "ℹ️ capture.youtube.no_captions video_id=%s subtitles=%s auto_captions=%s",
             video_id,
@@ -274,38 +293,6 @@ def create_youtube_capture(
             fallback_reason=(
                 "No readable captions were available, so Crowscap saved the video "
                 "details and your reason."
-            ),
-        )
-
-    try:
-        caption_text = _download_caption_text(track["url"])
-        transcript = clean_transcript(caption_text)
-    except Exception as exc:
-        logger.warning(
-            "⚠️ capture.youtube.caption_download_failed video_id=%s error_type=%s error=%s",
-            video_id,
-            type(exc).__name__,
-            str(exc)[:400],
-        )
-        if _looks_like_network_failure(exc):
-            raise IngestionError(
-                "Crowscap found captions for this YouTube video, but could not reach YouTube to download them right now. Please check your connection and try again.",
-                metadata=youtube_metadata,
-            ) from exc
-        return create_youtube_metadata_capture(
-            db=db,
-            url=url,
-            video_id=video_id,
-            metadata=youtube_metadata,
-            intent_text=intent_text,
-            user_note=user_note,
-            extractor=extractor,
-            embedder=embedder,
-            relation_detector=relation_detector,
-            user_id=user_id,
-            fallback_reason=(
-                "Caption download failed, so Crowscap saved the video details and "
-                "your reason."
             ),
         )
     word_count = len(transcript.split())
@@ -873,6 +860,26 @@ def _choose_caption_track(info: dict[str, Any]) -> dict[str, str] | None:
         selected = _pick_caption_format(tracks)
         if selected:
             return {"kind": kind, "language": language, "url": selected["url"]}
+    return None
+
+
+def _fetch_youtube_transcript_fallback(video_id: str) -> str | None:
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+        api = YouTubeTranscriptApi()
+        transcript_list = api.list_transcripts(video_id)
+        try:
+            t = transcript_list.find_transcript(["en", "en-US", "en-GB"])
+        except Exception:
+            t = next(iter(transcript_list), None)
+        if t:
+            fetched = t.fetch()
+            snippets = [item.get("text", "") for item in fetched if item.get("text")]
+            full_text = " ".join(snippets)
+            if len(full_text.strip()) >= 50:
+                return full_text.strip()
+    except Exception as exc:
+        logger.info("ℹ️ youtube_transcript_api fallback unavailable video_id=%s exc=%s", video_id, exc)
     return None
 
 
