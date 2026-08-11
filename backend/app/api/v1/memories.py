@@ -107,6 +107,26 @@ def _clean_human_summary(raw_summary: str | None, raw_content: str | None) -> st
     return text
 
 
+from app.services.ingestion_service import extract_youtube_video_id
+
+
+def _canonical_url_key(source: Source) -> str:
+    for raw in (source.resolved_url, source.original_url):
+        if raw:
+            vid = extract_youtube_video_id(raw)
+            if vid:
+                return f"youtube:{vid}"
+
+    url = (source.resolved_url or source.original_url or "").strip()
+    if url:
+        url_clean = url.split("?")[0].rstrip("/").lower()
+        url_clean = re.sub(r"^https?://(www\.)?", "", url_clean)
+        if url_clean:
+            return f"url:{url_clean}"
+
+    return f"source:{source.id}"
+
+
 @router.get("/recent", response_model=RecentMemoryListResponse)
 def recent_memories(
     limit: int = Query(default=20, ge=1, le=50),
@@ -122,15 +142,12 @@ def recent_memories(
         .order_by(Memory.created_at.desc(), Memory.id.desc())
     ).all()
 
-    # Group items by canonical URL to merge instant reference bookmark and extracted article
+    # Group items by canonical URL key to merge instant reference bookmark and extracted article/youtube
     groups: list[list[tuple[Memory, Source]]] = []
     group_map: dict[str, int] = {}
 
     for memory, source in rows:
-        url_key = (source.resolved_url or source.original_url or "").strip().rstrip("/").lower()
-        if not url_key:
-            url_key = f"source:{source.id}"
-
+        url_key = _canonical_url_key(source)
         if url_key not in group_map:
             group_map[url_key] = len(groups)
             groups.append([])
