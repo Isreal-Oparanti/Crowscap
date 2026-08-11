@@ -43,3 +43,20 @@ export function humanizeRelationshipText(text: string): string {
     .replace(/\btensions\b/gi, "differences")
     .replace(/\btension\b/gi, "difference");
 }
+
+export function cleanMarkdownText(text: string | null | undefined): string {
+  if (!text) return "";
+  let cleaned = text
+    .replace(/\*\*(Source|Why you saved this|Link)\*\*:\s*/gi, "")
+    .replace(/\*\*/g, "")
+    .trim();
+  return cleaned;
+}
+
+export function cleanSourceTitle(title: string | null | undefined): string {
+  if (!title) return "";
+  return title
+    .replace(/^Saved reference link$/i, "")
+    .replace(/^Reference from /i, "")
+    .trim();
+}

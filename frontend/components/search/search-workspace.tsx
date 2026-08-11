@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Archive,
+  Trash2,
   ArrowRight,
   BrainCircuit,
   Clock3,
@@ -16,11 +16,12 @@ import { AppShell } from "@/components/shell/app-shell";
 import { MarkdownText } from "@/components/ui/markdown-text";
 import type { AppShellUser } from "@/components/shell/app-shell";
 import {
-  archiveMemory,
+  deleteMemory,
   getDueRecalls,
   getRecentMemories,
   searchMemories,
 } from "@/lib/api";
+import { cleanMarkdownText, cleanSourceTitle } from "@/lib/chat";
 import type { RecentMemory, SearchResponse } from "@/lib/types";
 
 export function SearchWorkspace({ user }: { user: AppShellUser }) {
@@ -84,12 +85,15 @@ export function SearchWorkspace({ user }: { user: AppShellUser }) {
     }
   }
 
-  async function archiveRecent(memoryId: string) {
+  async function deleteRecent(memoryId: string) {
     if (archivingId) return;
+    if (typeof window !== "undefined" && !window.confirm("Are you sure you want to delete this memory?")) {
+      return;
+    }
     setArchivingId(memoryId);
     setError(null);
     try {
-      await archiveMemory(memoryId);
+      await deleteMemory(memoryId);
       setRecent((current) =>
         current.filter((memory) => memory.memory_id !== memoryId),
       );
@@ -226,7 +230,7 @@ export function SearchWorkspace({ user }: { user: AppShellUser }) {
             loading={recentLoading}
             hasMore={recentHasMore}
             archivingId={archivingId}
-            onArchive={archiveRecent}
+            onDelete={deleteRecent}
             onLoadMore={() => loadRecent(recentOffset)}
           />
         </div>
@@ -260,14 +264,14 @@ function RecentMemories({
   loading,
   hasMore,
   archivingId,
-  onArchive,
+  onDelete,
   onLoadMore,
 }: {
   memories: RecentMemory[];
   loading: boolean;
   hasMore: boolean;
   archivingId: string | null;
-  onArchive: (memoryId: string) => void;
+  onDelete: (memoryId: string) => void;
   onLoadMore: () => void;
 }) {
   return (
@@ -301,7 +305,7 @@ function RecentMemories({
             key={memory.memory_id}
             memory={memory}
             archiving={archivingId === memory.memory_id}
-            onArchive={() => onArchive(memory.memory_id)}
+            onDelete={() => onDelete(memory.memory_id)}
           />
         ))}
       </div>
@@ -323,12 +327,15 @@ function RecentMemories({
 function RecentMemoryRow({
   memory,
   archiving,
-  onArchive,
+  onDelete,
 }: {
   memory: RecentMemory;
   archiving: boolean;
-  onArchive: () => void;
+  onDelete: () => void;
 }) {
+  const displayTitle = cleanSourceTitle(memory.source_title) || cleanMarkdownText(memory.summary);
+  const displaySub = cleanMarkdownText(memory.content);
+
   return (
     <article className="group flex items-start gap-3 px-4 py-4 transition hover:bg-[#fbfcfc] md:px-10">
       <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-[#eef4f7] text-[#356b8f]">
@@ -348,26 +355,24 @@ function RecentMemoryRow({
             {formatRecentDate(memory.created_at)}
           </span>
         </div>
-        <MarkdownText
-          text={memory.summary ?? memory.content}
-          className="mt-1 text-[12px] font-semibold leading-relaxed text-[#202223]"
-          compact
-        />
-        {memory.source_title ? (
-          <p className="mt-2 truncate text-[10px] font-medium text-[#85888b]">
-            {memory.source_title}
+        <p className="mt-1 text-[13px] font-bold leading-snug text-[#202223]">
+          {displayTitle || "Memory note"}
+        </p>
+        {displaySub && displaySub !== displayTitle ? (
+          <p className="mt-1 line-clamp-2 text-[11px] font-medium leading-relaxed text-[#696d70]">
+            {displaySub}
           </p>
         ) : null}
       </div>
       <button
         type="button"
-        onClick={onArchive}
+        onClick={onDelete}
         disabled={archiving}
         className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-transparent text-[#7d8285] opacity-100 transition hover:border-[#d8dcde] hover:bg-white hover:text-[#9b4c51] disabled:cursor-not-allowed disabled:opacity-50 md:opacity-0 md:group-hover:opacity-100"
-        aria-label="Remove memory from active use"
-        title="Remove from active memory"
+        aria-label="Delete memory from database"
+        title="Delete memory"
       >
-        <Archive size={15} />
+        <Trash2 size={15} />
       </button>
     </article>
   );

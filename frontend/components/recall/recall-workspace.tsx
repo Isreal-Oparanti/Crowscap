@@ -26,6 +26,8 @@ import {
   submitRecallAnswer,
 } from "@/lib/api";
 import {
+  cleanMarkdownText,
+  cleanSourceTitle,
   formatFriendlyDateTime,
   formatRelativeOverdue,
   humanizeRelationshipText,
@@ -706,17 +708,21 @@ function MobileRecallQueue({
               onClick={() => onSelectReminder(reminder.reminder_id)}
             />
           ))}
-          {memories.map((memory) => (
-            <MobileRecallItem
-              key={memory.memory_id}
-              icon="recall"
-              label={memory.memory_type}
-              title={memory.summary ?? memory.content}
-              meta={memory.source_title ?? "Saved memory"}
-              active={memory.memory_id === selectedMemoryId}
-              onClick={() => onSelectMemory(memory.memory_id)}
-            />
-          ))}
+          {memories.map((memory) => {
+            const cleanTitle = cleanSourceTitle(memory.source_title) || cleanMarkdownText(memory.human_prompt || memory.summary || memory.content);
+            const cleanMeta = cleanSourceTitle(memory.source_title) || "Saved memory";
+            return (
+              <MobileRecallItem
+                key={memory.memory_id}
+                icon="recall"
+                label={memory.memory_type}
+                title={cleanTitle}
+                meta={cleanMeta}
+                active={memory.memory_id === selectedMemoryId}
+                onClick={() => onSelectMemory(memory.memory_id)}
+              />
+            );
+          })}
         </div>
       </div>
     </section>
@@ -1069,7 +1075,7 @@ function RecallContext({
               {memory.human_title || memory.memory_type}
             </p>
             <p className="mt-1 line-clamp-2 text-[11px] font-semibold leading-relaxed">
-              {memory.human_prompt || memory.summary || memory.content}
+              {cleanMarkdownText(memory.human_prompt || memory.summary || memory.content)}
             </p>
           </Link>
         ))}

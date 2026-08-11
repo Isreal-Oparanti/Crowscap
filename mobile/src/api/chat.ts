@@ -37,3 +37,29 @@ export async function getChatMessages(
   return apiRequest<PaginatedMessagesResponse>(query);
 }
 
+export async function listConversations(
+  limit = 50
+): Promise<ConversationResponse[]> {
+  return apiRequest<ConversationResponse[]>(`/chat/conversations?limit=${limit}`);
+}
+
+export async function createConversation(): Promise<ConversationResponse> {
+  return apiRequest<ConversationResponse>("/chat/conversations", {
+    method: "POST",
+  });
+}
+
+export async function getConversation(
+  conversationId: string
+): Promise<ConversationResponse> {
+  return apiRequest<ConversationResponse>(`/chat/conversations/${conversationId}`);
+}
+
+export async function deleteConversation(
+  conversationId: string
+): Promise<void> {
+  return apiRequest<void>(`/chat/conversations/${conversationId}`, {
+    method: "DELETE",
+  });
+}
+

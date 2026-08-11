@@ -20,11 +20,12 @@ import * as DocumentPicker from "expo-document-picker";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { useRouter, useLocalSearchParams } from "expo-router";
 
-import { sendChatMessage, getCurrentConversation, getChatMessages } from "@/api/chat";
+import { sendChatMessage, getCurrentConversation, getConversation, getChatMessages } from "@/api/chat";
 import { formatFriendlyError } from "@/api/client";
 import { capturePdf, getProcessingJob } from "@/api/captures";
 
 import { BrandMark } from "@/components/shell/BrandMark";
+import { ConversationDrawer } from "@/components/chat/ConversationDrawer";
 import { Icons } from "@/components/ui/Icon";
 import { MarkdownText } from "@/components/ui/MarkdownText";
 import { useRecalls } from "@/hooks/useRecalls";
@@ -137,6 +138,81 @@ export default function ChatScreen() {
   const [working, setWorking] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [workMode, setWorkMode] = useState<WorkMode>("chat");
+
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+
+  const handleSelectConversation = useCallback(
+    async (convId: string) => {
+      setActiveConversationId(convId);
+      setHistoryLoading(true);
+      try {
+        const conv = await getConversation(convId);
+        if (conv?.messages) {
+          const loaded: ChatMessage[] = conv.messages.map((m: any) => {
+            if (m.role === "user") {
+              return { id: m.id, role: "user", text: m.content || m.text };
+            }
+            const meta = m.metadata_json || {};
+            if (m.action === "capture" && meta.capture) {
+              return {
+                id: m.id,
+                role: "assistant",
+                kind: "capture",
+                text: m.content || m.text,
+                data: meta.capture as any,
+              };
+            }
+            if (
+              m.action === "reminder" ||
+              m.action === "answer" ||
+              m.action === "self" ||
+              meta.reminder ||
+              meta.evidence
+            ) {
+              const dataObj: ChatResponse = {
+                action: (m.action as any) || "conversation",
+                message: m.content || m.text,
+                saved: false,
+                capture: (meta.capture as any) || null,
+                reminder: (meta.reminder as any) || null,
+                evidence: (meta.evidence as any) || [],
+                knowledge_gaps: (meta.knowledge_gaps as any) || [],
+                tensions: (meta.tensions as any) || [],
+                next_step: (meta.next_step as any) || null,
+                preference_updates: (meta.preference_updates as any) || [],
+                preferences: (meta.preferences as any) || null,
+              };
+              return {
+                id: m.id,
+                role: "assistant",
+                kind: "answer",
+                text: m.content || m.text,
+                data: dataObj,
+              };
+            }
+            return {
+              id: m.id,
+              role: "assistant",
+              kind: "text",
+              text: m.content || m.text,
+            };
+          });
+          setMessages(loaded.length ? loaded : [openingMessage(session?.name)]);
+        }
+      } catch {
+        // fallback
+      } finally {
+        setHistoryLoading(false);
+      }
+    },
+    [session?.name]
+  );
+
+  const handleNewConversation = useCallback(() => {
+    setActiveConversationId(null);
+    setMessages([openingMessage(session?.name)]);
+  }, [session?.name]);
 
   useEffect(() => {
     if (initialPrompt) {
@@ -350,8 +426,12 @@ export default function ChatScreen() {
         const raw = await sendChatMessage({
           message: text,
           history,
+          conversation_id: activeConversationId || undefined,
           context_memory_id: memoryIdToSend,
         });
+        if (raw.conversation_id) {
+          setActiveConversationId(raw.conversation_id);
+        }
         const action: ChatAction = chatActions.includes(raw.action) ? raw.action : "conversation";
 
         const assistantMsg: ChatMessage =
@@ -596,7 +676,13 @@ export default function ChatScreen() {
 
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View style={styles.headerLeft}>
-          <BrandMark size={38} imageSize={29} />
+          <Pressable
+            style={styles.drawerToggleButton}
+            onPress={() => setDrawerOpen(true)}
+            hitSlop={8}
+          >
+            <Icons.PanelLeft size={20} color={tokens.colors.text} />
+          </Pressable>
           <View>
             <Text style={styles.headerTitle}>New thought</Text>
             <View style={styles.headerStatusRow}>
@@ -679,6 +765,14 @@ export default function ChatScreen() {
         working={working || uploadingFile}
         inputRef={inputRef}
         bottomInset={insets.bottom}
+      />
+
+      <ConversationDrawer
+        visible={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        currentConversationId={activeConversationId}
+        onSelectConversation={handleSelectConversation}
+        onNewConversation={handleNewConversation}
       />
 
     </KeyboardAvoidingView>
@@ -1364,6 +1458,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: tokens.spacing[3],
+  },
+  drawerToggleButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: tokens.colors.surface,
+    borderWidth: 1,
+    borderColor: tokens.colors.border,
+    alignItems: "center",
+    justifyContent: "center",
   },
   headerTitle: {
     fontSize: 16,

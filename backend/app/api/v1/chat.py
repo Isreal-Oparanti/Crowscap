@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
@@ -15,12 +15,15 @@ from app.services.chat_service import (
     ChatSynthesisError,
     ChatSynthesizer,
     ChatConversationResponder,
+    create_new_conversation,
+    delete_conversation_by_id,
     get_chat_conversation_responder,
     get_conversation,
     get_current_conversation,
     get_paginated_chat_messages,
     get_chat_router,
     get_chat_synthesizer,
+    list_user_conversations,
     process_chat_pdf_upload,
     process_chat_message,
 )
@@ -36,6 +39,23 @@ logger = get_logger("api.chat")
 REASONING_UNAVAILABLE_MESSAGE = (
     "Crowscap could not reach its reasoning engine right now. Please try again in a moment."
 )
+
+
+@router.get("/conversations", response_model=list[ConversationResponse])
+def list_conversations(
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_current_user),
+) -> list[ConversationResponse]:
+    return list_user_conversations(db=db, user_id=current_user.id, limit=limit)
+
+
+@router.post("/conversations", response_model=ConversationResponse)
+def create_conversation(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_current_user),
+) -> ConversationResponse:
+    return create_new_conversation(db=db, user_id=current_user.id)
 
 
 @router.get("/conversations/current", response_model=ConversationResponse | None)
@@ -56,6 +76,18 @@ def conversation(
     if found is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     return found
+
+
+@router.delete("/conversations/{conversation_id}")
+def delete_conversation(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_current_user),
+) -> Response:
+    ok = delete_conversation_by_id(db=db, conversation_id=conversation_id, user_id=current_user.id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return Response(status_code=204)
 
 
 @router.get("/messages", response_model=PaginatedMessagesResponse)

@@ -67,6 +67,7 @@ export interface ChatMessage {
 export interface ChatRequest {
   message: string;
   history: ChatMessage[];
+  conversation_id?: string | null;
   context_memory_id?: string;
 }
 
@@ -104,6 +105,7 @@ export interface ReminderResponse {
 export interface ChatResponse {
   action: ChatAction;
   message: string;
+  conversation_id?: string | null;
   saved: boolean;
   capture: CaptureResponse | null;
   reminder?: ReminderResponse | null;

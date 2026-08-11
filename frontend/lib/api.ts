@@ -218,6 +218,12 @@ export function getRecentMemories(
   );
 }
 
+export function deleteMemory(memoryId: string): Promise<void> {
+  return request<void>(`memories/${memoryId}`, {
+    method: "DELETE",
+  });
+}
+
 export function archiveMemory(memoryId: string): Promise<{
   memory_id: string;
   previous_status: string;
@@ -232,6 +238,26 @@ export function archiveMemory(memoryId: string): Promise<{
       reason: "user_dismissed",
       note: "Archived from the recent memories view.",
     }),
+  });
+}
+
+export function getConversations(limit = 50): Promise<ConversationResponse[]> {
+  return request<ConversationResponse[]>(`chat/conversations?limit=${limit}`);
+}
+
+export function createConversation(): Promise<ConversationResponse> {
+  return request<ConversationResponse>("chat/conversations", {
+    method: "POST",
+  });
+}
+
+export function getConversation(conversationId: string): Promise<ConversationResponse> {
+  return request<ConversationResponse>(`chat/conversations/${conversationId}`);
+}
+
+export function deleteConversation(conversationId: string): Promise<void> {
+  return request<void>(`chat/conversations/${conversationId}`, {
+    method: "DELETE",
   });
 }
 

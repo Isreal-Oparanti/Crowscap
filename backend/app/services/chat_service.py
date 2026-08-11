@@ -382,28 +382,12 @@ def get_current_conversation(
         select(Conversation)
         .where(Conversation.status == "active")
         .where(Conversation.user_id.is_(None) if user_id is None else Conversation.user_id == user_id)
-        .order_by(Conversation.created_at.asc())
+        .order_by(Conversation.updated_at.desc(), Conversation.created_at.desc())
     )
-    conversations = list(db.scalars(query).all())
-    if not conversations:
+    latest_conv = db.scalars(query).first()
+    if latest_conv is None:
         return None
-
-    primary_conv = conversations[0]
-    if len(conversations) > 1:
-        for secondary in conversations[1:]:
-            db.execute(
-                text("UPDATE chat_messages SET conversation_id = :p_id WHERE conversation_id = :s_id"),
-                {"p_id": primary_conv.id, "s_id": secondary.id},
-            )
-            db.execute(
-                text("UPDATE reminders SET conversation_id = :p_id WHERE conversation_id = :s_id"),
-                {"p_id": primary_conv.id, "s_id": secondary.id},
-            )
-            secondary.status = "archived"
-        db.commit()
-        db.refresh(primary_conv)
-
-    return _conversation_response(primary_conv)
+    return _conversation_response(latest_conv)
 
 
 def get_conversation(
@@ -418,6 +402,57 @@ def get_conversation(
     if user_id is not None and conversation.user_id != user_id:
         return None
     return _conversation_response(conversation)
+
+
+def list_user_conversations(
+    *,
+    db: Session,
+    user_id: str,
+    limit: int = 50,
+) -> list[ConversationResponse]:
+    conversations = db.scalars(
+        select(Conversation)
+        .where(Conversation.status == "active", Conversation.user_id == user_id)
+        .order_by(Conversation.updated_at.desc(), Conversation.created_at.desc())
+        .limit(limit)
+    ).all()
+    return [_conversation_response(c) for c in conversations]
+
+
+def create_new_conversation(
+    *,
+    db: Session,
+    user_id: str,
+    title: str = "New Thought",
+) -> ConversationResponse:
+    conversation = Conversation(
+        title=title,
+        user_id=user_id,
+        status="active",
+    )
+    db.add(conversation)
+    db.commit()
+    db.refresh(conversation)
+    return _conversation_response(conversation)
+
+
+def delete_conversation_by_id(
+    *,
+    db: Session,
+    conversation_id: str,
+    user_id: str,
+) -> bool:
+    conv = db.scalar(
+        select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.user_id == user_id,
+        )
+    )
+    if conv is None:
+        return False
+    conv.status = "archived"
+    db.commit()
+    return True
 
 
 def process_chat_message(
@@ -1196,21 +1231,13 @@ def _get_or_create_conversation(
                 conversation.user_id,
                 user_id,
             )
-        elif conversation is not None:
+        elif conversation is not None and conversation.status == "active":
             return conversation
         else:
             logger.info(
                 "💬 chat.conversation.missing requested_id=%s action=create_new",
                 conversation_id,
             )
-    if user_id is not None:
-        active_conversation = db.scalars(
-            select(Conversation)
-            .where(Conversation.status == "active", Conversation.user_id == user_id)
-            .order_by(Conversation.updated_at.desc(), Conversation.created_at.desc())
-        ).first()
-        if active_conversation is not None:
-            return active_conversation
 
     conversation = Conversation(
         user_id=user_id,

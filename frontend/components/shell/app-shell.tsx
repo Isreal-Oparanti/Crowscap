@@ -3,8 +3,8 @@
 import {
   BookOpenCheck,
   Bell,
-  BrainCircuit,
   MessageCircle,
+  PanelLeft,
   Plus,
   Search,
   WifiOff,
@@ -16,7 +16,6 @@ import { useEffect, useState, type ReactNode } from "react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import {
   NotificationRuntime,
-  PushNotificationControl,
 } from "@/components/notifications/notification-runtime";
 import { BrandIcon } from "@/components/ui/brand-icon";
 import { getPreferences } from "@/lib/api";
@@ -37,6 +36,7 @@ type AppShellProps = {
   title?: string;
   subtitle?: string;
   user: AppShellUser;
+  onOpenDrawer?: () => void;
 };
 
 const navigation = [
@@ -53,6 +53,7 @@ export function AppShell({
   title = "Crowscap",
   subtitle = "Your thinking, still within reach",
   user,
+  onOpenDrawer,
 }: AppShellProps) {
   const pathname = usePathname();
   const displayName = user.name ?? user.email?.split("@")[0] ?? "Crowscap user";
@@ -104,10 +105,10 @@ export function AppShell({
                     ? "bg-white text-[#111111] shadow-[0_1px_0_rgba(0,0,0,0.04)]"
                     : "text-[#676a6d] hover:bg-white/70 hover:text-[#111111]"
                 }`}
-                >
-                  <Icon size={17} strokeWidth={1.9} />
-                  <span>{item.label}</span>
-                  {item.label === "Recall" && dueCount > 0 ? (
+              >
+                <Icon size={17} strokeWidth={1.9} />
+                <span>{item.label}</span>
+                {item.label === "Recall" && dueCount > 0 ? (
                   <span className="ml-auto flex items-center gap-1.5 rounded-full bg-[#eaf3ee] px-2 py-1 text-[9px] font-extrabold uppercase text-[#2d7058]">
                     <span className="size-1.5 rounded-full bg-[#2d7058]" />
                     Ready
@@ -140,7 +141,6 @@ export function AppShell({
                   {workspaceLabel}
                 </p>
               </div>
-              <SignOutButton />
             </div>
           </div>
         </div>
@@ -148,10 +148,22 @@ export function AppShell({
 
       <main className="workspace-main relative flex flex-col">
         <header className="flex h-[68px] shrink-0 items-center border-b border-[#e7e8e9] bg-white px-4 md:px-6">
-          <div className="md:hidden">
-            <BrandMark />
-          </div>
-          <div className="ml-3 min-w-0 md:ml-0">
+          {onOpenDrawer ? (
+            <button
+              type="button"
+              onClick={onOpenDrawer}
+              className="mr-3 flex size-9 items-center justify-center rounded-full border border-[#e1e3e4] bg-[#f5f6f7] text-[#111111] transition hover:bg-[#e8eaec]"
+              aria-label="Open conversation history drawer"
+              title="Open conversation history"
+            >
+              <PanelLeft size={18} />
+            </button>
+          ) : (
+            <div className="md:hidden">
+              <BrandMark />
+            </div>
+          )}
+          <div className="min-w-0">
             <h1 className="truncate text-[15px] font-[750]">{title}</h1>
             <p className="truncate text-[11px] font-medium text-[#7b7e82]">
               {subtitle}
@@ -183,7 +195,6 @@ export function AppShell({
         </aside>
       ) : null}
       <NotificationRuntime />
-      <NetworkToastHost />
     </div>
   );
 }
@@ -238,137 +249,40 @@ function DefaultContext() {
     let active = true;
     getPreferences()
       .then((profile) => {
-        if (active) {
-          setPreferences(profile);
-        }
+        if (active) setPreferences(profile);
       })
-      .catch(() => {
-        if (active) {
-          setPreferences(null);
-        }
-      });
+      .catch(() => undefined);
     return () => {
       active = false;
     };
   }, []);
 
-  const topics = [
-    ...(preferences?.topics_of_interest ?? []),
-    ...(preferences?.inferred_topics ?? []),
-  ].filter((topic, index, list) => list.indexOf(topic) === index);
-  const signals = preferences?.learning_signals ?? [];
-
   return (
-    <div className="flex h-full flex-col px-5 py-6">
+    <div className="h-full px-5 py-6">
       <p className="text-[10px] font-extrabold uppercase text-[#8a8d90]">
-        Crowscap is learning
+        Memory system
       </p>
-      <h2 className="mt-2 text-[20px] font-[750] leading-tight">
-        Your memory should get more personal over time.
-      </h2>
-      <div className="mt-6 space-y-2">
-        <PushNotificationControl />
-        <PreferenceRow
-          label="Answers"
-          value={preferences?.answer_style ?? "balanced"}
-        />
-        <PreferenceRow
-          label="Evidence"
-          value={preferences?.evidence_strictness ?? "balanced"}
-        />
-        <PreferenceRow
-          label="Challenge"
-          value={preferences?.challenge_style ?? "balanced"}
-        />
-      </div>
-      {topics.length > 0 ? (
-        <div className="mt-6">
-          <p className="text-[10px] font-extrabold uppercase text-[#8a8d90]">
-            Topics it has noticed
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {topics.slice(0, 8).map((topic) => (
-              <span
-                key={topic}
-                className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-[#424548] shadow-[0_0_0_1px_#e2e4e5]"
-              >
-                {topic}
-              </span>
-            ))}
-          </div>
-        </div>
-      ) : null}
-      {signals.length > 0 ? (
-        <div className="mt-6 rounded-md border border-[#d7e9df] bg-[#eff8f3] p-3 text-[#285b48]">
-          <p className="text-[10px] font-extrabold uppercase">
-            Latest learning signal
-          </p>
-          <p className="mt-2 text-[11px] leading-relaxed">{signals[0]}</p>
-        </div>
-      ) : null}
-      <div className="mt-auto border-t border-[#e1e3e4] pt-4">
-        <div className="flex items-center gap-2 text-[#5d6265]">
-          <BrainCircuit size={14} />
-          <span className="text-[10px] font-bold uppercase">Agent memory</span>
-        </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-[#84878a]">
-          Explicit preferences are treated as strongest. Inferred preferences
-          are lower-confidence and can change as you use Crowscap.
+      <div className="mt-4 rounded-xl border border-[#e1e3e4] bg-white p-4">
+        <p className="text-[12px] font-extrabold">Active orientation</p>
+        <p className="mt-1 text-[11px] font-medium text-[#777b7e]">
+          Crowscap continuously extracts intentions, claims, principles, and
+          action items from your inputs.
         </p>
       </div>
-    </div>
-  );
-}
-
-function PreferenceRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between border-b border-[#e4e5e6] py-3">
-      <span className="text-[12px] font-semibold">{label}</span>
-      <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold uppercase text-[#676a6d] shadow-[0_0_0_1px_#e4e5e6]">
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function NetworkToastHost() {
-  const [message, setMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    const onIssue = (event: Event) => {
-      const detail = (event as CustomEvent<{ message?: string }>).detail;
-      const nextMessage =
-        typeof detail?.message === "string" && detail.message.trim()
-          ? detail.message
-          : "Crowscap could not reach the memory service. Try again in a moment.";
-      setMessage(nextMessage);
-      if (timeout) clearTimeout(timeout);
-      timeout = setTimeout(() => setMessage(null), 5200);
-    };
-
-    window.addEventListener("crowscap:api-issue", onIssue);
-    return () => {
-      window.removeEventListener("crowscap:api-issue", onIssue);
-      if (timeout) clearTimeout(timeout);
-    };
-  }, []);
-
-  if (!message) return null;
-
-  return (
-    <div className="fixed bottom-5 left-1/2 z-50 w-[min(92vw,420px)] -translate-x-1/2 md:bottom-6 md:left-auto md:right-6 md:translate-x-0">
-      <div className="flex items-start gap-3 rounded-lg border border-[#ded4bf] bg-[#fffaf0] px-4 py-3 text-[#6f5421] shadow-[0_18px_60px_rgba(0,0,0,0.14)]">
-        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-[#f5ead3]">
-          <WifiOff size={15} strokeWidth={2.1} />
-        </div>
-        <div>
-          <p className="text-[11px] font-extrabold uppercase">Connection issue</p>
-          <p className="mt-1 text-[12px] font-semibold leading-relaxed">
-            {message}
+      {preferences?.topics_of_interest?.length ? (
+        <div className="mt-4 rounded-xl border border-[#e1e3e4] bg-white p-4">
+          <p className="text-[10px] font-extrabold uppercase text-[#8a8d90]">
+            Topics of interest
           </p>
+          <ul className="mt-2 space-y-2 text-[11px] font-semibold text-[#3d4043]">
+            {preferences.topics_of_interest.slice(0, 3).map((topic) => (
+              <li key={topic} className="line-clamp-2">
+                • {topic}
+              </li>
+            ))}
+          </ul>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
