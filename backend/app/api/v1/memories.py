@@ -113,27 +113,34 @@ def recent_memories(
     current_user: CurrentUser = Depends(require_current_user),
 ) -> RecentMemoryListResponse:
     filters = [Memory.status == "active", Memory.user_id == current_user.id]
-    count = db.scalar(select(func.count(Memory.id)).where(*filters)) or 0
     rows = db.execute(
         select(Memory, Source)
         .join(Source, Memory.source_id == Source.id)
         .where(*filters)
         .order_by(Memory.created_at.desc(), Memory.id.desc())
-        .limit(limit * 4)
     ).all()
-    source_rows: dict[str, list[tuple[Memory, Source]]] = {}
-    for memory, source in rows:
-        if source.id not in source_rows:
-            source_rows[source.id] = []
-        source_rows[source.id].append((memory, source))
 
-    memories: list[RecentMemoryResponse] = []
-    for source_id, items in source_rows.items():
-        # Prefer non-reference memory (extracted insights like youtube, claim, principle)
+    # Group items by canonical URL to merge instant reference bookmark and extracted article
+    groups: list[list[tuple[Memory, Source]]] = []
+    group_map: dict[str, int] = {}
+
+    for memory, source in rows:
+        url_key = (source.resolved_url or source.original_url or "").strip().rstrip("/").lower()
+        if not url_key:
+            url_key = f"source:{source.id}"
+
+        if url_key not in group_map:
+            group_map[url_key] = len(groups)
+            groups.append([])
+        groups[group_map[url_key]].append((memory, source))
+
+    all_unique_memories: list[RecentMemoryResponse] = []
+    for items in groups:
+        # Prefer non-reference memory (extracted insights like youtube, article, claim) over reference bookmark
         non_ref = [item for item in items if item[0].memory_type != "reference"]
         chosen_memory, chosen_source = non_ref[0] if non_ref else items[0]
 
-        memories.append(
+        all_unique_memories.append(
             RecentMemoryResponse(
                 memory_id=chosen_memory.id,
                 source_id=chosen_source.id,
@@ -149,15 +156,16 @@ def recent_memories(
                 created_at=chosen_memory.created_at,
             )
         )
-        if len(memories) >= limit:
-            break
+
+    paginated_memories = all_unique_memories[offset : offset + limit]
+    has_more = len(all_unique_memories) > (offset + limit)
 
     return RecentMemoryListResponse(
-        count=len(memories),
+        count=len(paginated_memories),
         limit=limit,
         offset=offset,
-        has_more=len(rows) > len(memories),
-        memories=memories,
+        has_more=has_more,
+        memories=paginated_memories,
     )
 
 

@@ -19,7 +19,12 @@ export function useSearch() {
     setError(null);
     try {
       const res = await getRecentMemories(20, offset);
-      setRecent((prev) => (offset === 0 ? res.memories : [...prev, ...res.memories]));
+      setRecent((prev) => {
+        if (offset === 0) return res.memories;
+        const existingIds = new Set(prev.map((m) => m.memory_id));
+        const newUnique = res.memories.filter((m) => !existingIds.has(m.memory_id));
+        return [...prev, ...newUnique];
+      });
       setRecentOffset(offset + res.memories.length);
       setRecentHasMore(res.has_more);
     } catch (err) {
