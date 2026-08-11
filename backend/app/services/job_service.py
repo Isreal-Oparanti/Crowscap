@@ -95,7 +95,10 @@ def run_url_capture_job(job_id: str) -> None:
                 len(capture.memories),
             )
         except (QwenClientError, ExtractionError, EmbeddingError, IngestionError, ValueError) as exc:
-            _mark_failed(db=db, job=job, code=exc.__class__.__name__, message=str(exc))
+            msg = str(exc)
+            if "trafilatura" in msg.lower() or "import" in msg.lower():
+                msg = "Crowscap could not extract readable article text from this page."
+            _mark_failed(db=db, job=job, code=exc.__class__.__name__, message=msg)
         except Exception as exc:
             logger.exception("❌ job.unexpected id=%s", job.id)
             _mark_failed(

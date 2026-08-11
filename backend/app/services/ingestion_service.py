@@ -780,17 +780,23 @@ def _looks_like_html(content_type: str) -> bool:
 def extract_article_text(body: bytes, *, url: str) -> str:
     try:
         import trafilatura
-    except ImportError as exc:
-        raise IngestionError("Article extraction is not installed. Install trafilatura.") from exc
+    except ImportError:
+        logger.warning("⚠️ trafilatura import missing")
+        raise IngestionError("Crowscap could not extract readable article text from this page.")
 
     html_text = body.decode("utf-8", errors="replace")
-    extracted = trafilatura.extract(
-        html_text,
-        url=url,
-        include_comments=False,
-        include_tables=True,
-        favor_precision=True,
-    )
+    extracted = None
+    try:
+        extracted = trafilatura.extract(
+            html_text,
+            url=url,
+            include_comments=False,
+            include_tables=True,
+            favor_precision=True,
+        )
+    except Exception as exc:
+        logger.warning("⚠️ trafilatura.extract error url=%s exc=%s", url, exc)
+
     article = _normalize_text(extracted or "")
     if len(article) < MIN_EXTRACTED_CHARS:
         fallback = _HTMLTextExtractor()
