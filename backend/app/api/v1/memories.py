@@ -13,6 +13,7 @@ from app.db.models import (
     MemoryArchiveEvent,
     MemoryPerspectiveNote,
     MemoryRelation,
+    ProcessingJob,
     RecallReview,
     Reminder,
     Source,
@@ -353,8 +354,13 @@ def delete_memory(
     # Delete all memories attached to the item/link
     db.execute(delete(Memory).where(Memory.id.in_(mem_ids_list)))
 
-    # Delete captures referencing target_source_ids
+    # Find capture IDs referencing target_source_ids
     if target_source_ids:
+        capture_ids = db.scalars(
+            select(Capture.id).where(Capture.source_id.in_(list(target_source_ids)))
+        ).all()
+        if capture_ids:
+            db.execute(delete(ProcessingJob).where(ProcessingJob.capture_id.in_(capture_ids)))
         db.execute(delete(Capture).where(Capture.source_id.in_(list(target_source_ids))))
 
     # Delete all related sources for this link
