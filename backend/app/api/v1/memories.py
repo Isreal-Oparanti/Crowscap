@@ -8,6 +8,7 @@ from typing import Optional, List
 from app.core.auth import CurrentUser, require_current_user
 from app.db.models import (
     ActionItem,
+    Capture,
     Memory,
     MemoryArchiveEvent,
     MemoryPerspectiveNote,
