@@ -73,6 +73,16 @@ type ChatMessage =
 type WorkMode = "chat" | "link" | "save" | "reminder";
 
 
+function cleanMarkdownText(raw: string | null | undefined): string {
+  if (!raw) return "";
+  return raw
+    .replace(/\*\*Source\*\*:\s*/gi, "")
+    .replace(/\*\*Why you saved this\*\*:\s*/gi, "")
+    .replace(/\*\*Link\*\*:\s*/gi, "")
+    .replace(/\*\*/g, "")
+    .trim();
+}
+
 function cleanSourceTitle(raw: string | null | undefined): string {
   if (!raw) return "Saved source";
   try {
@@ -141,6 +151,7 @@ export default function ChatScreen() {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [inputFocused, setInputFocused] = useState(false);
 
   const handleSelectConversation = useCallback(
     async (convId: string) => {
@@ -674,43 +685,42 @@ export default function ChatScreen() {
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
 
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <View style={styles.headerLeft}>
-          <Pressable
-            style={styles.drawerToggleButton}
-            onPress={() => setDrawerOpen(true)}
-            hitSlop={8}
-          >
-            <Icons.PanelLeft size={20} color={tokens.colors.text} />
-          </Pressable>
-          <View>
-            <Text style={styles.headerTitle}>New thought</Text>
-            <View style={styles.headerStatusRow}>
-              <Text style={styles.headerSub}>Crowscap is listening</Text>
+      {!inputFocused ? (
+        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+          <View style={styles.headerLeft}>
+            <Pressable
+              style={styles.drawerToggleButton}
+              onPress={() => setDrawerOpen(true)}
+              hitSlop={8}
+            >
+              <Icons.PanelLeft size={20} color={tokens.colors.text} />
+            </Pressable>
+            <View>
+              <Text style={styles.headerTitle}>New thought</Text>
+              <View style={styles.headerStatusRow}>
+                <Text style={styles.headerSub}>Crowscap is listening</Text>
+              </View>
             </View>
-
+          </View>
+          <View style={styles.headerRight}>
+            <Pressable
+              style={styles.headerIconButton}
+              onPress={() => router.push("/(tabs)/recall" as never)}
+              hitSlop={8}
+            >
+              <Icons.Bell size={19} color={tokens.colors.text} />
+              {hasUnreadRecalls ? <View style={styles.bellDot} /> : null}
+            </Pressable>
+            <Pressable
+              style={styles.headerIconButton}
+              onPress={() => router.push("/settings" as never)}
+              hitSlop={8}
+            >
+              <Icons.Settings size={19} color={tokens.colors.text} />
+            </Pressable>
           </View>
         </View>
-        <View style={styles.headerRight}>
-          <Pressable
-            style={styles.headerIconButton}
-            onPress={() => router.push("/(tabs)/recall" as never)}
-            hitSlop={8}
-          >
-            <Icons.Bell size={19} color={tokens.colors.text} />
-            {hasUnreadRecalls ? <View style={styles.bellDot} /> : null}
-          </Pressable>
-          <Pressable
-            style={styles.headerIconButton}
-            onPress={() => router.push("/settings" as never)}
-            hitSlop={8}
-          >
-            <Icons.Settings size={19} color={tokens.colors.text} />
-          </Pressable>
-        </View>
-      </View>
-
-
+      ) : null}
 
       <FlatList
         ref={listRef}
@@ -728,6 +738,23 @@ export default function ChatScreen() {
         onContentSizeChange={handleContentSizeChange}
         ListHeaderComponent={
           <View>
+            {recallData?.memories?.length ? (
+              <Pressable
+                style={styles.recallBanner}
+                onPress={() => router.push("/(tabs)/recall" as never)}
+              >
+                <View style={styles.recallBannerIcon}>
+                  <Icons.BookOpenCheck size={17} color="#2d7058" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.recallBannerTitle}>A thought is ready to revisit</Text>
+                  <Text style={styles.recallBannerSub} numberOfLines={1}>
+                    {cleanMarkdownText(recallData.memories[0].summary || recallData.memories[0].content)}
+                  </Text>
+                </View>
+                <Text style={styles.recallBannerOpen}>Open ›</Text>
+              </Pressable>
+            ) : null}
             {hasMoreHistory ? (
               <Pressable
                 style={({ pressed }) => [styles.historyError, pressed && { opacity: 0.72 }, { marginBottom: 12 }]}
@@ -765,6 +792,7 @@ export default function ChatScreen() {
         working={working || uploadingFile}
         inputRef={inputRef}
         bottomInset={insets.bottom}
+        onFocusChange={setInputFocused}
       />
 
       <ConversationDrawer
@@ -1311,6 +1339,7 @@ function Composer({
   working,
   inputRef,
   bottomInset,
+  onFocusChange,
 }: {
   draft: string;
   setDraft: (value: string) => void;
@@ -1321,6 +1350,7 @@ function Composer({
   working: boolean;
   inputRef: RefObject<TextInput | null>;
   bottomInset: number;
+  onFocusChange?: (focused: boolean) => void;
 }) {
   const canSend = (draft.trim().length > 0 || pendingFile !== null) && !working;
 
@@ -1354,8 +1384,10 @@ function Composer({
           style={styles.composerInput}
           value={draft}
           onChangeText={setDraft}
-          placeholder="Save a thought, ask your memory..."
+          placeholder="Save, ask, recall..."
           placeholderTextColor="#8a8e94"
+          onFocus={() => onFocusChange?.(true)}
+          onBlur={() => onFocusChange?.(false)}
           multiline
           maxLength={40_000}
           returnKeyType="default"
@@ -2081,6 +2113,42 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   sendButtonActive: {
-    backgroundColor: tokens.colors.text,
+    backgroundColor: "#111111",
+  },
+
+  recallBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f1f7f4",
+    borderWidth: 1,
+    borderColor: "#d7e5dc",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    gap: 10,
+  },
+  recallBannerIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recallBannerTitle: {
+    fontFamily: fontFamily.semibold,
+    fontSize: 12,
+    color: "#245e4b",
+  },
+  recallBannerSub: {
+    fontFamily: fontFamily.regular,
+    fontSize: 11,
+    color: "#668074",
+    marginTop: 1,
+  },
+  recallBannerOpen: {
+    fontFamily: fontFamily.semibold,
+    fontSize: 12,
+    color: "#2d7058",
   },
 });

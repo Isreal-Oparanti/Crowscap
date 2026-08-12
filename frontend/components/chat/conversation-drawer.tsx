@@ -103,13 +103,7 @@ export function ConversationDrawer({
 
       {/* Drawer Content */}
       <aside className="relative flex w-full max-w-[320px] flex-col border-r border-[#e0e2e4] bg-white px-4 py-5 shadow-2xl rise-in">
-        <div className="flex items-center justify-between px-2">
-          <div className="flex items-center gap-2">
-            <MessageCircle size={20} className="text-[#2d7058]" />
-            <span className="text-[15px] font-[750] text-[#111111]">
-              Conversations
-            </span>
-          </div>
+        <div className="flex items-center justify-end px-2">
           <button
             type="button"
             onClick={onClose}
@@ -126,7 +120,7 @@ export function ConversationDrawer({
             onNewConversation();
             onClose();
           }}
-          className="mt-5 flex h-11 items-center justify-center gap-2 rounded-lg bg-[#2d7058] px-4 text-[13px] font-bold text-white transition hover:bg-[#245b47]"
+          className="mt-4 flex h-11 items-center justify-center gap-2 rounded-lg bg-[#111111] px-4 text-[13px] font-bold text-white transition hover:bg-black"
         >
           <Plus size={18} />
           New Conversation

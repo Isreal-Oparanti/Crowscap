@@ -118,10 +118,6 @@ export function ConversationDrawer({
         <View style={[styles.drawerContainer, { paddingTop: insets.top + 16, paddingBottom: Math.max(insets.bottom, 16) }]}>
           {/* Header */}
           <View style={styles.header}>
-            <View style={styles.brandRow}>
-              <BrandMark size={32} imageSize={24} />
-              <Text style={styles.brandTitle}>Crowscap</Text>
-            </View>
             <Pressable style={styles.iconButton} onPress={onClose} hitSlop={8}>
               <Icons.X size={20} color={tokens.colors.text} />
             </Pressable>
@@ -277,18 +273,8 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 20,
-  },
-  brandRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  brandTitle: {
-    fontFamily: fontFamily.bold,
-    fontSize: 18,
-    color: tokens.colors.text,
+    justifyContent: "flex-end",
+    marginBottom: 16,
   },
   iconButton: {
     padding: 6,
@@ -300,7 +286,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: "#2d7058",
+    backgroundColor: "#111111",
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 12,

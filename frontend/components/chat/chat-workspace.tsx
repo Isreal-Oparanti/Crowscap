@@ -33,7 +33,7 @@ import {
   sendChatMessage,
   uploadPdfToChat,
 } from "@/lib/api";
-import { formatFriendlyDateTime, humanizeRelationshipText } from "@/lib/chat";
+import { cleanMarkdownText, formatFriendlyDateTime, humanizeRelationshipText } from "@/lib/chat";
 import type { AppShellUser } from "@/components/shell/app-shell";
 import type {
   BeliefAuditResponse,
@@ -1293,7 +1293,7 @@ function RecallNotice({
           {title}
         </p>
         <p className="truncate text-[11px] font-medium text-[#668074]">
-          {body}
+          {cleanMarkdownText(body)}
         </p>
       </div>
       <div className="ml-auto flex items-center gap-1 text-[10px] font-bold text-[#2d7058]">
@@ -1442,7 +1442,7 @@ function Composer({
                 if (canSend) sendMessage();
               }
             }}
-            placeholder="Save a thought, ask your memory..."
+            placeholder="Save, ask, recall..."
             className="max-h-32 min-h-[20px] flex-1 resize-none bg-transparent px-1 py-1.5 text-[14.5px] font-normal leading-[20px] text-black outline-none placeholder:text-[#8a8e94]"
           />
           <button
