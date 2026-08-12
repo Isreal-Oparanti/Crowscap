@@ -168,7 +168,7 @@ export function SettingsWorkspace({ user }: { user: AppShellUser }) {
                   type="button"
                   disabled={learning}
                   onClick={handleLearnNow}
-                  className="rounded-md bg-[#eaf3ee] px-2.5 py-1 text-[11px] font-bold text-[#2d7058] transition hover:bg-[#d8e9de] disabled:opacity-50"
+                  className="shrink-0 whitespace-nowrap rounded-md bg-[#eaf3ee] px-2.5 py-1 text-[11px] font-bold text-[#2d7058] transition hover:bg-[#d8e9de] disabled:opacity-50"
                 >
                   {learning ? "Adapting..." : "Adapt Now"}
                 </button>
