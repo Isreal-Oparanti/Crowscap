@@ -7,6 +7,7 @@ import {
   PanelLeft,
   Plus,
   Search,
+  Settings,
   WifiOff,
 } from "lucide-react";
 import Link from "next/link";
@@ -195,7 +196,13 @@ export function AppShell({
               ) : null}
             </Link>
             <div className="md:hidden">
-              <SignOutButton className="flex size-9 items-center justify-center rounded-full text-[#44474a] transition hover:bg-[#f1f2f3]" />
+              <Link
+                href="/admin"
+                aria-label="Open settings"
+                className="flex size-9 items-center justify-center rounded-full text-[#44474a] transition hover:bg-[#f1f2f3]"
+              >
+                <Settings size={18} strokeWidth={1.8} />
+              </Link>
             </div>
           </div>
         </header>

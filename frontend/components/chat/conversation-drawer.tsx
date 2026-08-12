@@ -3,9 +3,11 @@
 import {
   MessageCircle,
   Plus,
+  Settings,
   Trash2,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { SignOutButton } from "@/components/auth/sign-out-button";
@@ -120,10 +122,10 @@ export function ConversationDrawer({
             onNewConversation();
             onClose();
           }}
-          className="mt-4 flex h-11 items-center justify-center gap-2 rounded-lg bg-[#111111] px-4 text-[13px] font-bold text-white transition hover:bg-black"
+          className="mt-4 flex h-11 items-center justify-center gap-2 rounded-xl bg-[#111111] px-4 text-[14px] font-bold text-white transition hover:bg-black"
         >
-          <Plus size={18} />
-          New Conversation
+          <Plus size={18} className="text-white" />
+          <span className="text-white">New Conversation</span>
         </button>
 
         <p className="mt-6 px-2 text-[10px] font-extrabold uppercase tracking-wider text-[#85888b]">
@@ -206,7 +208,13 @@ export function ConversationDrawer({
                 </p>
               </div>
             </div>
-            <SignOutButton />
+            <Link
+              href="/admin"
+              aria-label="Open settings"
+              className="flex size-8 items-center justify-center rounded-lg text-[#676a6d] hover:bg-[#f1f2f3] hover:text-[#111111]"
+            >
+              <Settings size={18} />
+            </Link>
           </div>
         </div>
       </aside>

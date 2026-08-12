@@ -296,7 +296,8 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   newChatText: {
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.bold,
+    fontWeight: "700",
     fontSize: 14,
     color: "#FFFFFF",
   },
