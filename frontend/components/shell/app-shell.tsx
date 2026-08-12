@@ -197,7 +197,7 @@ export function AppShell({
             </Link>
             <div className="md:hidden">
               <Link
-                href="/admin"
+                href="/settings"
                 aria-label="Open settings"
                 className="flex size-9 items-center justify-center rounded-full text-[#44474a] transition hover:bg-[#f1f2f3]"
               >

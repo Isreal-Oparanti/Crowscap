@@ -209,7 +209,7 @@ export function ConversationDrawer({
               </div>
             </div>
             <Link
-              href="/admin"
+              href="/settings"
               aria-label="Open settings"
               className="flex size-8 items-center justify-center rounded-lg text-[#676a6d] hover:bg-[#f1f2f3] hover:text-[#111111]"
             >
