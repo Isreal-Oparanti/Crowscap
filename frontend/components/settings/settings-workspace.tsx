@@ -2,6 +2,7 @@
 
 import {
   Bell,
+  BrainCircuit,
   Check,
   ChevronRight,
   HelpCircle,
@@ -10,7 +11,6 @@ import {
   MessageCircle,
   RefreshCw,
   Shield,
-  Sparkles,
   User,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
@@ -157,7 +157,7 @@ export function SettingsWorkspace({ user }: { user: AppShellUser }) {
 
               <div className="flex items-center justify-between py-3.5">
                 <div className="flex items-center gap-3">
-                  <Sparkles size={16} className="text-[#2d7058]" />
+                  <BrainCircuit size={16} className="text-[#2d7058]" />
                   <div className="min-w-0">
                     <p className="text-[13px] font-semibold text-[#111111]">
                       Adapt agent to recent thoughts
@@ -168,7 +168,7 @@ export function SettingsWorkspace({ user }: { user: AppShellUser }) {
                   type="button"
                   disabled={learning}
                   onClick={handleLearnNow}
-                  className="rounded-md bg-[#eaf3ee] px-2.5 py-1 text-[11px] font-extrabold text-[#2d7058] transition hover:bg-[#d8e9de] disabled:opacity-50"
+                  className="rounded-md bg-[#eaf3ee] px-2.5 py-1 text-[11px] font-bold text-[#2d7058] transition hover:bg-[#d8e9de] disabled:opacity-50"
                 >
                   {learning ? "Adapting..." : "Adapt Now"}
                 </button>
@@ -185,9 +185,9 @@ export function SettingsWorkspace({ user }: { user: AppShellUser }) {
           <button
             type="button"
             onClick={() => void signOut()}
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-[#f5d0d0] bg-[#fff5f5] text-[13px] font-extrabold text-[#9b4c51] transition hover:bg-[#ffebeb]"
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-[#e2e4e5] bg-white text-[13px] font-bold text-[#303437] transition hover:bg-[#f8f9fa]"
           >
-            <LogOut size={16} />
+            <LogOut size={16} className="text-[#4d5154]" />
             <span>Sign Out</span>
           </button>
         </div>

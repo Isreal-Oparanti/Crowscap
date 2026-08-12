@@ -213,7 +213,7 @@ export default function SettingsScreen() {
 
             <View style={styles.row}>
               <View style={styles.rowLeft}>
-                <Icons.Sparkles size={16} color="#2d7058" />
+                <Icons.BrainCircuit size={16} color="#2d7058" />
                 <Text style={styles.rowTitle}>Adapt agent to recent thoughts</Text>
               </View>
               <Pressable
@@ -278,7 +278,7 @@ export default function SettingsScreen() {
           ]}
           onPress={handleSignOut}
         >
-          <Icons.LogOut size={16} color="#9b4c51" />
+          <Icons.LogOut size={16} color="#4d5154" />
           <Text style={styles.signOutText}>Sign Out</Text>
         </Pressable>
       </ScrollView>
@@ -433,26 +433,26 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
     height: 48,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#f5d0d0",
-    backgroundColor: "#fff5f5",
+    borderColor: "#e2e4e5",
+    backgroundColor: "#ffffff",
     marginTop: 8,
   },
   signOutText: {
     fontSize: 13,
-    fontFamily: fontFamily.extrabold,
-    color: "#9b4c51",
+    fontFamily: fontFamily.bold,
+    color: "#303437",
   },
   adaptBadge: {
     backgroundColor: "#eaf3ee",
     borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
   adaptBadgeText: {
     fontSize: 11,
-    fontFamily: fontFamily.extrabold,
+    fontFamily: fontFamily.bold,
     color: "#2d7058",
   },
   learnMessageText: {
