@@ -71,19 +71,33 @@ export function AppShell({
   return (
     <div className={`app-grid ${isWide ? "app-grid-wide" : ""}`}>
       <aside className="desktop-rail flex flex-col bg-[#f5f6f7] px-4 py-5">
-        <div className="flex items-center gap-3 px-2">
-          <BrandMark />
-          <div>
-            <p className="text-[15px] font-[750]">Crowscap</p>
-            <p className="text-[11px] font-medium text-[#777a7e]">
-              Personal intelligence
-            </p>
+        <div className="flex items-center justify-between px-2">
+          <div className="flex items-center gap-3">
+            {onOpenDrawer ? (
+              <button
+                type="button"
+                onClick={onOpenDrawer}
+                className="flex size-9 items-center justify-center rounded-lg border border-[#e1e3e4] bg-white text-[#111111] transition hover:bg-[#e8eaec]"
+                aria-label="Open conversation history drawer"
+                title="Open conversation history"
+              >
+                <PanelLeft size={18} />
+              </button>
+            ) : (
+              <BrandMark />
+            )}
+            <div>
+              <p className="text-[15px] font-[750]">Crowscap</p>
+              <p className="text-[11px] font-medium text-[#777a7e]">
+                Personal intelligence
+              </p>
+            </div>
           </div>
         </div>
 
         <Link
           href="/"
-          className="mt-7 flex h-10 items-center justify-center gap-2 rounded-md bg-[#111111] px-3 text-[13px] font-semibold text-white transition hover:bg-black"
+          className="mt-6 flex h-10 items-center justify-center gap-2 rounded-md bg-[#111111] px-3 text-[13px] font-semibold text-white transition hover:bg-black"
         >
           <Plus size={16} strokeWidth={2} />
           New thought

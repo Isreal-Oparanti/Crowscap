@@ -19,13 +19,16 @@ import {
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { ConversationDrawer } from "@/components/chat/conversation-drawer";
 import { MemoryCardView } from "@/components/memory/memory-card";
 import { AppShell } from "@/components/shell/app-shell";
 import { BrandIcon } from "@/components/ui/brand-icon";
 import { MarkdownText } from "@/components/ui/markdown-text";
 import {
+  getConversation,
   getCurrentConversation,
   getDueRecalls,
+  getPaginatedChatMessages,
   getProcessingJob,
   sendChatMessage,
   uploadPdfToChat,
@@ -178,8 +181,49 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
   const [working, setWorking] = useState(false);
   const [workMode, setWorkMode] = useState<WorkMode>("chat");
   const [due, setDue] = useState<DueRecallsResponse | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+
+  async function loadMoreHistory() {
+    if (loadingMore || !messages.length || !hasMoreMessages) return;
+    const firstMsgId = messages[0].id;
+    setLoadingMore(true);
+    try {
+      const res = await getPaginatedChatMessages(25, firstMsgId);
+      setHasMoreMessages(res.has_more);
+      const older = res.messages.map(hydratePersistedMessage);
+      setMessages((current) => [...older, ...current]);
+    } catch {
+      // Ignore load error
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  async function handleSelectConversation(id: string) {
+    setConversationId(id);
+    try {
+      const res = await getPaginatedChatMessages(25);
+      setHasMoreMessages(res.has_more);
+      const restored = res.messages.map(hydratePersistedMessage);
+      setMessages(restored.length > 0 ? restored : openingMessages);
+    } catch {
+      const conv = await getConversation(id);
+      if (conv?.messages) {
+        const restored = conv.messages.slice(-25).map(hydratePersistedMessage);
+        setMessages(restored.length > 0 ? restored : openingMessages);
+      }
+    }
+  }
+
+  function handleNewConversation() {
+    setConversationId(null);
+    setHasMoreMessages(false);
+    setMessages(openingMessages);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -190,6 +234,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
     setWorking(false);
     setWorkMode("chat");
     setDue(null);
+    setHasMoreMessages(false);
 
     const refreshDue = () => {
       if (document.visibilityState === "hidden") return;
@@ -208,12 +253,20 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     getCurrentConversation()
-      .then((conversation) => {
+      .then(async (conversation) => {
         if (cancelled) return;
         if (!conversation) return;
         setConversationId(conversation.id);
-        const restored = conversation.messages.map(hydratePersistedMessage);
-        setMessages(restored.length > 0 ? restored : openingMessages);
+        try {
+          const res = await getPaginatedChatMessages(25);
+          if (cancelled) return;
+          setHasMoreMessages(res.has_more);
+          const restored = res.messages.map(hydratePersistedMessage);
+          setMessages(restored.length > 0 ? restored : openingMessages);
+        } catch {
+          const restored = conversation.messages.slice(-25).map(hydratePersistedMessage);
+          setMessages(restored.length > 0 ? restored : openingMessages);
+        }
       })
       .catch(() => {
         if (cancelled) return;
@@ -452,6 +505,7 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
       title="New thought"
       subtitle="Crowscap is listening"
       user={user}
+      onOpenDrawer={() => setDrawerOpen(true)}
       context={<ChatContext memories={contextMemories} due={due} />}
     >
       <div className="conversation-scroll min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
@@ -464,6 +518,18 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
           ) : null}
 
           <div className="mt-8 space-y-8">
+            {hasMoreMessages ? (
+              <div className="flex justify-center my-4">
+                <button
+                  type="button"
+                  disabled={loadingMore}
+                  onClick={loadMoreHistory}
+                  className="rounded-full border border-[#d7dadc] bg-white px-3.5 py-1.5 text-[11px] font-bold text-[#4d5255] transition hover:border-[#9fa4a7] hover:bg-[#f5f6f7] disabled:opacity-50"
+                >
+                  {loadingMore ? "Loading..." : "Load previous messages"}
+                </button>
+              </div>
+            ) : null}
             {messages.map((message) => (
               <ChatTurn
                 key={message.id}
@@ -487,6 +553,15 @@ export function ChatWorkspace({ user }: { user: AppShellUser }) {
         sendMessage={sendMessage}
         working={working}
         textareaRef={textareaRef}
+      />
+
+      <ConversationDrawer
+        isOpen={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        currentConversationId={conversationId}
+        onSelectConversation={handleSelectConversation}
+        onNewConversation={handleNewConversation}
+        user={user}
       />
     </AppShell>
   );

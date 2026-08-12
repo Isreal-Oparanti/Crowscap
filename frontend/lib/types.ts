@@ -152,6 +152,11 @@ export type PersistedChatMessage = {
   created_at: string;
 };
 
+export type PaginatedMessagesResponse = {
+  messages: PersistedChatMessage[];
+  has_more: boolean;
+};
+
 export type ConversationResponse = {
   id: string;
   title: string;

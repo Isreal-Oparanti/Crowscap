@@ -5,6 +5,7 @@ import type {
   ConversationResponse,
   ConversationTurn,
   DueRecallsResponse,
+  PaginatedMessagesResponse,
   PerspectiveNoteListResponse,
   PushPublicKeyResponse,
   PushSubscriptionResponse,
@@ -172,6 +173,16 @@ export function uploadPdfToChat(
 
 export function getCurrentConversation(): Promise<ConversationResponse | null> {
   return request<ConversationResponse | null>("chat/conversations/current");
+}
+
+export function getPaginatedChatMessages(
+  limit = 25,
+  beforeId?: string | null,
+): Promise<PaginatedMessagesResponse> {
+  const query = beforeId
+    ? `chat/messages?limit=${limit}&before_id=${beforeId}`
+    : `chat/messages?limit=${limit}`;
+  return request<PaginatedMessagesResponse>(query);
 }
 
 export function getPreferences(): Promise<UserPreferenceProfile> {
