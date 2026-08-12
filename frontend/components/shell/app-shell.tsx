@@ -174,7 +174,7 @@ export function AppShell({
               <PanelLeft size={18} />
             </button>
           ) : (
-            <div className="md:hidden">
+            <div className="mr-3.5 md:hidden">
               <BrandMark />
             </div>
           )}

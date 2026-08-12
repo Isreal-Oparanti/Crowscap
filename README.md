@@ -212,6 +212,7 @@ Important project docs:
 - [`docs/19-chat-routing-and-trust.md`](docs/19-chat-routing-and-trust.md)
 - [`docs/20-pwa-push-notifications.md`](docs/20-pwa-push-notifications.md)
 - [`docs/21-backend-learning-guide.md`](docs/21-backend-learning-guide.md)
+- [`docs/22-eas-ota-updates-troubleshooting.md`](docs/22-eas-ota-updates-troubleshooting.md)
 
 ## Current Scope
 

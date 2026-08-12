@@ -267,6 +267,9 @@ export default function ChatScreen() {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
           const conv = await getCurrentConversation();
+          if (conv?.id) {
+            setActiveConversationId(conv.id);
+          }
           const paginated = await getChatMessages(30);
           setHasMoreHistory(paginated.has_more);
 

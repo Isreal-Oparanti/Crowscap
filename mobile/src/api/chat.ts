@@ -63,3 +63,9 @@ export async function deleteConversation(
   });
 }
 
+export async function learnPreferencesNow(): Promise<{ updates: string[] }> {
+  return apiRequest<{ updates: string[] }>("/preferences/learn-now", {
+    method: "POST",
+  });
+}
+

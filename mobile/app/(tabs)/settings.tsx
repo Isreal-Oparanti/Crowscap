@@ -16,6 +16,7 @@ import { fontFamily } from "@/theme/typography";
 
 import { useState } from "react";
 import { checkNativeAndroidUpdate, checkOtaUpdate } from "@/utils/updates";
+import { learnPreferencesNow } from "@/api/chat";
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -23,6 +24,26 @@ export default function SettingsScreen() {
   const router = useRouter();
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateStatusText, setUpdateStatusText] = useState("v1.0.0");
+  const [learning, setLearning] = useState(false);
+  const [learnMessage, setLearnMessage] = useState<string | null>(null);
+
+  const handleLearnNow = async () => {
+    if (learning) return;
+    setLearning(true);
+    setLearnMessage(null);
+    try {
+      const res = await learnPreferencesNow();
+      setLearnMessage(
+        res.updates.length > 0
+          ? `Learned ${res.updates.length} pattern(s) from your context!`
+          : "Preferences are already up to date."
+      );
+    } catch {
+      setLearnMessage("Could not update preferences.");
+    } finally {
+      setLearning(false);
+    }
+  };
 
   const handleCheckForUpdates = async () => {
     if (checkingUpdate) return;
@@ -187,7 +208,30 @@ export default function SettingsScreen() {
                 <Text style={styles.valueText}>Direct</Text>
               </View>
             </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.row}>
+              <View style={styles.rowLeft}>
+                <Icons.Sparkles size={16} color="#2d7058" />
+                <Text style={styles.rowTitle}>Adapt agent to recent thoughts</Text>
+              </View>
+              <Pressable
+                style={({ pressed }) => [styles.adaptBadge, pressed && { opacity: 0.7 }]}
+                onPress={handleLearnNow}
+                disabled={learning}
+              >
+                {learning ? (
+                  <ActivityIndicator size="small" color="#2d7058" />
+                ) : (
+                  <Text style={styles.adaptBadgeText}>Adapt Now</Text>
+                )}
+              </Pressable>
+            </View>
           </View>
+          {learnMessage ? (
+            <Text style={styles.learnMessageText}>{learnMessage}</Text>
+          ) : null}
         </View>
 
         {/* App Updates & System */}
@@ -399,6 +443,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: fontFamily.extrabold,
     color: "#9b4c51",
+  },
+  adaptBadge: {
+    backgroundColor: "#eaf3ee",
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  adaptBadgeText: {
+    fontSize: 11,
+    fontFamily: fontFamily.extrabold,
+    color: "#2d7058",
+  },
+  learnMessageText: {
+    fontSize: 11,
+    fontFamily: fontFamily.semibold,
+    color: "#2d7058",
+    marginTop: 6,
+    paddingHorizontal: 4,
   },
   versionText: {
     fontSize: 11,

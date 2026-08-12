@@ -14,7 +14,7 @@
     "icon": "./assets/icon.png",
     "notification": {
       "icon": "./assets/notification-icon.png",
-      "color": "#111111"
+      "color": "#ffffff"
     },
     "scheme": "crowscap",
     "userInterfaceStyle": "automatic",
@@ -76,7 +76,7 @@
         "expo-notifications",
         {
           "icon": "./assets/notification-icon.png",
-          "color": "#111111",
+          "color": "#ffffff",
           "sounds": [],
           "androidMode": "default"
         }

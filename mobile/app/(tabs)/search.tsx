@@ -237,12 +237,12 @@ function MemoryRow({
   onOpen: () => void;
   onDelete: () => void;
 }) {
-  const sourceType = isRecentMemory(item) ? item.source_type : null;
+  const memoryType = isRecentMemory(item) ? (item.memory_type || "MEMORY").toUpperCase() : "MEMORY";
+  const sourceType = isRecentMemory(item) ? (item.source_type || "NOTE").toUpperCase() : "NOTE";
   const date = isRecentMemory(item) ? formatDate(item.created_at) : null;
   const rawTitle = cleanSourceTitle(item.source_title);
   const displayTitle = rawTitle || (isRecentMemory(item) ? item.summary || item.content : item.content);
   const displaySubtitle = rawTitle ? (isRecentMemory(item) ? item.summary || item.content : item.content) : null;
-  const badgeLabel = sourceType ? sourceType.toUpperCase() : "MEMORY";
 
   return (
     <View style={styles.memoryRow}>
@@ -251,24 +251,21 @@ function MemoryRow({
         style={({ pressed }) => [styles.memoryOpenArea, pressed && styles.memoryOpenAreaPressed]}
       >
         <View style={styles.memoryIcon}>
-          {sourceType === "pdf" ? (
-            <Icons.FileText size={15} color="#2d7058" />
-          ) : (
-            <Icons.BookOpenCheck size={15} color="#2d7058" />
-          )}
+          <Icons.FileText size={15} color="#356b8f" />
         </View>
         <View style={styles.memoryBody}>
           <View style={styles.metaRow}>
-            <Text style={styles.metaText}>{badgeLabel}</Text>
-            {date ? <Text style={styles.metaDot}>·</Text> : null}
+            <Text style={styles.metaText}>{memoryType}</Text>
+            <Text style={styles.metaDot}>·</Text>
+            <Text style={styles.sourceTagText}>{sourceType}</Text>
             {date ? (
               <View style={styles.dateMeta}>
-                <Icons.Clock3 size={11} color="#8c9096" />
+                <Icons.Clock3 size={11} color="#85888b" />
                 <Text style={styles.dateText}>{date}</Text>
               </View>
             ) : null}
           </View>
-          <Text style={styles.memoryTitle} numberOfLines={1}>
+          <Text style={styles.memoryTitle} numberOfLines={2}>
             {displayTitle}
           </Text>
           {displaySubtitle ? (
@@ -282,7 +279,7 @@ function MemoryRow({
         {deleting ? (
           <ActivityIndicator size="small" color="#9b4c51" />
         ) : (
-          <Icons.Trash2 size={16} color="#9b4c51" />
+          <Icons.Trash2 size={16} color="#7d8285" />
         )}
       </Pressable>
     </View>
@@ -508,16 +505,16 @@ const styles = StyleSheet.create({
     opacity: 0.72,
   },
   memoryIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 6,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#e8f4ed",
+    backgroundColor: "#eef4f7",
   },
   memoryBody: {
     flex: 1,
-    gap: 3,
+    gap: 2,
   },
   metaRow: {
     flexDirection: "row",
@@ -525,14 +522,20 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   metaText: {
-    fontSize: 10,
-    color: "#787c80",
+    fontSize: 9,
+    color: "#6f7376",
     fontFamily: fontFamily.extrabold,
     letterSpacing: 0.5,
   },
   metaDot: {
-    fontSize: 11,
-    color: "#b0b4b8",
+    fontSize: 10,
+    color: "#b8bbbd",
+  },
+  sourceTagText: {
+    fontSize: 9,
+    color: "#85888b",
+    fontFamily: fontFamily.bold,
+    letterSpacing: 0.5,
   },
   dateMeta: {
     marginLeft: "auto",
@@ -541,21 +544,23 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   dateText: {
-    fontSize: 11,
-    color: "#8a8e94",
-    fontFamily: fontFamily.medium,
+    fontSize: 10,
+    color: "#85888b",
+    fontFamily: fontFamily.semibold,
   },
   memoryTitle: {
-    fontSize: 13.5,
-    lineHeight: 19,
-    color: "#111418",
+    fontSize: 13,
+    lineHeight: 18,
+    color: "#202223",
     fontFamily: fontFamily.bold,
+    marginTop: 1,
   },
   memorySource: {
-    fontSize: 11.5,
+    fontSize: 11,
     lineHeight: 16,
-    color: "#8a8e94",
+    color: "#696d70",
     fontFamily: fontFamily.medium,
+    marginTop: 1,
   },
   deleteButton: {
     width: 34,

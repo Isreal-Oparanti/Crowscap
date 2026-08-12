@@ -154,59 +154,31 @@ export function SettingsWorkspace({ user }: { user: AppShellUser }) {
                   {preferences?.challenge_style || "Direct"}
                 </div>
               </div>
-            </div>
 
-            <button
-              type="button"
-              disabled={learning}
-              onClick={handleLearnNow}
-              className="flex w-full items-center justify-between rounded-xl border border-[#d7e5dc] bg-[#f1f7f4] px-4 py-3 text-[12px] font-bold text-[#2d7058] transition hover:bg-[#e4f0e9]"
-            >
-              <div className="flex items-center gap-2">
-                <Sparkles size={16} />
-                <span>Adapt agent to recent thoughts</span>
+              <div className="flex items-center justify-between py-3.5">
+                <div className="flex items-center gap-3">
+                  <Sparkles size={16} className="text-[#2d7058]" />
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-semibold text-[#111111]">
+                      Adapt agent to recent thoughts
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={learning}
+                  onClick={handleLearnNow}
+                  className="rounded-md bg-[#eaf3ee] px-2.5 py-1 text-[11px] font-extrabold text-[#2d7058] transition hover:bg-[#d8e9de] disabled:opacity-50"
+                >
+                  {learning ? "Adapting..." : "Adapt Now"}
+                </button>
               </div>
-              <span className="text-[11px] font-semibold">
-                {learning ? "Learning..." : "Adapt Now"}
-              </span>
-            </button>
+            </div>
             {learnMessage ? (
               <p className="px-1 text-[11px] font-medium text-[#2d7058]">
                 {learnMessage}
               </p>
             ) : null}
-          </div>
-
-          {/* App Updates & System */}
-          <div className="space-y-2">
-            <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#8a8d90]">
-              App Updates & System
-            </p>
-            <div className="divide-y divide-[#e8eaec] rounded-xl border border-[#e2e4e5] bg-white px-4 shadow-xs">
-              <div className="flex items-center justify-between py-3.5">
-                <div className="flex items-center gap-3">
-                  <RefreshCw size={16} className="text-[#4d5154]" />
-                  <span className="text-[13px] font-semibold text-[#111111]">
-                    Platform status
-                  </span>
-                </div>
-                <div className="rounded-md bg-[#eaf3ee] px-2.5 py-1 text-[11px] font-extrabold text-[#2d7058]">
-                  Up to date
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between py-3.5">
-                <div className="flex items-center gap-3">
-                  <Info size={16} className="text-[#4d5154]" />
-                  <span className="text-[13px] font-semibold text-[#111111]">
-                    Version
-                  </span>
-                </div>
-                <div className="rounded-md bg-[#f2f3f4] px-2.5 py-1 text-[11px] font-bold text-[#4d5154]">
-                  v1.0.0
-                </div>
-              </div>
-            </div>
           </div>
 
           {/* Sign Out Button */}
