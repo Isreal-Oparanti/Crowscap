@@ -81,6 +81,15 @@
           "androidMode": "default"
         }
       ],
+      [
+        "expo-share-intent",
+        {
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+            "NSExtensionActivationSupportsText": true
+          }
+        }
+      ],
       "./plugins/withAbiSplits"
     ],
     "experiments": {

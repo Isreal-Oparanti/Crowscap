@@ -1,3 +1,4 @@
+import { useShareIntent as useExpoShareIntent } from "expo-share-intent";
 import { useCallback, useMemo } from "react";
 
 export interface SharedContent {
@@ -7,15 +8,26 @@ export interface SharedContent {
 }
 
 export function useShareIntent() {
-  const clear = useCallback(() => {}, []);
+  const { hasShareIntent, shareIntent, resetShareIntent, error } = useExpoShareIntent();
 
-  return useMemo(
-    () => ({
-      hasShareIntent: false,
-      content: null as SharedContent | null,
-      clear,
-      error: null as unknown,
-    }),
-    [clear]
-  );
+  const clear = useCallback(() => {
+    resetShareIntent();
+  }, [resetShareIntent]);
+
+  const content: SharedContent | null = useMemo(() => {
+    if (!hasShareIntent || !shareIntent) return null;
+    const shareValue = shareIntent.webUrl || shareIntent.text || undefined;
+    return {
+      text: shareValue,
+      url: shareIntent.type === "weburl" ? (shareIntent.webUrl || shareValue) : undefined,
+      type: shareIntent.type as SharedContent["type"],
+    };
+  }, [hasShareIntent, shareIntent]);
+
+  return {
+    hasShareIntent,
+    content,
+    clear,
+    error,
+  };
 }
