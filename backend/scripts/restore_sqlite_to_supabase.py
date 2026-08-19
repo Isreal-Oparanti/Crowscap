@@ -6,6 +6,7 @@ import sys
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.config import get_settings
 from app.db.models import (
     ActionItem,
     Capture,
@@ -49,7 +50,8 @@ MODEL_ORDER = [
 ]
 
 def main() -> None:
-    target_url = os.getenv("DATABASE_URL")
+    settings = get_settings()
+    target_url = os.getenv("DATABASE_URL") or settings.database_url
     if not target_url:
         print("DATABASE_URL environment variable must be set.")
         sys.exit(1)
