@@ -2,30 +2,16 @@
 
 > Turn what you save into knowledge you can remember, question, and use.
 
-Crowscap is a conversational memory intelligence system built for the Qwen Cloud MemoryAgent track. It helps people turn scattered learning fragments into source-aware memory that can be searched, recalled, audited, and improved over time.
+Crowscap is a conversational memory intelligence system, It helps people turn scattered learning fragments into source-aware memory that can be searched, recalled, audited, and improved over time.
 
 Most tools help people store information. Crowscap is built for the harder problem: helping saved information become usable knowledge.
 
 ## Live Project
 
-- Frontend: https://crowscap.xyz
-- Backend health check: https://api.crowscap.xyz/api/v1/health
-- MCP SSE endpoint: https://api.crowscap.xyz/mcp/sse
+
 
 The MCP SSE endpoint is a long-running stream. A successful quick check returns an `event: endpoint` line and then keeps the connection open.
 
-## Hackathon Track
-
-Track 1: MemoryAgent.
-
-The project demonstrates:
-
-- Persistent memory across sessions.
-- User preference learning.
-- Efficient storage and retrieval.
-- Timely forgetting through archive and deprioritization.
-- Recall of critical memories within limited context windows.
-- Agent-accessible memory tools through MCP/SSE.
 
 ## Why Crowscap Exists
 
