@@ -3060,6 +3060,23 @@ def _process_recent_reference_context_update(
     )
 
 
+_FORTHCOMING_SHARE_PATTERN = re.compile(
+    r"\b(?:let me|lemme|i(?:'ll| will| am going to|'m going to|'m about to| am about to)|"
+    r"gonna|going to|about to|hold on|wait|one sec|give me a (?:sec|second|moment))\b"
+    r"[^.]*\b(?:paste|past|post|send|share|drop|upload|add|find|get|grab|copy)\b"
+    r"|\b(?:here(?:'s| is)|here are)\s+(?:the|a|another)\s+(?:link|video|url)\b"
+)
+
+
+_REQUEST_VERB_START_PATTERN = re.compile(
+    r"^(?:(?:so|ok|okay|hmm|well|btw|and|but|then|alright|also|please|pls|now|can you|could you|"
+    r"would you|will you)\b[\s,]*)*"
+    r"(?:tell|explain|give|show|list|summari[sz]e|copy|share|save|send|find|read|open|describe|"
+    r"compare|break|extract|pull|bring|get|look|check|remind|remember|forget|delete|remove|archive|"
+    r"i want to|i wanna|i need to|i'd like to|i would like to)\b"
+)
+
+
 def _looks_like_recent_source_context_update(message: str) -> bool:
     if _first_url(message):
         return False
@@ -3084,6 +3101,16 @@ def _looks_like_recent_source_context_update(message: str) -> bool:
     if "?" in message or _is_question_like(normalized):
         return False
     if _asks_about_recent_capture(normalized):
+        return False
+    # Forward-looking: the user is about to share a (new) link, not describing
+    # an already-saved one ("wait let me paste the link that has the ideas").
+    if _FORTHCOMING_SHARE_PATTERN.search(normalized):
+        return False
+    # Requests/commands about the source (tell me more, explain, copy, share it
+    # with someone) are not "why I saved this" context.
+    if _REQUEST_VERB_START_PATTERN.search(normalized) or re.search(
+        r"\b(?:the|that|this) source of\b|\bshare (?:it|the \w+|this|that) with\b", normalized
+    ):
         return False
 
     source_markers = (
@@ -3834,6 +3861,19 @@ def _deterministic_route(message: str, *, history: list[ConversationTurn]) -> Ch
         return ChatRoute(
             action="reminder",
             reason="The user is asking for time-based resurfacing.",
+        )
+
+    if (
+        not _first_url(message)
+        and len(words) <= 16
+        and "?" not in message
+        and _FORTHCOMING_SHARE_PATTERN.search(normalized)
+        and any(w in words for w in ("link", "url", "video", "article", "it", "them", "that", "page", "post"))
+    ):
+        return ChatRoute(
+            action="acknowledge",
+            reply="Sure, go ahead and paste it here.",
+            reason="The user is about to share something; nothing to save yet.",
         )
 
     how_are_you_patterns = (

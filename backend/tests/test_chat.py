@@ -3253,3 +3253,12 @@ def test_conversational_question_referencing_previous_advice_is_not_saved_as_mem
         app.dependency_overrides.clear()
 
 
+
+
+def test_forthcoming_link_share_is_not_a_source_context_update() -> None:
+    from app.services.chat_service import _looks_like_recent_source_context_update as looks
+
+    assert not looks("wait let me past the link that contains the ideas")
+    assert not looks("let me paste the link that has the ideas")
+    assert not looks("i'll send the link in a sec")
+    assert looks("The above video is actually about obeying laws and using obedience as a path to success.")
