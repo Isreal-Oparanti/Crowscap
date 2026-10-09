@@ -3262,3 +3262,21 @@ def test_forthcoming_link_share_is_not_a_source_context_update() -> None:
     assert not looks("let me paste the link that has the ideas")
     assert not looks("i'll send the link in a sec")
     assert looks("The above video is actually about obeying laws and using obedience as a path to success.")
+
+
+def test_style_instructions_and_self_statements_are_not_capture_commands() -> None:
+    from app.services.chat_service import _deterministic_route
+
+    for message in ("i'll remember that", "keep going", "keep it short please", "save me from this"):
+        route = _deterministic_route(message, history=[])
+        assert route is None or route.action != "capture", message
+    for message in ("save this", "remember that", "keep it", "remember to call mom tomorrow"):
+        route = _deterministic_route(message, history=[])
+        assert route is not None and route.action == "capture", message
+
+
+def test_recall_of_own_learning_is_not_a_self_question() -> None:
+    from app.services.chat_service import _looks_like_self_question
+
+    assert not _looks_like_self_question("can you recall what i learned about pricing")
+    assert _looks_like_self_question("what can you do")

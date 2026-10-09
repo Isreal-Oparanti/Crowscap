@@ -2231,6 +2231,7 @@ def _asks_about_recent_capture(normalized: str) -> bool:
 
 
 _RECENT_SOURCE_DISPLAY_LIMIT = 10
+_RECENT_SOURCE_CONTEXT_WINDOW = timedelta(minutes=30)
 
 
 def _source_scoped_memory_lines(
@@ -3033,6 +3034,15 @@ def _process_recent_reference_context_update(
     )
     if recent is None:
         return None
+    # Only treat the message as context for a *just-saved* source. Without this
+    # a loose reference ("the video was long") attaches to whatever was saved
+    # many turns or hours ago.
+    captured_at = recent.capture.created_at
+    if captured_at is not None:
+        if captured_at.tzinfo is None:
+            captured_at = captured_at.replace(tzinfo=utc_now().tzinfo)
+        if utc_now() - captured_at > _RECENT_SOURCE_CONTEXT_WINDOW:
+            return None
 
     source_url = recent.source.original_url or recent.source.resolved_url
     if source_url is None and recent.source.source_type not in {"reference", "youtube", "article"}:
@@ -4060,7 +4070,7 @@ def _deterministic_route(message: str, *, history: list[ConversationTurn]) -> Ch
         "i learnt ",
         "i want to remember ",
     )
-    if normalized.startswith(explicit_capture_starts):
+    if normalized.startswith(explicit_capture_starts) and not _NOT_SAVE_COMMAND_PATTERN.search(normalized):
         return ChatRoute(action="capture", reason="The user explicitly asked to preserve information.")
 
     if "http://" in normalized or "https://" in normalized or len(message) >= 500:
@@ -4455,6 +4465,10 @@ def _looks_like_self_question(normalized: str) -> bool:
     if re.search(r"\b(?:my|our)\s+(?:product|app|tool|system|software|startup|business|idea|service|customers|users)\b", normalized):
         return False
     if _is_explicit_memory_query(normalized) or _is_explicit_belief_audit_query(normalized):
+        return False
+    # "can you recall what i learned about pricing" asks about the user's own
+    # memories, not about Crowscap's capabilities.
+    if re.search(r"\b(?:what|which|anything|everything|all)\b[^?.]*\bi\s+(?:have\s+|had\s+|did\s+)?(?:learn(?:ed|t)?|saved?|noted?|read|watched|know|wrote|captured)\b", normalized):
         return False
     identity_patterns = (
         "i don't understand this app",
@@ -5331,9 +5345,25 @@ def _looks_like_pending_url_reply(message: str) -> bool:
     return False
 
 
+_NOT_SAVE_COMMAND_PATTERN = re.compile(
+    r"^(?:(?:ok|okay|so|well|yeah|yes|alright|cool)\b[\s,]*)*"
+    r"(?:(?:i|we)(?:'ll| will|'m going to| am going to|'m gonna| am gonna|'d| would)?\s+(?:definitely\s+|always\s+)?"
+    r"(?:remember|keep|hold|store|save)\b"
+    r"|(?:save|keep|hold)\s+(?:me|us)\b"
+    r"|keep\s+(?:it|that|this|things|answers?|replies|responses)\s+"
+    r"(?:short|brief|simple|concise|clear|casual|light|professional|formal|real|up|going|low|private|secret)\b"
+    r"|keep\s+(?:going|talking|trying|calm|quiet|it up|up)\b)"
+)
+
+
 def _is_save_previous_response_command(message: str) -> bool:
     normalized = re.sub(r"\s+", " ", message.strip().lower()).strip(" .!?")
     if _first_url(message):
+        return False
+    # The user describing their own action or giving a style instruction is not
+    # a request to save the assistant's reply ("i'll remember that", "keep it
+    # short", "save me from this").
+    if _NOT_SAVE_COMMAND_PATTERN.search(normalized):
         return False
 
     phrases = {
