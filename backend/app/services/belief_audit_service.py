@@ -181,7 +181,7 @@ class QwenBeliefAuditor:
             ),
             model=self.settings.qwen_belief_audit_model,
             temperature=0.15,
-            timeout_seconds=45.0,
+            timeout_seconds=90.0,
             max_retries=1,
         )
         try:

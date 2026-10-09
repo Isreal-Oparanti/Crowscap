@@ -2,6 +2,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import get_settings
 from app.db.base import Base
 from app.db.models import Capture, Memory, MemoryRelation, Source
 from app.services.relationship_service import QwenMemoryRelationDetector
@@ -126,7 +127,7 @@ def test_relationship_detector_batches_and_skips_meta_memories() -> None:
     )
 
     assert fake_client.calls == 1
-    assert fake_client.models == ["qwen-turbo"]
+    assert fake_client.models == [get_settings().qwen_relationship_model]
     assert len(relations) == 1
     assert relations[0].source_memory_id == product_memory.id
     assert relations[0].target_memory_id == older_memory.id

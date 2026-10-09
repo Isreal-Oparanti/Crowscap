@@ -84,5 +84,14 @@ class ConversationResponse(BaseModel):
 
 
 class PaginatedMessagesResponse(BaseModel):
+    conversation_id: str | None = None
     messages: list[ChatMessageResponse] = Field(default_factory=list)
     has_more: bool = False
+
+
+class SharedMessageResponse(BaseModel):
+    id: str
+    role: str
+    content: str
+    created_at: str
+

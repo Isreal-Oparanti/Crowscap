@@ -47,7 +47,7 @@ def capture_text(
         )
     except (QwenClientError, EmbeddingError) as exc:
         logger.warning("⚠️ capture.text.unavailable reason=%s", exc)
-        raise HTTPException(status_code=503, detail=REASONING_UNAVAILABLE_MESSAGE) from exc
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except (ExtractionError, CaptureSafetyError) as exc:
         logger.warning("⚠️ capture.text.invalid reason=%s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc

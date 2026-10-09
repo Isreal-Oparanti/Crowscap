@@ -21,6 +21,17 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./crowscap_dev.db"
 
+    # When True (set this in production), a Postgres deployment that cannot
+    # provision the pgvector extension/column, or a write to
+    # memories.embedding_vector that fails, raises instead of silently
+    # falling back to the embedding_json/in-process-cosine-similarity path.
+    # That fallback is fine for local SQLite dev (there is no pgvector
+    # there at all) but is NOT fine for production: a silent fallback means
+    # vector search is quietly running a full in-process O(n) scan capped
+    # at 1000 rows (see search_service._load_searchable_memories) with no
+    # alert ever firing. Left False by default so dev/SQLite is unaffected.
+    require_pgvector: bool = False
+
     dashscope_api_key: SecretStr | None = Field(default=None)
     qwen_base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
     qwen_reasoning_model: str = "qwen3.7-plus"
@@ -33,11 +44,11 @@ class Settings(BaseSettings):
     qwen_belief_audit_model: str = "qwen-plus"
     youtube_data_api_key: SecretStr | None = Field(default=None)
 
-    relationship_candidate_min_score: float = 0.50
-    relationship_candidate_limit: int = 3
-    relationship_pair_limit: int = 4
+    relationship_candidate_min_score: float = 0.65
+    relationship_candidate_limit: int = 2
+    relationship_pair_limit: int = 2
     relationship_near_duplicate_max_score: float = 0.75
-    relationship_timeout_seconds: float = 20.0
+    relationship_timeout_seconds: float = 12.0
     relationship_max_retries: int = 0
 
     recall_due_limit: int = 50

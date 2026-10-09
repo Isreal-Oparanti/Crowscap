@@ -13,6 +13,18 @@ class SearchRequest(BaseModel):
         description="Minimum cosine similarity. This is model-dependent and tuned empirically.",
     )
     include_archived: bool = False
+    source_id: str | None = Field(
+        default=None,
+        description=(
+            "When set, bypass semantic ranking entirely and deterministically "
+            "list every memory for this one source (newest first), up to "
+            "`limit`. Use this for 'what did I save from that video/link' "
+            "style questions, where the user wants the source's own content, "
+            "not whatever happens to rank highest against their whole "
+            "corpus for this query string. `query` is still required by this "
+            "schema but is ignored on this path."
+        ),
+    )
 
 
 class SearchResult(BaseModel):

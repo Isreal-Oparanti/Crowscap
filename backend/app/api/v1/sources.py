@@ -24,5 +24,9 @@ def get_source_content(
         source_type=source.source_type,
         title=source.title,
         original_url=source.original_url,
-        original_content=source.raw_text,
+        # Prefer the organized markdown overview; fall back to raw_text
+        # when extraction hasn't produced one yet (e.g. a reference-link
+        # stub still waiting on its background enrichment job).
+        original_content=source.summary_markdown or source.raw_text,
+        raw_text=source.raw_text,
     )

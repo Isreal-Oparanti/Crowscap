@@ -21,7 +21,7 @@ from app.services.recall_evaluation_service import (
     get_recall_evaluator,
     quick_recall,
 )
-from app.services.recall_service import get_due_recalls
+from app.services.recall_service import get_due_recalls, invalidate_recall_cache
 from app.services.reminder_service import complete_reminder, snooze_reminder
 
 router = APIRouter(tags=["recalls"])
@@ -51,7 +51,9 @@ def complete_due_reminder(
     current_user: CurrentUser = Depends(require_current_user),
 ) -> ReminderResponse:
     try:
-        return complete_reminder(db=db, reminder_id=reminder_id, user_id=current_user.id)
+        res = complete_reminder(db=db, reminder_id=reminder_id, user_id=current_user.id)
+        invalidate_recall_cache(user_id=current_user.id)
+        return res
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -64,12 +66,14 @@ def snooze_due_reminder(
     current_user: CurrentUser = Depends(require_current_user),
 ) -> ReminderResponse:
     try:
-        return snooze_reminder(
+        res = snooze_reminder(
             db=db,
             reminder_id=reminder_id,
             minutes=payload.minutes,
             user_id=current_user.id,
         )
+        invalidate_recall_cache(user_id=current_user.id)
+        return res
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -85,17 +89,19 @@ def submit_recall_answer(
     current_user: CurrentUser = Depends(require_current_user),
 ) -> RecallAnswerResponse:
     try:
-        return answer_recall(
+        res = answer_recall(
             db=db,
             memory_id=memory_id,
             payload=payload,
             evaluator=evaluator,
             user_id=current_user.id,
         )
+        invalidate_recall_cache(user_id=current_user.id)
+        return res
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (QwenClientError, RecallEvaluationError) as exc:
-        logger.warning("\u26a0\ufe0f recall.answer.unavailable reason=%s", exc)
+        logger.warning("⚠️ recall.answer.unavailable reason=%s", exc)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
@@ -107,6 +113,8 @@ def submit_quick_recall(
     current_user: CurrentUser = Depends(require_current_user),
 ) -> RecallQuickResponse:
     try:
-        return quick_recall(db=db, memory_id=memory_id, payload=payload, user_id=current_user.id)
+        res = quick_recall(db=db, memory_id=memory_id, payload=payload, user_id=current_user.id)
+        invalidate_recall_cache(user_id=current_user.id)
+        return res
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

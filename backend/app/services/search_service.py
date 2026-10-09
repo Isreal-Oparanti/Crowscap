@@ -7,9 +7,15 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.db.models import Memory, Source
-from app.db.vector import QWEN_EMBEDDING_DIMENSIONS, format_pgvector, is_postgres_bind
+from app.db.vector import (
+    PgVectorUnavailableError,
+    QWEN_EMBEDDING_DIMENSIONS,
+    format_pgvector,
+    is_postgres_bind,
+)
 from app.schemas.search import SearchRequest, SearchResponse, SearchResult
 from app.services.embedding_service import MemoryEmbedder
 
@@ -22,9 +28,22 @@ def search_memories(
     *,
     db: Session,
     payload: SearchRequest,
-    embedder: MemoryEmbedder,
+    embedder: MemoryEmbedder | None = None,
     user_id: str | None = None,
 ) -> SearchResponse:
+    if payload.source_id:
+        # Deterministic listing needs no query embedding at all, so callers
+        # that only ever do source-scoped lookups (chat_service's recent-
+        # capture replies) don't need to carry an embedder around just to
+        # satisfy this signature.
+        return _list_memories_for_source(db=db, payload=payload, user_id=user_id)
+
+    if embedder is None:
+        raise ValueError(
+            "search_memories() requires an embedder for semantic search "
+            "(payload.source_id was not set, so this is not a source-scoped lookup)."
+        )
+
     logger.info(
         "\U0001f50d search.start query_chars=%s limit=%s min_score=%s",
         len(payload.query),
@@ -112,6 +131,82 @@ def search_memories(
     )
 
 
+def _list_memories_for_source(
+    *,
+    db: Session,
+    payload: SearchRequest,
+    user_id: str | None,
+) -> SearchResponse:
+    """Deterministic "everything from this source" listing.
+
+    No embedding call, no similarity ranking, no silent top-K truncation
+    against the user's whole corpus — this is the source-scoped retrieval
+    primitive the architecture review flagged as missing entirely
+    (SearchRequest previously had no source_id field at all, so every
+    "what's in that video/link" question had to compete against the user's
+    whole memory corpus for a handful of nearest-neighbor slots, or fall
+    back to a hand-rolled, independently-truncated reply like
+    chat_service._recent_link_content_reply's old `active_memories[:5]`).
+
+    Ordered oldest-first: every memory from one capture is inserted in a
+    single pass over the extraction's own memory list
+    (capture_service._create_memories), so created_at ascending reproduces
+    the source's own order closely enough to read as a coherent list,
+    without needing an explicit ordinal column.
+    """
+    query = (
+        select(Memory, Source)
+        .join(Source, Memory.source_id == Source.id)
+        .where(Memory.source_id == payload.source_id)
+        .order_by(Memory.created_at.asc())
+    )
+    if user_id is None:
+        query = query.where(Memory.user_id.is_(None))
+    else:
+        query = query.where(Memory.user_id == user_id)
+    if not payload.include_archived:
+        query = query.where(Memory.status == "active")
+
+    rows = list(db.execute(query).all())
+    results = [
+        SearchResult(
+            memory_id=memory.id,
+            source_id=source.id,
+            source_type=source.source_type,
+            source_title=source.title,
+            memory_type=memory.memory_type,
+            epistemic_label=memory.epistemic_label,
+            content=memory.content,
+            summary=memory.summary,
+            confidence=memory.confidence,
+            confidence_reason=memory.confidence_reason,
+            source_strength=memory.source_strength,
+            # Not a similarity search, so there is no meaningful score. 1.0
+            # keeps SearchResult well-defined for anything downstream that
+            # sorts or filters on similarity_score, without implying a real
+            # ranking exists here.
+            similarity_score=1.0,
+            embedding_dimensions=len(memory.embedding_json) if memory.embedding_json else None,
+        )
+        for memory, source in rows[: payload.limit]
+    ]
+    logger.info(
+        "\U0001f4cb search.source_scoped source_id=%s candidates=%s returned=%s",
+        payload.source_id,
+        len(rows),
+        len(results),
+    )
+    return SearchResponse(
+        query=payload.query,
+        min_score=payload.min_score,
+        candidate_count=len(rows),
+        embedded_candidate_count=len(rows),
+        returned_count=len(results),
+        top_score=1.0 if results else None,
+        results=results,
+    )
+
+
 def _search_memories_with_pgvector(
     *,
     db: Session,
@@ -121,12 +216,20 @@ def _search_memories_with_pgvector(
 ) -> SearchResponse | None:
     if not is_postgres_bind(db.get_bind()):
         return None
+
+    require_pgvector = get_settings().require_pgvector
+
     if len(query_embedding) != QWEN_EMBEDDING_DIMENSIONS:
         logger.warning(
             "⚠️ search.pgvector_skipped reason=dimension_mismatch expected=%s actual=%s",
             QWEN_EMBEDDING_DIMENSIONS,
             len(query_embedding),
         )
+        if require_pgvector:
+            raise PgVectorUnavailableError(
+                f"query embedding dimension mismatch: expected {QWEN_EMBEDDING_DIMENSIONS}, "
+                f"got {len(query_embedding)}"
+            )
         return None
 
     where_parts = []
@@ -191,6 +294,11 @@ def _search_memories_with_pgvector(
             "⚠️ search.pgvector_failed reason=%s fallback=embedding_json",
             str(exc).replace("\n", " ")[:500],
         )
+        if require_pgvector:
+            raise PgVectorUnavailableError(
+                f"pgvector query failed and require_pgvector=True: "
+                f"{str(exc).replace(chr(10), ' ')[:500]}"
+            ) from exc
         return None
 
     results = [

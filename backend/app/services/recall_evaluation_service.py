@@ -223,24 +223,6 @@ def quick_recall(
             recall_score=round(memory.recall_score, 4),
         )
 
-    if payload.action == "applied":
-        next_due_at = now + timedelta(days=90)
-        memory.status = "applied"
-        memory.last_reviewed_at = now
-        memory.next_review_at = next_due_at
-        memory.review_count += 1
-        memory.recall_score = max(memory.recall_score, 0.95)
-        db.commit()
-        logger.info("✅ recall.quick.applied memory_id=%s", memory.id)
-        return RecallQuickResponse(
-            memory_id=memory.id,
-            action=payload.action,
-            feedback="Awesome! Marked as applied and completed.",
-            next_due_at=next_due_at,
-            review_count=memory.review_count,
-            recall_score=0.95,
-        )
-
     if payload.action == "ask_agent":
         next_due_at = now + timedelta(days=3)
         memory.last_reviewed_at = now

@@ -205,14 +205,25 @@ class FakeBeliefAuditor:
 
 
 class FixedRouter:
-    def __init__(self, action: str, *, reply: str | None = None) -> None:
+    def __init__(
+        self,
+        action: str,
+        *,
+        reply: str | None = None,
+        target: str | None = None,
+        context_action: str | None = None,
+    ) -> None:
         self.action = action
         self.reply = reply
+        self.target = target
+        self.context_action = context_action
 
     def route(self, **kwargs) -> ChatRoute:
         return ChatRoute(
             action=self.action,
             reply=self.reply,
+            target=self.target,
+            context_action=self.context_action,
             reason=f"Fixed test route: {self.action}.",
         )
 
@@ -3132,4 +3143,113 @@ def test_recall_timing_and_platform_self_questions() -> None:
     route_remind = _deterministic_route("How do you remind me of something?", history=[])
     assert route_remind is not None
     assert route_remind.action == "self"
+
+
+def test_conversational_clarification_does_not_trigger_capture_too_short() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_conversation_responder] = lambda: FakeConversationResponder()
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter(
+        "conversation", target="previous_assistant_response"
+    )
+
+    db = testing_session()
+    conversation = Conversation(user_id="test-user", title="Articulation")
+    db.add(conversation)
+    db.flush()
+    db.add_all([
+        ChatMessage(
+            conversation_id=conversation.id,
+            user_id="test-user",
+            role="user",
+            content="how to articulate my thoughts better",
+        ),
+        ChatMessage(
+            conversation_id=conversation.id,
+            user_id="test-user",
+            role="assistant",
+            content="Take a brief moment to organize your main point. This prevents rambling.",
+        ),
+    ])
+    conversation_id = conversation.id
+    db.commit()
+    db.close()
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "hmm, what do your mean by rambling there?",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "conversation"
+        assert payload["saved"] is False
+        assert "I need the actual content before I can save it" not in payload["message"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_conversational_question_referencing_previous_advice_is_not_saved_as_memory() -> None:
+    override_db, testing_session = build_chat_db_override()
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_chat_conversation_responder] = lambda: FakeConversationResponder()
+    app.dependency_overrides[get_memory_extractor] = lambda: FakeExtractor()
+    app.dependency_overrides[get_memory_embedder] = lambda: FakeEmbedder()
+    app.dependency_overrides[get_memory_relation_detector] = lambda: FakeRelationDetector()
+    # Even if the router mistakenly returned action="capture" with target="previous_assistant_response"
+    app.dependency_overrides[get_chat_router] = lambda: FixedRouter(
+        "capture", target="previous_assistant_response"
+    )
+
+    db = testing_session()
+    conversation = Conversation(user_id="test-user", title="Articulation")
+    db.add(conversation)
+    db.flush()
+    db.add_all([
+        ChatMessage(
+            conversation_id=conversation.id,
+            user_id="test-user",
+            role="user",
+            content="how to articulate my thoughts better",
+        ),
+        ChatMessage(
+            conversation_id=conversation.id,
+            user_id="test-user",
+            role="assistant",
+            content="Pause before answering and use simple language.",
+        ),
+    ])
+    conversation_id = conversation.id
+    db.commit()
+    db.close()
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "alright, so what was is the most important point to hold from what you gave earlier",
+                "conversation_id": conversation_id,
+                "history": [],
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action"] == "conversation"
+        assert payload["saved"] is False
+        assert payload.get("capture") is None
+
+        db = testing_session()
+        assert db.scalar(select(func.count(Memory.id))) == 0
+        assert db.scalar(select(func.count(Capture.id))) == 0
+        db.close()
+    finally:
+        app.dependency_overrides.clear()
+
 

@@ -14,6 +14,7 @@ from sqlalchemy import or_, select, text
 
 from sqlalchemy.orm import Session
 
+from app.db.session import SessionLocal
 from app.ai.qwen_client import QwenClient
 from app.ai.structured_outputs import ChatRoute, ConversationalChatReply, GroundedChatSynthesis
 from app.core.config import get_settings
@@ -29,6 +30,7 @@ from app.db.models import (
     Source,
     UserPreference,
     utc_now,
+    uuid_str,
 )
 from app.db.vector import update_memory_embedding_vector
 from app.schemas.belief import BeliefAuditRequest
@@ -45,6 +47,7 @@ from app.schemas.chat import (
     ConversationResponse,
     ConversationTurn,
     PaginatedMessagesResponse,
+    SharedMessageResponse,
 )
 from app.schemas.memory import ArchiveMemoryRequest
 from app.schemas.search import SearchRequest, SearchResponse, SearchResult
@@ -53,6 +56,7 @@ from app.services.capture_service import create_text_capture, initial_next_revie
 from app.services.embedding_service import MemoryEmbedder
 from app.services.extraction_service import MemoryExtractor
 from app.services.ingestion_service import (
+    canonical_resolved_url,
     create_pdf_capture_from_bytes,
     extract_youtube_video_id,
     unsupported_url_reason,
@@ -68,6 +72,7 @@ from app.services.preference_service import (
     maybe_autonomously_update_preferences,
     preference_response,
 )
+from app.services.recall_service import invalidate_recall_cache
 from app.services.relationship_service import MemoryRelationDetector
 from app.services.reminder_service import create_reminder
 from app.services.search_service import search_memories
@@ -76,151 +81,7 @@ logger = get_logger("services.chat")
 
 MEMORY_QUERY_MIN_SCORE = 0.25
 CONVERSATION_MEMORY_MIN_SCORE = 0.55
-MIN_DIRECT_TEXT_CAPTURE_CHARS = 20
-PROMPT_HISTORY_RECENT_TURNS = 6
-PROMPT_HISTORY_SUMMARY_TRIGGER_TURNS = 10
-MEMORY_CONTEXT_TOKEN_BUDGET = 2000
-MEMORY_NEAR_DUPLICATE_RATIO = 0.82
-SESSION_CONVERSATION_MARKERS = (
-    "in this chat",
-    "this chat",
-    "this conversation",
-    "current chat",
-    "this session",
-    "beginning of our chat",
-    "beginning of this chat",
-    "start of our chat",
-    "start of this chat",
-    "earlier here",
-    "earlier in chat",
-    "earlier in this chat",
-    "have i thanked",
-    "did i thank",
-    "first thing i said",
-    "very first thing",
-    "first message",
-    "first thing",
-    "what did i just say",
-    "what was my last message",
-    "last message",
-)
-
-
-# Types, error classes, and Protocol interfaces live in chat_types for clarity.
-# Qwen implementations remain here as they depend on private helpers in this module.
-from app.services.chat_types import (
-    ReminderIntent,
-    RecentCaptureContext,
-    SelfKnowledgeChunk,
-    CROWSCAP_SELF_KNOWLEDGE,
-    ChatRoutingError,
-    ChatSynthesisError,
-    ChatIntentRouter,
-    ChatSynthesizer,
-    ChatConversationResponder,
-)
-
-
-class QwenChatIntentRouter:
-    def __init__(self, client: QwenClient | None = None) -> None:
-        self.client = client or QwenClient()
-        self.settings = get_settings()
-
-    def route(self, *, message: str, history: list[ConversationTurn]) -> ChatRoute:
-        deterministic = _deterministic_route(message, history=history)
-        if deterministic is not None:
-            logger.info(
-                "\U0001f9ed chat.route.deterministic action=%s chars=%s",
-                deterministic.action,
-                len(message),
-            )
-            return deterministic
-
-        payload = self.client.chat_json(
-            system_prompt=CHAT_ROUTER_SYSTEM_PROMPT,
-            user_prompt=_build_router_prompt(message=message, history=history, pending_url=_pending_url_from_history(history)),
-            model=self.settings.qwen_fast_model,
-            temperature=0.0,
-            timeout_seconds=15.0,
-            max_retries=1,
-        )
-        try:
-            route = ChatRoute.model_validate(payload)
-        except ValidationError as exc:
-            raise ChatRoutingError(f"Chat routing failed schema validation: {exc}") from exc
-
-        logger.info("\U0001f9ed chat.route.model action=%s chars=%s", route.action, len(message))
-        return route
-
-
-class QwenChatSynthesizer:
-    def __init__(self, client: QwenClient | None = None) -> None:
-        self.client = client or QwenClient()
-        self.settings = get_settings()
-
-    def synthesize(
-        self,
-        *,
-        question: str,
-        history: list[ConversationTurn],
-        search: SearchResponse,
-        relation_context: list[str],
-        preferences: UserPreference | None = None,
-    ) -> GroundedChatSynthesis:
-        payload = self.client.chat_json(
-            system_prompt=CHAT_SYNTHESIS_SYSTEM_PROMPT,
-            user_prompt=_build_synthesis_prompt(
-                question=question,
-                history=history,
-                search=search,
-                relation_context=relation_context,
-                preference_context=format_preference_context(preferences),
-            ),
-            model=self.settings.qwen_chat_model,
-            temperature=0.2,
-        )
-        try:
-            return GroundedChatSynthesis.model_validate(payload)
-        except ValidationError as exc:
-            raise ChatSynthesisError(f"Chat synthesis failed schema validation: {exc}") from exc
-
-
-class QwenChatConversationResponder:
-    def __init__(self, client: QwenClient | None = None) -> None:
-        self.client = client or QwenClient()
-        self.settings = get_settings()
-
-    def respond(
-        self,
-        *,
-        message: str,
-        history: list[ConversationTurn],
-        preferences: UserPreference | None = None,
-    ) -> str:
-        payload = self.client.chat_json(
-            system_prompt=CHAT_CONVERSATION_SYSTEM_PROMPT,
-            user_prompt=_build_conversation_prompt(
-                message=message,
-                history=history,
-                preference_context=format_preference_context(preferences),
-            ),
-            model=self.settings.qwen_chat_model,
-            temperature=0.35,
-            timeout_seconds=30.0,
-            max_retries=1,
-        )
-        try:
-            reply = ConversationalChatReply.model_validate(payload)
-        except ValidationError as exc:
-            raise ChatSynthesisError(f"Conversation reply failed schema validation: {exc}") from exc
-        return reply.reply
-
-
-logger = get_logger("services.chat")
-
-MEMORY_QUERY_MIN_SCORE = 0.25
-CONVERSATION_MEMORY_MIN_SCORE = 0.55
-MIN_DIRECT_TEXT_CAPTURE_CHARS = 20
+MIN_DIRECT_TEXT_CAPTURE_CHARS = 40
 PROMPT_HISTORY_RECENT_TURNS = 6
 PROMPT_HISTORY_SUMMARY_TRIGGER_TURNS = 10
 MEMORY_CONTEXT_TOKEN_BUDGET = 2000
@@ -286,7 +147,7 @@ class QwenChatIntentRouter:
             user_prompt=_build_router_prompt(message=message, history=history, pending_url=_pending_url_from_history(history)),
             model=self.settings.qwen_fast_model,
             temperature=0.0,
-            timeout_seconds=15.0,
+            timeout_seconds=45.0,
             max_retries=1,
         )
         try:
@@ -323,6 +184,8 @@ class QwenChatSynthesizer:
             ),
             model=self.settings.qwen_chat_model,
             temperature=0.2,
+            timeout_seconds=90.0,
+            max_retries=1,
         )
         try:
             return GroundedChatSynthesis.model_validate(payload)
@@ -351,7 +214,7 @@ class QwenChatConversationResponder:
             ),
             model=self.settings.qwen_chat_model,
             temperature=0.35,
-            timeout_seconds=30.0,
+            timeout_seconds=90.0,
             max_retries=1,
         )
         try:
@@ -416,7 +279,7 @@ def list_user_conversations(
         .order_by(Conversation.updated_at.desc(), Conversation.created_at.desc())
         .limit(limit)
     ).all()
-    return [_conversation_response(c) for c in conversations]
+    return [_conversation_response(c, limit=0) for c in conversations]
 
 
 def create_new_conversation(
@@ -455,6 +318,47 @@ def delete_conversation_by_id(
     return True
 
 
+def _run_autonomous_preference_update(user_id: str | None) -> None:
+    """Run autonomous preference learning in a background thread with its own DB session."""
+    try:
+        with SessionLocal() as db:
+            autonomous_learning = maybe_autonomously_update_preferences(db=db, user_id=user_id)
+            if autonomous_learning.updates:
+                logger.info(
+                    "🧭 preferences.autonomous_updates_stored updates=%s",
+                    len(autonomous_learning.updates),
+                )
+    except Exception:
+        logger.exception("⚠️ preferences.autonomous_update_failed user_id=%s", user_id)
+
+
+def _commit_session(
+    db: Session,
+    conversation_id: str,
+    user_msg_id: str,
+    assistant_msg_id: str,
+    action: str,
+) -> None:
+    """Commit chat message persistence in background task after HTTP response has been sent."""
+    try:
+        db.commit()
+        logger.info(
+            "💾 chat.message.persisted conversation_id=%s user_message_id=%s assistant_message_id=%s action=%s",
+            conversation_id,
+            user_msg_id,
+            assistant_msg_id,
+            action,
+        )
+    except Exception:
+        logger.exception(
+            "⚠️ bg_persist.failed conversation_id=%s user_message_id=%s",
+            conversation_id,
+            user_msg_id,
+        )
+        db.rollback()
+
+
+
 def process_chat_message(
     *,
     db: Session,
@@ -470,7 +374,6 @@ def process_chat_message(
     user_id: str | None = None,
 ) -> ChatResponse:
     conversation = _get_or_create_conversation(
-
         db=db,
         conversation_id=payload.conversation_id,
         first_message=payload.message,
@@ -479,33 +382,17 @@ def process_chat_message(
 
     persisted_history = _conversation_turns(conversation, limit=None)
     effective_history = persisted_history or payload.history
-    resolved_context = _resolve_chat_context(
-        db=db,
-        conversation=conversation,
-        message=payload.message,
-        history=effective_history,
-        user_id=user_id,
-    )
-    pending_url = resolved_context.pending_url
-    normalized_message = re.sub(r"\s+", " ", payload.message.strip().lower())
-    grounded_local_reply = (
-        None
-        if _is_reminder_command(normalized_message)
-        else _grounded_local_conversation_reply(
-            db=db,
-            message=payload.message,
-            history=effective_history,
-            conversation=conversation,
-            user_id=user_id,
-        )
-    )
+    router_history = effective_history[-4:] if effective_history else []
+    pending_url = _pending_url_from_history(router_history)
 
     logger.info(
-        "\U0001f4ac chat.message.start chars=%s history=%s conversation_id=%s",
+        "💬 chat.message.start chars=%s history=%s conversation_id=%s",
         len(payload.message),
         len(effective_history),
         conversation.id,
     )
+
+    route: ChatRoute | None = None
     if payload.context_memory_id:
         route = ChatRoute(
             action="answer",
@@ -514,31 +401,130 @@ def process_chat_message(
             target="memory_topic",
         )
         logger.info("📍 chat.route.context_memory_id memory_id=%s", payload.context_memory_id)
-    elif grounded_local_reply is not None:
-        route = ChatRoute(
-            action="conversation",
-            reply=grounded_local_reply,
-            reason="The user is asking for a fact from the current conversation.",
-        )
-        logger.info("\U0001f9ed chat.route.grounded_local chars=%s", len(payload.message))
     else:
-        route = router.route(message=payload.message, history=effective_history)
-        route = _stabilize_route_for_local_context(
-            route=route,
+        # Check deterministic route first (pure Python, 0 DB queries, instant)
+        deterministic = _deterministic_route(payload.message, history=router_history)
+        if deterministic is not None and deterministic.action == "acknowledge":
+            route = deterministic
+            logger.info("⚡ chat.route.deterministic.acknowledge chars=%s", len(payload.message))
+
+    # If route is not already resolved to acknowledge, perform context resolution & router check
+    if route is None:
+        resolved_context = _resolve_chat_context(
+            db=db,
+            conversation=conversation,
             message=payload.message,
             history=effective_history,
-            pending_url=pending_url,
-            context=resolved_context,
+            user_id=user_id,
         )
+        pending_url = resolved_context.pending_url
+        normalized_message = re.sub(r"\s+", " ", payload.message.strip().lower())
+        grounded_local_reply = (
+            None
+            if _is_reminder_command(normalized_message)
+            else _grounded_local_conversation_reply(
+                db=db,
+                message=payload.message,
+                history=effective_history,
+                conversation=conversation,
+                user_id=user_id,
+            )
+        )
+        if grounded_local_reply is not None:
+            route = ChatRoute(
+                action="conversation",
+                reply=grounded_local_reply,
+                reason="The user is asking for a fact from the current conversation.",
+            )
+            logger.info("🧭 chat.route.grounded_local chars=%s", len(payload.message))
+        else:
+            route = router.route(message=payload.message, history=router_history)
+            route = _stabilize_route_for_local_context(
+                route=route,
+                message=payload.message,
+                history=router_history,
+                pending_url=pending_url,
+                context=resolved_context,
+            )
 
+    user_msg_id = uuid_str()
     user_message = ChatMessage(
+        id=user_msg_id,
         conversation_id=conversation.id,
         user_id=user_id,
         role="user",
         content=payload.message,
     )
+
+    # ─── ACKNOWLEDGE FAST-PATH ────────────────────────────────────────────────
+    # For greetings and simple check-ins the deterministic router already set
+    # route.action == "acknowledge" before we even started the DB/LLM work.
+    # We can return the reply immediately and fire-and-forget the DB persist
+    # in the background — completely eliminating the WAN commit round-trip from
+    # the hot path.  Preference learning is also skipped: greetings carry no
+    # preference signals and the profile is not needed to formulate the reply.
+    if route.action == "acknowledge":
+        reply = route.reply or "You are welcome. I am here when you want to keep going."
+        logger.info("⚡ chat.message.complete action=acknowledge saved=False")
+        response = ChatResponse(
+            action="acknowledge",
+            message=reply,
+            saved=False,
+            conversation_id=conversation.id,
+            user_message_id=user_message.id,
+        )
+        if is_explicit_preference_statement(payload.message):
+            try:
+                preference_learning = learn_preferences_from_message(
+                    db=db,
+                    message=payload.message,
+                    message_id=user_message.id,
+                    user_id=user_id,
+                )
+                response = _with_preference_learning(response, preference_learning)
+            except Exception:
+                logger.exception("⚠️ preferences.learning_failed conversation_id=%s", conversation.id)
+
+        assistant_id = uuid_str()
+        response.assistant_message_id = assistant_id
+        assistant_message = ChatMessage(
+            id=assistant_id,
+            conversation_id=conversation.id,
+            user_id=user_id,
+            role="assistant",
+            content=reply,
+            action="acknowledge",
+            metadata_json=response.model_dump(mode="json"),
+        )
+        db.add(user_message)
+        db.add(assistant_message)
+        conversation.updated_at = utc_now()
+
+        if background_tasks is not None:
+            background_tasks.add_task(
+                _commit_session,
+                db,
+                conversation.id,
+                user_message.id,
+                assistant_id,
+                "acknowledge",
+            )
+            background_tasks.add_task(_run_autonomous_preference_update, user_id)
+        else:
+            db.commit()
+            logger.info(
+                "💾 chat.message.persisted conversation_id=%s user_message_id=%s assistant_message_id=%s action=%s",
+                conversation.id,
+                user_message.id,
+                assistant_id,
+                "acknowledge",
+            )
+        return response
+
+    # ─── ALL OTHER ROUTES ─────────────────────────────────────────────────────
+    # Queue user message into the main DB session (will commit at end of turn).
     db.add(user_message)
-    db.flush()
+
     # Preference learning is a background concern. It must never break the
     # chat turn, so any failure here is logged and swallowed.
     try:
@@ -549,21 +535,28 @@ def process_chat_message(
             user_id=user_id,
         )
     except Exception:
-        logger.exception("\u26a0\ufe0f preferences.learning_failed conversation_id=%s", conversation.id)
+        logger.exception("⚠️ preferences.learning_failed conversation_id=%s", conversation.id)
         preference_learning = PreferenceLearningResult(
             profile=get_or_create_user_preferences(db=db, user_id=user_id),
             updates=[],
         )
-    try:
-        autonomous_learning = maybe_autonomously_update_preferences(db=db, user_id=user_id)
-        if autonomous_learning.updates:
-            logger.info(
-                "🧭 preferences.autonomous_updates_stored updates=%s",
-                len(autonomous_learning.updates),
-            )
-    except Exception:
-        logger.exception("\u26a0\ufe0f preferences.autonomous_update_failed conversation_id=%s", conversation.id)
+
+    # Autonomous preference updates are scheduled as a background task to keep chat latency minimal
+    if background_tasks is not None:
+        background_tasks.add_task(_run_autonomous_preference_update, user_id)
+    else:
+        try:
+            autonomous_learning = maybe_autonomously_update_preferences(db=db, user_id=user_id)
+            if autonomous_learning.updates:
+                logger.info(
+                    "🧭 preferences.autonomous_updates_stored updates=%s",
+                    len(autonomous_learning.updates),
+                )
+        except Exception:
+            logger.exception("⚠️ preferences.autonomous_update_failed conversation_id=%s", conversation.id)
+
     preferences = preference_learning.profile
+
     model_history = _model_prompt_history(
         db=db,
         conversation=conversation,
@@ -582,22 +575,7 @@ def process_chat_message(
     )
     if context_update is not None:
         response = _with_preference_learning(context_update, preference_learning)
-        logger.info("\u2705 chat.message.complete action=reference_context_update saved=True")
-        return _persist_assistant_response(
-            db=db,
-            conversation=conversation,
-            user_message=user_message,
-            response=response,
-            user_id=user_id,
-        )
-
-    if route.action == "acknowledge":
-        reply = route.reply or _preference_acknowledgement(preference_learning) or (
-            "You are welcome. I am here when you want to keep going."
-        )
-        logger.info("\u2705 chat.message.complete action=acknowledge saved=False")
-        response = ChatResponse(action="acknowledge", message=reply, saved=False)
-        response = _with_preference_learning(response, preference_learning)
+        logger.info("✅ chat.message.complete action=reference_context_update saved=True")
         return _persist_assistant_response(
             db=db,
             conversation=conversation,
@@ -665,6 +643,7 @@ def process_chat_message(
                     user_message=user_message,
                     response=response,
                     user_id=user_id,
+                    background_tasks=background_tasks,
                 )
 
             reply = route.reply or conversation_responder.respond(
@@ -681,47 +660,47 @@ def process_chat_message(
             user_message=user_message,
             response=response,
             user_id=user_id,
+            background_tasks=background_tasks,
         )
 
     if route.action == "recent":
-        # Inject recent capture context into model_history so the LLM can
-        # actually answer the user's specific question rather than returning
-        # the same hardcoded memory-card template every time.
-        recent_capture = _latest_captured_source_from_conversation(
+        reply = _recent_link_content_reply(
             db=db,
             conversation=conversation,
             user_id=user_id,
-            source_type_hint=None,
+            require_url=False,
         )
-        enriched_history = model_history
-        if recent_capture is not None:
-            capture_turn = _recent_capture_context_turn(recent_capture)
-            if capture_turn is not None:
-                enriched_history = [capture_turn, *model_history]
-
-        try:
-            reply = conversation_responder.respond(
-                message=payload.message,
-                history=enriched_history,
-                preferences=preferences,
-            )
-        except Exception:
-            # Fallback to the template only if the LLM call fails
-            logger.exception("\u26a0\ufe0f chat.recent.llm_fallback conversation_id=%s", conversation.id)
-            reply = _recent_link_content_reply(
+        if reply is None:
+            recent_capture = _latest_captured_source_from_conversation(
                 db=db,
                 conversation=conversation,
                 user_id=user_id,
-                require_url=False,
-            ) or (
-                "I do not see anything saved in this chat yet, so there is nothing recent "
-                "for me to describe. Save a link or note first and ask me again."
+                source_type_hint=None,
             )
-        if reply is None:
-            reply = (
-                "I do not see anything saved in this chat yet, so there is nothing recent "
-                "for me to describe. Save a link or note first and ask me again."
-            )
+            if recent_capture is None:
+                reply = (
+                    "I do not see anything saved in this chat yet, so there is nothing recent "
+                    "for me to describe. Save a link or note first and ask me again."
+                )
+            else:
+                enriched_history = model_history
+                capture_turn = _recent_capture_context_turn(recent_capture)
+                if capture_turn is not None:
+                    enriched_history = [capture_turn, *model_history]
+
+                try:
+                    reply = conversation_responder.respond(
+                        message=payload.message,
+                        history=enriched_history,
+                        preferences=preferences,
+                    )
+                except Exception:
+                    # Fallback to the default message only if the LLM call fails
+                    logger.exception("\u26a0\ufe0f chat.recent.llm_fallback conversation_id=%s", conversation.id)
+                    reply = (
+                        "I do not see anything saved in this chat yet, so there is nothing recent "
+                        "for me to describe. Save a link or note first and ask me again."
+                    )
         logger.info("\u2705 chat.message.complete action=recent saved=False")
         response = ChatResponse(action="conversation", message=reply, saved=False)
         response = _with_preference_learning(response, preference_learning)
@@ -731,9 +710,49 @@ def process_chat_message(
             user_message=user_message,
             response=response,
             user_id=user_id,
+            background_tasks=background_tasks,
         )
 
     if route.action == "self":
+        normalized_self = re.sub(r"\s+", " ", payload.message.strip().lower()).strip(" .!?")
+        canonical_self_patterns = (
+            "what are you",
+            "what is you",
+            "what are u",
+            "who are you",
+            "who are u",
+            "what is crowscap",
+            "who is crowscap",
+            "what's crowscap",
+            "whats crowscap",
+            "what can you do",
+            "what do you do",
+            "what can you save",
+            "what do you save",
+            "what can i save",
+            "what can't you do",
+            "what cannot you do",
+            "what are your limits",
+            "how do recalls work",
+            "how do you remind",
+            "how do reminders work",
+            "when will i start getting recalls",
+            "tell me all you know",
+            "everything you know",
+        )
+        if any(normalized_self == pat or normalized_self.startswith(pat) for pat in canonical_self_patterns):
+            response = _process_self_question(payload.message)
+            response = _with_preference_learning(response, preference_learning)
+            logger.info("⚡ chat.self.canonical_fast_path saved=False")
+            return _persist_assistant_response(
+                db=db,
+                conversation=conversation,
+                user_message=user_message,
+                response=response,
+                user_id=user_id,
+                background_tasks=background_tasks,
+            )
+
         retrieved_chunks = _retrieve_self_knowledge(payload.message, limit=4)
         knowledge_text = "\n\n".join(f"[{chunk.title}]: {chunk.body}" for chunk in retrieved_chunks)
         rag_prompt_turn = ConversationTurn(
@@ -769,6 +788,7 @@ def process_chat_message(
             user_message=user_message,
             response=response,
             user_id=user_id,
+            background_tasks=background_tasks,
         )
 
     if route.action == "forget":
@@ -1071,6 +1091,7 @@ def process_chat_message(
             user_message=user_message,
             response=response,
             user_id=user_id,
+            background_tasks=background_tasks,
         )
 
     search = search_memories(
@@ -1145,6 +1166,7 @@ def process_chat_message(
         user_message=user_message,
         response=response,
         user_id=user_id,
+        background_tasks=background_tasks,
     )
 
 
@@ -1175,14 +1197,15 @@ def process_chat_pdf_upload(
         conversation.id,
     )
 
+    user_msg_id = uuid_str()
     user_message = ChatMessage(
+        id=user_msg_id,
         conversation_id=conversation.id,
         user_id=user_id,
         role="user",
         content=user_text,
     )
     db.add(user_message)
-    db.flush()
 
     capture = create_pdf_capture_from_bytes(
         db=db,
@@ -1240,12 +1263,13 @@ def _get_or_create_conversation(
             )
 
     conversation = Conversation(
+        id=uuid_str(),
         user_id=user_id,
         title=_conversation_title(first_message),
         status="active",
     )
     db.add(conversation)
-    db.flush()
+    db.commit()
     logger.info("💬 chat.conversation.created conversation_id=%s", conversation.id)
     return conversation
 
@@ -1259,7 +1283,7 @@ def _conversation_title(message: str) -> str:
 
 def _conversation_turns(conversation: Conversation, *, limit: int | None = 12) -> list[ConversationTurn]:
     turns = [
-        ConversationTurn(role=message.role, content=message.content.strip()[:4000])
+        ConversationTurn(role=message.role, content=message.content.strip()[:1500])
         for message in conversation.messages
         if message.role in {"user", "assistant"}
         and message.content.strip()
@@ -1513,6 +1537,7 @@ def _should_include_recent_capture_context(
         or _is_explicit_belief_audit_query(normalized)
         or _is_forget_command(normalized)
         or _is_reminder_command(normalized)
+        or _is_definition_or_meaning_question(normalized)
     ):
         return False
 
@@ -1553,7 +1578,6 @@ def _should_include_recent_capture_context(
         "movie",
         "film",
         "content",
-        "what",
         "explain",
         "summarize",
         "summarise",
@@ -1629,6 +1653,16 @@ def _looks_like_acknowledgement_only(normalized: str) -> bool:
 
 
 def _conversation_response(conversation: Conversation, limit: int = 20) -> ConversationResponse:
+    if limit == 0:
+        return ConversationResponse(
+            id=conversation.id,
+            title=conversation.title,
+            status=conversation.status,
+            created_at=conversation.created_at.isoformat(),
+            updated_at=conversation.updated_at.isoformat(),
+            messages=[],
+        )
+
     all_valid = [
         message for message in conversation.messages
         if message.role in {"user", "assistant"}
@@ -1661,19 +1695,27 @@ def get_paginated_chat_messages(
     *,
     db: Session,
     user_id: str,
+    conversation_id: str | None = None,
     limit: int = 20,
     before_id: str | None = None,
 ) -> PaginatedMessagesResponse:
-    conv = db.scalar(
-        select(Conversation)
-        .where(Conversation.status == "active", Conversation.user_id == user_id)
-        .order_by(Conversation.created_at.desc())
-    )
-    if not conv:
-        return PaginatedMessagesResponse(messages=[], has_more=False)
+    if conversation_id:
+        conv_id = db.scalar(
+            select(Conversation.id)
+            .where(Conversation.id == conversation_id, Conversation.user_id == user_id)
+        )
+    else:
+        conv_id = db.scalar(
+            select(Conversation.id)
+            .where(Conversation.status == "active", Conversation.user_id == user_id)
+            .order_by(Conversation.updated_at.desc(), Conversation.created_at.desc())
+            .limit(1)
+        )
+    if not conv_id:
+        return PaginatedMessagesResponse(conversation_id=None, messages=[], has_more=False)
 
     query = select(ChatMessage).where(
-        ChatMessage.conversation_id == conv.id,
+        ChatMessage.conversation_id == conv_id,
         ChatMessage.role.in_(["user", "assistant"]),
     )
 
@@ -1690,6 +1732,7 @@ def get_paginated_chat_messages(
     page_rows.reverse()
 
     return PaginatedMessagesResponse(
+        conversation_id=conv_id,
         messages=[
             ChatMessageResponse(
                 id=m.id,
@@ -1704,6 +1747,23 @@ def get_paginated_chat_messages(
         ],
         has_more=has_more,
     )
+
+
+def get_public_shared_message(
+    *,
+    db: Session,
+    message_id: str,
+) -> SharedMessageResponse | None:
+    msg = db.get(ChatMessage, message_id)
+    if msg is None:
+        return None
+    return SharedMessageResponse(
+        id=msg.id,
+        role=msg.role,
+        content=msg.content,
+        created_at=msg.created_at.isoformat(),
+    )
+
 
 
 def _message_belongs_to_conversation_owner(
@@ -1724,6 +1784,7 @@ def _persist_assistant_response(
     user_message: ChatMessage,
     response: ChatResponse,
     user_id: str | None,
+    background_tasks: BackgroundTasks | None = None,
 ) -> ChatResponse:
     response.conversation_id = conversation.id
     response.user_message_id = user_message.id
@@ -1731,23 +1792,51 @@ def _persist_assistant_response(
     if conversation.user_id is None and user_id is not None:
         conversation.user_id = user_id
 
+    assistant_id = uuid_str()
+    response.assistant_message_id = assistant_id
+
     assistant_message = ChatMessage(
+        id=assistant_id,
         conversation_id=conversation.id,
         user_id=user_id,
         role="assistant",
         content=response.message,
         action=response.action,
+        metadata_json=response.model_dump(mode="json"),
     )
     db.add(assistant_message)
-    db.flush()
-
-    response.assistant_message_id = assistant_message.id
-    assistant_message.metadata_json = response.model_dump(mode="json")
     conversation.updated_at = utc_now()
 
+    # If this is a read-only response (saved=False, capture=None, action!="forget")
+    # and background_tasks is provided: offload to background and return immediately!
+    if (
+        background_tasks is not None
+        and not response.saved
+        and response.capture is None
+        and response.action not in {"forget", "capture"}
+    ):
+        background_tasks.add_task(
+            _commit_session,
+            db,
+            conversation.id,
+            user_message.id,
+            assistant_id,
+            response.action,
+        )
+        logger.info(
+            "⚡ chat.message.bg_persisting conversation_id=%s user_message_id=%s assistant_message_id=%s action=%s",
+            conversation.id,
+            user_message.id,
+            assistant_id,
+            response.action,
+        )
+        return response
+
     db.commit()
+    if response.saved or response.capture is not None or response.action == "forget":
+        invalidate_recall_cache(user_id=user_id)
     logger.info(
-        "\U0001f4be chat.message.persisted conversation_id=%s user_message_id=%s assistant_message_id=%s action=%s",
+        "💾 chat.message.persisted conversation_id=%s user_message_id=%s assistant_message_id=%s action=%s",
         conversation.id,
         user_message.id,
         assistant_message.id,
@@ -2039,6 +2128,37 @@ def _grounded_local_conversation_reply(
     return None
 
 
+# Wh-words signal a question anywhere in the message; auxiliary verbs ("is",
+# "do", "can"...) only count at the start (after filler like "so"/"ok"), since
+# mid-sentence they are ordinary statements ("this video is about ...").
+_QUESTION_WORD_PATTERN = re.compile(r"\b(?:what's|whats|what|why|how|which|who)\b")
+_LEADING_AUX_QUESTION_PATTERN = re.compile(
+    r"^(?:(?:so|ok|okay|hmm|well|btw|and|but|then|alright|also)\b[\s,]*)*"
+    r"(?:can|could|should|do|does|did|is|are|was|were)\b"
+)
+
+
+def _is_question_like(normalized: str) -> bool:
+    """True if the message reads as a question, wherever the question word falls.
+
+    A leading-word-only check (``normalized.startswith(("what ", "why ", ...))``)
+    misses extremely common colloquial phrasing like "so what are the 13
+    business idea in this video" or "ok so how does this work" — the question
+    word is real, it just isn't the first token. That gap previously let a
+    genuine question slip past `_looks_like_recent_source_context_update` and
+    get misrouted as a "save this as context" instruction instead of being
+    answered. Checking for the word anywhere (word-boundary, not substring)
+    catches both phrasings without over-matching on words like "wishful"
+    that merely contain "wish".
+    """
+    if "?" in normalized:
+        return True
+    return bool(
+        _QUESTION_WORD_PATTERN.search(normalized)
+        or _LEADING_AUX_QUESTION_PATTERN.search(normalized)
+    )
+
+
 def _asks_about_recent_archive(normalized: str) -> bool:
     if _is_forget_command(normalized):
         return False
@@ -2077,18 +2197,7 @@ def _asks_recent_source_question(normalized: str) -> bool:
         return True
     if not _message_references_recent_source(normalized):
         return False
-    if "?" in normalized:
-        return True
-    question_starts = (
-        "what ",
-        "whats ",
-        "what's ",
-        "summarize ",
-        "summarise ",
-        "explain ",
-        "tell me ",
-    )
-    if normalized.startswith(question_starts):
+    if _is_question_like(normalized):
         return True
     return bool(
         re.search(r"\b(?:about|inside|contain|contains|say|says|from|get|got)\b", normalized)
@@ -2106,17 +2215,61 @@ def _asks_about_recent_capture(normalized: str) -> bool:
     if _is_explicit_memory_query(normalized) or _is_explicit_belief_audit_query(normalized):
         return False
     patterns = (
-        r"^what'?s?\s+(?:the\s+)?(?:above|previous(?:\s+one)?|last\s+one)(?:\s+about)?$",
-        r"^what\s+(?:is|was)\s+(?:the\s+)?(?:above|previous(?:\s+one)?|last\s+one)(?:\s+about)?$",
+        r"^what'?s?\s+(?:the\s+)?(?:(?:link|video|url|source|note|article|item)\s+)?(?:above|previous(?:\s+one)?|last\s+one)(?:\s+about)?$",
+        r"^what\s+(?:is|was)\s+(?:the\s+)?(?:(?:link|video|url|source|note|article|item)\s+)?(?:above|previous(?:\s+one)?|last\s+one)(?:\s+about)?$",
+        r"^what'?s?\s+(?:the\s+)?(?:link|video|url|source|note|article|item)\s+above\s+about$",
+        r"^what\s+(?:is|was)\s+(?:the\s+)?(?:link|video|url|source|note|article|item)\s+above\s+about$",
         r"^what'?s?\s+(?:that|this|it)\s+about$",
         r"^what\s+(?:is|was)\s+(?:that|this|it)\s+about$",
         r"^what\s+did\s+i\s+just\s+(?:save|send|share|paste|give\s+you)$",
         r"^what\s+did\s+you\s+just\s+(?:save|keep|get)(?:\s+from\s+(?:that|this|it))?$",
-        r"^what\s+did\s+you\s+(?:get|find|learn)\s+from\s+(?:the\s+)?(?:above|previous(?:\s+one)?|last\s+one|that|this|it)$",
-        r"^summari[sz]e\s+(?:the\s+)?(?:above|previous(?:\s+one)?|last\s+one|that|this|it)$",
-        r"^tell\s+me\s+about\s+(?:the\s+)?(?:above|previous(?:\s+one)?|last\s+one)$",
+        r"^what\s+did\s+you\s+(?:get|find|learn)\s+from\s+(?:the\s+)?(?:(?:link|video|url|source|note|article|item)\s+)?(?:above|previous(?:\s+one)?|last\s+one|that|this|it)$",
+        r"^summari[sz]e\s+(?:the\s+)?(?:(?:link|video|url|source|note|article|item)\s+)?(?:above|previous(?:\s+one)?|last\s+one|that|this|it)$",
+        r"^tell\s+me\s+about\s+(?:the\s+)?(?:(?:link|video|url|source|note|article|item)\s+)?(?:above|previous(?:\s+one)?|last\s+one)$",
     )
     return any(re.fullmatch(pattern, normalized) is not None for pattern in patterns)
+
+
+_RECENT_SOURCE_DISPLAY_LIMIT = 10
+
+
+def _source_scoped_memory_lines(
+    *,
+    db: Session,
+    source_id: str,
+    user_id: str | None,
+    display_limit: int = _RECENT_SOURCE_DISPLAY_LIMIT,
+) -> tuple[list[str], int]:
+    """Bullet-formatted lines for every active memory on one source, plus
+    how many were actually found (which can exceed `display_limit`).
+
+    Goes through search_service's source-scoped primitive (SearchRequest.
+    source_id) instead of a hand-rolled slice or a cached job-result blob,
+    so a "what's in that video/link" reply shows, and is honest about,
+    everything that was actually extracted for this source rather than a
+    silent first-N.
+    """
+    response = search_memories(
+        db=db,
+        payload=SearchRequest(
+            query="source contents",
+            source_id=source_id,
+            limit=50,
+            include_archived=False,
+        ),
+        user_id=user_id,
+    )
+    lines = [
+        f"- {_snippet(result.content, max_chars=220)}"
+        for result in response.results[:display_limit]
+    ]
+    return lines, response.returned_count
+
+
+def _append_more_count_note(lines: list[str], *, total: int, shown: int) -> list[str]:
+    if total > shown:
+        return [*lines, f"(+{total - shown} more saved from this source)"]
+    return lines
 
 
 def _recent_link_content_reply(
@@ -2142,11 +2295,7 @@ def _recent_link_content_reply(
     if recent.source.source_type == "reference":
         return _recent_reference_link_reply(db=db, source=recent.source, url=url, user_id=user_id)
 
-    active_memories = [
-        memory
-        for memory in recent.memories
-        if memory.status == "active" and memory.content.strip()
-    ]
+    lines, total = _source_scoped_memory_lines(db=db, source_id=recent.source.id, user_id=user_id)
     source_kind = _source_kind_label(recent.source)
     title = (recent.source.title or "").strip()
     has_url = recent.source.original_url is not None or recent.source.resolved_url is not None
@@ -2157,19 +2306,19 @@ def _recent_link_content_reply(
     else:
         opening = f"That is the {source_kind} you just saved."
 
-    if active_memories:
-        lines = [
-            f"- {_snippet(memory.content, max_chars=220)}"
-            for memory in active_memories[:5]
-        ]
+    if lines:
+        lines = _append_more_count_note(lines, total=total, shown=len(lines))
         return opening + "\n\nWhat I have from it:\n" + "\n".join(lines)
 
-    raw_text = (recent.source.raw_text or "").strip()
-    if raw_text:
+    # Prefer the organized overview over the raw dump for the same reason
+    # the Original tab does (api/v1/sources.py) -- a raw transcript snippet
+    # mid-sentence reads badly dropped into a chat reply.
+    display_text = (recent.source.summary_markdown or recent.source.raw_text or "").strip()
+    if display_text:
         return (
             opening
             + "\n\nI have the source text, but no active memory cards from it are available right now. "
-            + _snippet(raw_text, max_chars=420)
+            + _snippet(display_text, max_chars=420)
         )
 
     return (
@@ -2192,22 +2341,31 @@ def _recent_reference_link_reply(
     source_enrichment_status = (source.metadata_json or {}).get("enrichment_status")
 
     lines: list[str] = []
-    if enrichment is not None and enrichment.status == "succeeded" and enrichment.result_json:
-        result = enrichment.result_json
-        if isinstance(result, dict):
-            title = (result.get("source_title") or "").strip()
-            memories = result.get("memories")
-            if title:
-                lines.append(f"That link is saved as: {title}.")
-            if isinstance(memories, list) and memories:
-                found = []
-                for memory in memories[:5]:
-                    if isinstance(memory, dict):
-                        content = memory.get("content")
-                        if isinstance(content, str) and content.strip():
-                            found.append(f"- {_snippet(content, max_chars=220)}")
-                if found:
-                    lines.append("What I found from it:\n" + "\n".join(found))
+
+    # Once the background enrichment job succeeds,
+    # capture_service._upgrade_reference_source_with_extraction promotes
+    # this exact Source row in place (source.source_type stops being
+    # "reference"), so _recent_link_content_reply routes any later question
+    # straight to the real memories without ever reaching this function
+    # again. This branch only fires for the narrow window where the job has
+    # flipped to "succeeded" but a caller still has a stale "reference"-typed
+    # reference to this source, or for a link captured before this fix
+    # shipped. Either way it now reads the real Memory rows for this
+    # source_id directly — never the job's cached result_json snapshot,
+    # which is how this reply used to hard-truncate to memories[:5]
+    # independent of how many cards actually existed.
+    enrichment_succeeded = (
+        enrichment is not None and enrichment.status == "succeeded"
+    ) or source_enrichment_status == "succeeded"
+    if enrichment_succeeded:
+        memory_lines, total = _source_scoped_memory_lines(db=db, source_id=source.id, user_id=user_id)
+        if memory_lines:
+            if known_title:
+                lines.append(f"That link is saved as: {known_title}.")
+            lines.append(
+                "What I found from it:\n"
+                + "\n".join(_append_more_count_note(memory_lines, total=total, shown=len(memory_lines)))
+            )
             if reason:
                 lines.append(f"You saved it because: {reason}")
             lines.append(f"Link: {url}")
@@ -2492,7 +2650,7 @@ def _process_self_question(message: str) -> ChatResponse:
     else:
         answer = (
             "I'm Crowscap, your private memory intelligence for learning.\n\n"
-            "I help you keep important ideas, sources, reminders, and decisions, then bring them back "
+            "I help you keep important ideas, sources, reminders, and decisions, then brings them back "
             "when they can help you think or act."
         )
         next_step = "Send me something worth keeping, or ask what you already know."
@@ -2914,28 +3072,16 @@ def _looks_like_recent_source_context_update(message: str) -> bool:
         return False
     if _is_save_previous_response_command(message):
         return False
-    question_starts = (
-        "what ",
-        "whats ",
-        "what's ",
-        "why ",
-        "how ",
-        "can ",
-        "could ",
-        "should ",
-        "do ",
-        "does ",
-        "did ",
-        "is ",
-        "are ",
-        "was ",
-        "were ",
-        "tell me ",
-        "summarize ",
-        "summarise ",
-        "explain ",
-    )
-    if "?" in message or normalized.startswith(question_starts):
+    # Previously this only checked `normalized.startswith(question_starts)`,
+    # which requires the question word to be the very first token. Common
+    # phrasing like "so what are the 13 business idea in this video" or
+    # "ok so how does this work" puts the question word mid-sentence and
+    # slipped straight past that guard, got matched by the "this video"
+    # source marker below, and was misfiled as a context-update instruction
+    # instead of being answered. `_is_question_like` checks for the question
+    # word anywhere in the message (see its docstring for the incident this
+    # fixes).
+    if "?" in message or _is_question_like(normalized):
         return False
     if _asks_about_recent_capture(normalized):
         return False
@@ -3690,6 +3836,132 @@ def _deterministic_route(message: str, *, history: list[ConversationTurn]) -> Ch
             reason="The user is asking for time-based resurfacing.",
         )
 
+    how_are_you_patterns = (
+        "how are you",
+        "how r u",
+        "how are you doing",
+        "how are u doing",
+        "how you doing",
+        "how u doing",
+        "how ya doing",
+        "how you doin",
+        "how u doin",
+        "how are you doin",
+        "how are u doin",
+        "how are things",
+        "hows things",
+        "how's things",
+        "how is it going",
+        "how's it going",
+        "hows it going",
+        "how goes it",
+        "how do you do",
+        "how's your day",
+        "how is your day",
+        "how are you today",
+    )
+    if any(normalized.startswith(pat) or normalized == pat for pat in how_are_you_patterns):
+        return ChatRoute(
+            action="acknowledge",
+            reply="I'm doing well, thanks! Ready to help whenever you are.",
+            reason="Conversational greeting and check-in.",
+        )
+
+    whats_up_patterns = (
+        "what's up",
+        "whats up",
+        "what is up",
+        "wassup",
+        "sup",
+        "wazzup",
+    )
+    if any(normalized.startswith(pat) or normalized == pat for pat in whats_up_patterns):
+        return ChatRoute(
+            action="acknowledge",
+            reply="Not much, ready to help! What's on your mind?",
+            reason="Conversational greeting.",
+        )
+
+    presence_patterns = (
+        "you there",
+        "u there",
+        "are you there",
+        "are u there",
+        "are you here",
+        "anyone there",
+        "anybody here",
+        "are you online",
+        "you online",
+        "u online",
+        "can you hear me",
+        "ping",
+    )
+    clean_normalized = normalized.rstrip(" .!?")
+    if any(clean_normalized.startswith(pat) or clean_normalized == pat for pat in presence_patterns):
+        return ChatRoute(
+            action="acknowledge",
+            reply="I'm here! What's on your mind?",
+            reason="Conversational presence check-in.",
+        )
+
+    status_replies = {
+        "im good", "i'm good", "i am good", "doing well", "all good", "pretty good",
+        "not bad", "fine", "doing fine", "doing great", "all well", "very well",
+    }
+    if normalized in status_replies or any(normalized.startswith(f"{s} ") for s in status_replies):
+        return ChatRoute(
+            action="acknowledge",
+            reply="Glad to hear! What would you like to explore, capture, or question today?",
+            reason="User conversational status reply.",
+        )
+
+    acknowledgement_words = {
+        "ok",
+        "okay",
+        "alright",
+        "cool",
+        "great",
+        "thanks",
+        "thank",
+        "you",
+        "got",
+        "it",
+        "understood",
+        "sense",
+        "makes",
+        "this",
+        "that",
+        "so",
+        "much",
+        "appreciate",
+        "appreciated",
+        "exactly",
+        "clear",
+        "understand",
+        "i",
+        "helpful",
+        "perfect",
+        "nice",
+    }
+    if words and len(words) <= 12 and set(words).issubset(acknowledgement_words):
+        if any(w in words for w in ("thanks", "thank", "appreciate", "appreciated")):
+            ack_reply = "You're welcome! Let me know if you want to dig into anything else."
+        else:
+            ack_reply = "Got it! Let me know what you'd like to work on or explore next."
+
+        return ChatRoute(
+            action="acknowledge",
+            reply=ack_reply,
+            reason="The message is a short acknowledgement and contains no learning to store.",
+        )
+
+    if words and len(words) <= 4 and any(_is_greeting_word(word) for word in words):
+        return ChatRoute(
+            action="acknowledge",
+            reply="Hey. What are you thinking about?",
+            reason="The message is conversational greeting.",
+        )
+
     if _looks_like_self_question(normalized):
         return ChatRoute(
             action="self",
@@ -3785,53 +4057,44 @@ def _deterministic_route(message: str, *, history: list[ConversationTurn]) -> Ch
             reason="The user is opening a normal conversation topic.",
         )
 
-    acknowledgement_words = {
-        "ok",
-        "okay",
-        "alright",
-        "cool",
-        "great",
-        "thanks",
-        "thank",
-        "you",
-        "got",
-        "it",
-        "understood",
-        "sense",
-        "makes",
-        "this",
-        "that",
-        "so",
-        "much",
-        "appreciate",
-        "appreciated",
-        "exactly",
-        "clear",
-        "understand",
-        "i",
-        "helpful",
-        "perfect",
-        "nice",
-    }
-    if words and len(words) <= 12 and set(words).issubset(acknowledgement_words):
-        # Provide appropriate acknowledgment depending on whether user expressed thanks
-        if any(w in words for w in ("thanks", "thank", "appreciate", "appreciated")):
-            ack_reply = "You're welcome! Let me know if you want to dig into anything else."
-        else:
-            ack_reply = "Got it! Let me know what you'd like to work on or explore next."
-
-        return ChatRoute(
-            action="acknowledge",
-            reply=ack_reply,
-            reason="The message is a short acknowledgement and contains no learning to store.",
-        )
-
-    if words and len(words) <= 4 and any(_is_greeting_word(word) for word in words):
-        return ChatRoute(
-            action="acknowledge",
-            reply="Hey. What are you thinking about?",
-            reason="The message is conversational greeting.",
-        )
+    if pending_url is None:
+        self_terms = {"yourself", "crowscap", "this app"}
+        if not set(words).intersection(self_terms):
+            if not _is_explicit_memory_query(normalized) and not any(m in normalized for m in ("my note", "my notes", "my memory", "my memories", "did i save", "what did i")):
+                if not any(ref in normalized for ref in ("above", "recent", "that link", "that video", "last link")):
+                    general_inquiry_starts = (
+                        "how do i ",
+                        "how can i ",
+                        "how should i ",
+                        "how to ",
+                        "how would i ",
+                        "what is ",
+                        "what are ",
+                        "what does ",
+                        "what makes ",
+                        "why do ",
+                        "why does ",
+                        "why is ",
+                        "why are ",
+                        "can you explain ",
+                        "can you help me ",
+                        "can you tell me ",
+                        "could you explain ",
+                        "could you help me ",
+                        "write a ",
+                        "write an ",
+                        "draft a ",
+                        "give me ",
+                        "suggest ",
+                        "recommend ",
+                        "help me with ",
+                        "help me understand ",
+                    )
+                    if normalized.startswith(general_inquiry_starts):
+                        return ChatRoute(
+                            action="conversation",
+                            reason="The user is asking a general inquiry or conversational question.",
+                        )
 
     return None
 
@@ -3912,14 +4175,24 @@ def _stabilize_route_for_local_context(
         )
 
     if context_action == "save_previous_assistant" or target == "previous_assistant_response":
-        return ChatRoute(
-            action="capture",
-            reply=None,
-            reason="The user wants the previous assistant answer saved.",
-            context_action=context_action or "save_previous_assistant",
-            target="previous_assistant_response",
-            confidence=route.confidence,
-        )
+        if _is_save_previous_response_command(normalized):
+            return ChatRoute(
+                action="capture",
+                reply=None,
+                reason="The user wants the previous assistant answer saved.",
+                context_action="save_previous_assistant",
+                target="previous_assistant_response",
+                confidence=route.confidence,
+            )
+        if route.action in {"capture", "acknowledge"}:
+            return ChatRoute(
+                action="conversation",
+                reply=None,
+                reason="The user is asking about or discussing the previous assistant answer, not saving it.",
+                context_action="normal_chat",
+                target="previous_assistant_response",
+                confidence=route.confidence,
+            )
 
     if context_action == "save_recent_source_reference" or (
         target == "pending_url" and pending_url is not None
@@ -3975,8 +4248,11 @@ def _stabilize_route_for_local_context(
 
 
 def _is_greeting_word(word: str) -> bool:
-    greeting_words = {"hello", "hi", "hey", "yo", "morning", "afternoon", "evening"}
-    return word in greeting_words or re.fullmatch(r"he+y+|hello+", word) is not None
+    greeting_words = {
+        "hello", "hi", "hey", "heey", "heyy", "yo", "morning", "afternoon",
+        "evening", "howdy", "hiya", "greetings", "gm", "gn"
+    }
+    return word in greeting_words or re.fullmatch(r"he+y+|hello+|hi+|yo+", word) is not None
 
 
 def _short_contextual_clarification_reply(
@@ -4091,29 +4367,76 @@ def _looks_like_self_question(normalized: str) -> bool:
     words = set(re.findall(r"[a-z0-9']+", normalized))
     if not words:
         return False
+
+    greeting_checkins = (
+        "how are you",
+        "how r u",
+        "how are you doing",
+        "how are u doing",
+        "how is it going",
+        "how's it going",
+        "hows it going",
+        "how are things",
+        "how do you do",
+        "how's your day",
+        "how is your day",
+        "how have you been",
+        "what's up",
+        "whats up",
+        "what is up",
+        "wassup",
+        "sup",
+        "wazzup",
+    )
+    if any(normalized.startswith(pat) or normalized == pat for pat in greeting_checkins):
+        return False
+
+    if len(words) <= 3 and any(_is_greeting_word(w) for w in words) and not any(k in words for k in ("what", "who", "why", "how", "can", "explain")):
+        return False
+
     self_terms = {"you", "u", "yourself", "crowscap", "app", "product", "tool", "system"}
-    capability_terms = {"do", "does", "save", "keep", "remember", "help", "use", "purpose", "work", "built", "recall", "recalls", "know", "remind", "reminders"}
-    if any(marker in normalized for marker in ("when will i start getting", "recalls on crowscap", "tell me all you know", "everything you know", "how do you remind", "how do reminders", "how will you remind")):
+    capability_terms = {
+        "do", "does", "save", "keep", "remember", "help", "use", "purpose",
+        "work", "built", "recall", "recalls", "know", "remind", "reminders",
+        "features", "feature", "function", "functions"
+    }
+    if any(marker in normalized for marker in (
+        "when will i start getting",
+        "recalls on crowscap",
+        "tell me all you know",
+        "everything you know",
+        "how do you remind",
+        "how do reminders",
+        "how will you remind",
+    )):
         return True
     if not words.intersection(self_terms):
         return False
+    if re.search(r"\b(?:my|our)\s+(?:product|app|tool|system|software|startup|business|idea|service|customers|users)\b", normalized):
+        return False
     if _is_explicit_memory_query(normalized) or _is_explicit_belief_audit_query(normalized):
         return False
-    if normalized.startswith(("what ", "who ", "why ", "how ", "can ", "could ", "explain ", "tell me ", "when ")):
-        return bool(words.intersection(capability_terms) or {"what", "who", "why", "how"}.intersection(words))
-    return any(
-        marker in normalized
-        for marker in (
-            "i don't understand this app",
-            "i dont understand this app",
-            "what is this app",
-            "what are you",
-            "what is you",
-            "what are u",
-            "who are you",
-            "who are u",
-        )
+    identity_patterns = (
+        "i don't understand this app",
+        "i dont understand this app",
+        "what is this app",
+        "what does this app",
+        "what are you",
+        "what is you",
+        "what are u",
+        "who are you",
+        "who are u",
+        "what is crowscap",
+        "who is crowscap",
+        "what's crowscap",
+        "whats crowscap",
+        "tell me about yourself",
     )
+    if any(marker in normalized for marker in identity_patterns):
+        return True
+    if normalized.startswith(("what ", "who ", "why ", "how ", "can ", "could ", "explain ", "tell me ", "when ")):
+        return bool(words.intersection(capability_terms))
+    return False
 
 
 def _is_explicit_memory_query(normalized: str) -> bool:
@@ -4162,9 +4485,15 @@ def _should_probe_memory_for_conversation(
             "\U0001f9ed chat.conversation.memory_probe_skipped reason=short_followup"
         )
         return False
-    words = re.findall(r"[a-z0-9']+", normalized)
-    if len(words) >= 8 or re.match(r"^(?:how|why|should|can|could)\b", normalized):
+    personal_markers = (
+        "my ", "our ", "i saved", "i noted", "i learned", "i learnt",
+        "my note", "my notes", "my memory", "my memories", "saved about",
+        "notes on", "notes about", "we discussed", "we talked about",
+        "did i save", "have i saved", "do i have",
+    )
+    if any(marker in normalized for marker in personal_markers):
         return True
+
     return False
 
 
@@ -4184,24 +4513,39 @@ def _is_local_conversation_question(
         return True
     if _is_short_conversation_followup(normalized) and _has_recent_context(history):
         return True
+    if _is_conversation_reference_question(normalized) and _has_recent_context(history):
+        return True
     return False
 
 
 def _is_definition_or_meaning_question(normalized: str) -> bool:
     if any(marker in normalized for marker in ("my memory", "my memories", "saved", "notes", "source")):
         return False
+    cleaned = re.sub(r"^(?:hmmm?|okay?|so|alright|well|wait|now)\b[\s,]*", "", normalized).strip()
     patterns = (
         r"^what\s+(?:is|does|do)\s+.{1,80}\??$",
         r"^what\s+is\s+.{1,80}\s+mean\??$",
         r"^what\s+does\s+.{1,80}\s+mean\??$",
+        r"^what\s+do\s+(?:you|your|u)\s+mean(?:\s+by\s+.{1,80})?\??$",
         r"^meaning\s+of\s+.{1,80}\??$",
         r"^define\s+.{1,80}\??$",
         r"^explain\s+the\s+word\s+.{1,80}\??$",
     )
-    if not any(re.fullmatch(pattern, normalized) is not None for pattern in patterns):
+    if not any(re.fullmatch(pattern, cleaned) is not None for pattern in patterns):
         return False
-    words = re.findall(r"[a-z0-9']+", normalized)
-    return len(words) <= 10
+    words = re.findall(r"[a-z0-9']+", cleaned)
+    return len(words) <= 14
+
+
+def _is_conversation_reference_question(normalized: str) -> bool:
+    if any(marker in normalized for marker in ("my memory", "my memories", "saved links", "saved notes")):
+        return False
+    reference_patterns = (
+        r"\b(?:what|which|how)\b.*\b(?:you\s+gave|you\s+said|you\s+mentioned|you\s+wrote|what\s+you\s+gave|what\s+you\s+said|what\s+you\s+wrote)\b",
+        r"\b(?:what\s+was|what\s+is|which\s+is|what's)\b.*\b(?:point|takeaway|advice|tip|step)\b.*\b(?:earlier|above|from\s+what\s+you)\b",
+        r"\b(?:most\s+important\s+point|key\s+takeaway|main\s+takeaway)\b",
+    )
+    return any(re.search(pattern, normalized) is not None for pattern in reference_patterns)
 
 
 def _is_short_conversation_followup(normalized: str) -> bool:
@@ -4312,10 +4656,77 @@ def _should_capture_mixed_url_message_as_text(message: str) -> bool:
     return len(words) >= 18 or len(text_without_urls) >= 120
 
 
+def _is_conversational_question_or_dialogue(normalized: str) -> bool:
+    if normalized.endswith("?") or "?" in normalized:
+        return True
+    cleaned = re.sub(
+        r"^(?:alright|okay?|so|well|now|hmmm?|wait|hey|listen)\b[\s,]*", "", normalized
+    ).strip()
+    question_starts = (
+        "what ", "whats ", "what's ", "why ", "how ", "when ", "where ", "which ", "who ", "whom ", "whose ",
+        "can you ", "could you ", "would you ", "will you ", "do you ", "did you ", "are you ", "is there ",
+        "are there ", "should i ", "explain ", "clarify ", "elaborate ", "define ", "meaning of ",
+    )
+    if cleaned.startswith(question_starts):
+        return True
+    referential_question_phrases = (
+        "what was", "what were", "what is", "what are", "what did you", "what do you", "what do your",
+        "did you mean", "do you mean", "what you gave", "what you said", "what you told", "what you wrote",
+        "you gave earlier", "you said earlier", "you mentioned earlier", "from what you gave",
+        "from what you said", "from what you wrote", "most important point", "key takeaway", "main takeaway",
+    )
+    if any(phrase in normalized for phrase in referential_question_phrases):
+        return True
+    return False
+
+
 def _is_substantial_direct_capture(message: str) -> bool:
     stripped = message.strip()
-    words = re.findall(r"[a-z0-9']+", stripped.lower())
-    return len(stripped) >= MIN_DIRECT_TEXT_CAPTURE_CHARS and len(words) >= 3
+    normalized = re.sub(r"\s+", " ", stripped.lower()).strip(" .!?,")
+    words = re.findall(r"[a-z0-9']+", normalized)
+
+    explicit_capture_starts = (
+        "remember ",
+        "save ",
+        "keep ",
+        "note ",
+        "i learned ",
+        "i learnt ",
+        "i want to remember ",
+    )
+    if normalized.startswith(explicit_capture_starts) and len(words) >= 4:
+        return True
+
+    # Questions or conversational dialogue must NEVER be saved as direct captures
+    if _is_conversational_question_or_dialogue(normalized) or "?" in message:
+        return False
+
+    # Must have enough characters and words to constitute real content
+    if len(stripped) < MIN_DIRECT_TEXT_CAPTURE_CHARS or len(words) < 5:
+        return False
+
+    # Reject purely conversational reaction openers — these are follow-ups,
+    # not things the user intends to save. We want saves to be deliberate.
+    _REACTION_OPENERS = (
+        "really", "hmm", "hm", "wow", "ok", "okay", "ah", "oh",
+        "wait", "huh", "what", "why", "how", "i see", "i get it",
+        "i get that", "i dont get", "i don't get", "i do not get",
+        "that makes sense", "makes sense", "got it", "got that",
+        "i know", "i know that", "right", "true", "fair enough",
+        "interesting", "i see what you mean", "so you mean",
+        "are you saying", "do you mean", "what do you mean",
+        "can you explain", "can you clarify", "tell me more",
+        "alright", "well", "listen",
+    )
+    for opener in _REACTION_OPENERS:
+        if normalized.startswith(opener):
+            # Allow it only if the message is long enough to be substantive
+            # (i.e. the opener is just a preamble to real content)
+            if len(words) < 20:
+                return False
+            break
+
+    return True
 
 
 def _has_explicit_url_capture_intent(message: str) -> bool:
@@ -4496,7 +4907,14 @@ def _create_reference_link_capture(
         user_id=user_id,
         source_type="reference",
         original_url=url,
-        resolved_url=url,
+        # Canonicalized (not the raw pasted URL) so that when the background
+        # enrichment job later extracts full content for the same link, its
+        # resolved_url matches this row exactly and
+        # capture_service._find_existing_source upgrades this Source in
+        # place instead of forking a second, disconnected one. See
+        # canonical_resolved_url's docstring for why this matters most for
+        # YouTube short links (youtu.be/xyz vs. youtube.com/watch?v=xyz).
+        resolved_url=canonical_resolved_url(url),
         title=title,
         raw_text=raw_text,
         extracted_text_hash=content_hash,

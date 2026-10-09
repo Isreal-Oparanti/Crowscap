@@ -379,6 +379,9 @@ def _select_due_reminder_for_notification(
     return None
 
 
+_notification_copy_cache: dict[str, tuple[str, str]] = {}
+
+
 def generate_notification_copy(
     *,
     context: dict[str, Any],
@@ -388,31 +391,14 @@ def generate_notification_copy(
     """Generate grounded notification copy without letting the model invent facts."""
     fallback_title = _clip(default_title, 52)
     fallback_body = _clip(default_body, 168)
-    try:
-        from app.ai.qwen_client import QwenClient
-        qwen = QwenClient()
-        system_prompt = (
-            "You write push notifications for Crowscap, a private memory app.\n"
-            "Use only facts in the provided JSON context. Do not invent source details, dates, deadlines, or claims.\n"
-            "Make the notification feel personal, specific, and useful, not like marketing copy.\n"
-            "Avoid generic phrases such as 'Discover how', 'Explore', 'Dive into', or 'Unlock'.\n"
-            "If a deadline or due phrase is present, make urgency clear by saying tomorrow, today, in 2 days, or the exact phrase provided.\n"
-            "Title must be 52 characters or less. Body must be 168 characters or less.\n"
-            "Return JSON only: {\"title\": \"...\", \"body\": \"...\"}"
-        )
-        res = qwen.chat_json(
-            system_prompt=system_prompt,
-            user_prompt=json.dumps(context, ensure_ascii=True),
-        )
-        title = str(res.get("title") or fallback_title).strip()
-        body = str(res.get("body") or fallback_body).strip()
-        return _sanitize_notification_text(title, fallback_title, 52), _sanitize_notification_text(
-            body,
-            fallback_body,
-            168,
-        )
-    except Exception:
-        return fallback_title, fallback_body
+    cache_key = f"{context.get('notification_type')}:{context.get('source_title', '')[:40]}:{context.get('reminder_text', '')[:40]}"
+    if cache_key in _notification_copy_cache:
+        return _notification_copy_cache[cache_key]
+
+    clean_title = _sanitize_notification_text(fallback_title, fallback_title, 52)
+    clean_body = _sanitize_notification_text(fallback_body, fallback_body, 168)
+    _notification_copy_cache[cache_key] = (clean_title, clean_body)
+    return clean_title, clean_body
 
 
 def _reminder_event(

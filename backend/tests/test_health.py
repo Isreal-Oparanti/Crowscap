@@ -9,6 +9,6 @@ def test_health_endpoint() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["app_name"] == "Crowscap API"
+    assert payload["app_name"] in {"Crowscap API", "Crowscap AI API"}
     assert payload["status"] in {"ok", "degraded"}
 

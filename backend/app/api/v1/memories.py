@@ -323,35 +323,7 @@ def delete_memory(
 
     source = db.get(Source, memory.source_id) if memory.source_id else None
 
-    # Collect all related source IDs (by source_id directly or matching original_url / resolved_url)
-    target_source_ids = set()
-    if source:
-        target_source_ids.add(source.id)
-        url = source.resolved_url or source.original_url
-        if url:
-            matching_sources = db.scalars(
-                select(Source.id).where(
-                    Source.user_id == current_user.id,
-                    or_(Source.resolved_url == url, Source.original_url == url),
-                )
-            ).all()
-            for s_id in matching_sources:
-                target_source_ids.add(s_id)
-
-    # Collect all memory IDs attached to these sources
-    all_memory_ids = set()
-    if target_source_ids:
-        attached_mems = db.scalars(
-            select(Memory.id).where(
-                Memory.user_id == current_user.id,
-                Memory.source_id.in_(list(target_source_ids)),
-            )
-        ).all()
-        for m_id in attached_mems:
-            all_memory_ids.add(m_id)
-    all_memory_ids.add(memory_id)
-
-    mem_ids_list = list(all_memory_ids)
+    mem_ids_list = [memory_id]
 
     # Clean up memory references
     db.execute(delete(RecallReview).where(RecallReview.memory_id.in_(mem_ids_list)))
@@ -368,21 +340,22 @@ def delete_memory(
     db.execute(update(Reminder).where(Reminder.memory_id.in_(mem_ids_list)).values(memory_id=None))
     db.execute(update(ActionItem).where(ActionItem.memory_id.in_(mem_ids_list)).values(memory_id=None))
 
-    # Delete all memories attached to the item/link
-    db.execute(delete(Memory).where(Memory.id.in_(mem_ids_list)))
+    # Delete the target memory
+    db.execute(delete(Memory).where(Memory.id == memory_id))
 
-    # Find capture IDs referencing target_source_ids
-    if target_source_ids:
-        capture_ids = db.scalars(
-            select(Capture.id).where(Capture.source_id.in_(list(target_source_ids)))
-        ).all()
-        if capture_ids:
-            db.execute(delete(ProcessingJob).where(ProcessingJob.capture_id.in_(capture_ids)))
-        db.execute(delete(Capture).where(Capture.source_id.in_(list(target_source_ids))))
-
-    # Delete all related sources for this link
-    if target_source_ids:
-        db.execute(delete(Source).where(Source.id.in_(list(target_source_ids))))
+    # If this source has no other memories left, clean up source and its captures
+    if source:
+        remaining_mems = db.scalar(
+            select(func.count(Memory.id)).where(Memory.source_id == source.id)
+        )
+        if remaining_mems == 0:
+            capture_ids = db.scalars(
+                select(Capture.id).where(Capture.source_id == source.id)
+            ).all()
+            if capture_ids:
+                db.execute(delete(ProcessingJob).where(ProcessingJob.capture_id.in_(capture_ids)))
+            db.execute(delete(Capture).where(Capture.source_id == source.id))
+            db.execute(delete(Source).where(Source.id == source.id))
 
     db.commit()
     return Response(status_code=204)

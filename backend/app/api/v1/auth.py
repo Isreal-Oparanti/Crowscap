@@ -454,7 +454,7 @@ def _send_welcome_email(*, email: str, name: str | None = None) -> None:
 def _resend_from_header(value: str) -> str:
     raw = (value or "").strip()
     if not raw:
-        return "Crowscap AI <support@crowscap.xyz>"
+        return "Crowscap <support@crowscap.xyz>"
 
     match = re.search(r"<([^>]+)>", raw)
     if match:
@@ -462,9 +462,9 @@ def _resend_from_header(value: str) -> str:
     elif "@" in raw:
         email_addr = raw
     else:
-        return "Crowscap AI <support@crowscap.xyz>"
+        return "Crowscap <support@crowscap.xyz>"
 
-    return f"Crowscap AI <{email_addr}>"
+    return f"Crowscap <{email_addr}>"
 
 
 

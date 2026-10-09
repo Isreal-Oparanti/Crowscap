@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Sequence
 from typing import Any
 
@@ -44,8 +45,8 @@ class QwenClient:
         self._client = OpenAI(
             api_key=self.settings.dashscope_api_key_value,
             base_url=self.settings.qwen_base_url,
-            timeout=60.0,
-            max_retries=2,
+            timeout=120.0,   # 120s gives plus/reasoning models headroom on large prompts
+            max_retries=1,   # 1 retry max — avoids 3-minute chains on timeouts
         )
         return self._client
 
@@ -98,6 +99,23 @@ class QwenClient:
             selected_model,
             len(system_prompt) + len(user_prompt),
         )
+        total_prompt_chars = len(system_prompt) + len(user_prompt)
+        is_fast_model = selected_model == self.settings.qwen_fast_model
+
+        # 0-token Watchdog: pre-flight prompt size check (pure local math)
+        if is_fast_model and total_prompt_chars > 8500:
+            logger.warning(
+                "🚨 [WATCHDOG] Prompt bloat on fast model %s: %d chars! Router/classifier prompt should stay <= 8500 chars.",
+                selected_model,
+                total_prompt_chars,
+            )
+        elif total_prompt_chars > 12000:
+            logger.warning(
+                "🚨 [WATCHDOG] Heavy prompt alert: %d chars on model %s.",
+                total_prompt_chars,
+                selected_model,
+            )
+
         request_client = client
         if timeout_seconds is not None or max_retries is not None:
             request_client = client.with_options(
@@ -105,18 +123,33 @@ class QwenClient:
                 max_retries=max_retries,
             )
 
+        start_time = time.perf_counter()
         try:
             completion = request_client.chat.completions.create(
                 model=selected_model,
                 messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            response_format={"type": "json_object"},
-            temperature=temperature,
-        )
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                response_format={"type": "json_object"},
+                temperature=temperature,
+            )
         except Exception as exc:
+            elapsed = time.perf_counter() - start_time
+            logger.warning("⏱️ qwen.request_failed_after model=%s elapsed=%.2fs", selected_model, elapsed)
             raise self._provider_error("json", selected_model, exc) from exc
+
+        elapsed = time.perf_counter() - start_time
+
+        # 0-token Watchdog: post-flight latency check (pure local stopwatch)
+        latency_threshold = 10.0 if is_fast_model else 35.0
+        if elapsed > latency_threshold:
+            logger.warning(
+                "⏱️ [WATCHDOG] Latency alert: model=%s took %.2fs (prompt_chars=%d). Approaching timeout limits.",
+                selected_model,
+                elapsed,
+                total_prompt_chars,
+            )
 
         content = completion.choices[0].message.content
         if not content:
@@ -130,13 +163,52 @@ class QwenClient:
             raise QwenClientError("Qwen Cloud returned invalid JSON.") from exc
 
         if not isinstance(parsed, dict):
-            logger.error("\u274c qwen.json_not_object mode=json model=%s", selected_model)
-            raise QwenClientError("Qwen Cloud returned JSON that is not an object.")
+            # Some character-tuned models occasionally return a JSON array instead
+            # of the required object. Retry once with an explicit correction hint
+            # before giving up, to avoid surfacing a hard 503 to the user.
+            logger.warning(
+                "⚠️ qwen.json_not_object mode=json model=%s — retrying with correction hint",
+                selected_model,
+            )
+            try:
+                correction_messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                    {
+                        "role": "assistant",
+                        "content": content,
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            "Your response must be a JSON **object** (starting with `{`), "
+                            "not an array. Please reformat your previous answer as a JSON object now."
+                        ),
+                    },
+                ]
+                retry_completion = request_client.chat.completions.create(
+                    model=selected_model,
+                    messages=correction_messages,
+                    response_format={"type": "json_object"},
+                    temperature=temperature,
+                )
+                content = retry_completion.choices[0].message.content or ""
+                parsed = json.loads(content) if content else {}
+            except Exception as retry_exc:
+                logger.exception(
+                    "❌ qwen.json_retry_failed mode=json model=%s", selected_model
+                )
+                raise QwenClientError("Qwen Cloud returned JSON that is not an object.") from retry_exc
+
+            if not isinstance(parsed, dict):
+                logger.error("❌ qwen.json_not_object mode=json model=%s (after retry)", selected_model)
+                raise QwenClientError("Qwen Cloud returned JSON that is not an object.")
 
         logger.info(
-            "\u2705 qwen.response_ok mode=json model=%s chars=%s keys=%s",
+            "✅ qwen.response_ok mode=json model=%s chars=%s elapsed=%.2fs keys=%s",
             selected_model,
             len(content),
+            elapsed,
             sorted(parsed.keys()),
         )
         return parsed

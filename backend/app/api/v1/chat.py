@@ -7,7 +7,13 @@ from app.core.auth import CurrentUser, require_current_user
 from app.core.logging import get_logger
 from app.core.rate_limit import rate_limit
 from app.db.session import get_db
-from app.schemas.chat import ChatRequest, ChatResponse, ConversationResponse, PaginatedMessagesResponse
+from app.schemas.chat import (
+    ChatRequest,
+    ChatResponse,
+    ConversationResponse,
+    PaginatedMessagesResponse,
+    SharedMessageResponse,
+)
 from app.services.belief_audit_service import BeliefAuditError, BeliefAuditor, get_belief_auditor
 from app.services.chat_service import (
     ChatIntentRouter,
@@ -21,6 +27,7 @@ from app.services.chat_service import (
     get_conversation,
     get_current_conversation,
     get_paginated_chat_messages,
+    get_public_shared_message,
     get_chat_router,
     get_chat_synthesizer,
     list_user_conversations,
@@ -92,6 +99,7 @@ def delete_conversation(
 
 @router.get("/messages", response_model=PaginatedMessagesResponse)
 def paginated_messages(
+    conversation_id: str | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     before_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
@@ -100,9 +108,22 @@ def paginated_messages(
     return get_paginated_chat_messages(
         db=db,
         user_id=current_user.id,
+        conversation_id=conversation_id,
         limit=limit,
         before_id=before_id,
     )
+
+
+@router.get("/share/{message_id}", response_model=SharedMessageResponse)
+def get_shared_message(
+    message_id: str,
+    db: Session = Depends(get_db),
+) -> SharedMessageResponse:
+    found = get_public_shared_message(db=db, message_id=message_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="Shared thought not found or link has expired.")
+    return found
+
 
 
 @router.post("", response_model=ChatResponse)
@@ -146,7 +167,10 @@ def chat(
         CaptureSafetyError,
     ) as exc:
         logger.warning("⚠️ chat.invalid reason=%s", exc)
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=422,
+            detail="I could not process that request. Try rephrasing or paste the content you want saved.",
+        ) from exc
     except ValidationError as exc:
         logger.warning("⚠️ chat.validation_failed reason=%s", exc)
         raise HTTPException(

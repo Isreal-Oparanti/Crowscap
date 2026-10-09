@@ -40,8 +40,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     database_ok = check_database()
     safe_database_url = mask_url_credentials(settings.database_url)
     if database_ok:
-        ensure_database_schema(engine=engine, database_url=settings.database_url)
         logger.info("\U0001f5c4\ufe0f db.connected status=ok url=%s", safe_database_url)
+        asyncio.create_task(asyncio.to_thread(ensure_database_schema, engine=engine, database_url=settings.database_url))
     else:
         logger.error("\u274c db.connected status=failed url=%s", safe_database_url)
 
@@ -144,8 +144,6 @@ def create_app() -> FastAPI:
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         detail = str(exc.detail) if exc.detail else "Network Disconnect. Please try again."
-        if exc.status_code in (404, 500, 502, 503, 504):
-            detail = "Network Disconnect. Please try again."
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": detail},

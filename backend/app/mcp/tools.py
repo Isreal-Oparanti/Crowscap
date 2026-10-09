@@ -49,10 +49,20 @@ def search_memory_tool(
     limit: int = 5,
     min_score: float = 0.25,
     include_archived: bool = False,
+    source_id: str | None = None,
     user_id: str | None = None,
     db: Session | None = None,
     embedder: MemoryEmbedder | None = None,
 ) -> dict[str, Any]:
+    """Search the user's saved memories.
+
+    Pass `source_id` to deterministically list every memory from one
+    specific source (a saved link, video, article, or note) instead of
+    semantic top-K search — the right call when the question is "what did I
+    save from X", not "find things related to X across everything I've
+    saved". `query` is still required by the schema in that case but is
+    ignored.
+    """
     with _session_scope(db) as session:
         response = search_memories(
             db=session,
@@ -61,6 +71,7 @@ def search_memory_tool(
                 limit=limit,
                 min_score=min_score,
                 include_archived=include_archived,
+                source_id=source_id,
             ),
             embedder=embedder or QwenMemoryEmbedder(),
             user_id=user_id,

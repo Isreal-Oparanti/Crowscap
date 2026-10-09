@@ -29,6 +29,21 @@ MemoryType = Literal[
     "intention",
 ]
 
+# Ceiling on how many atomic memories a single extraction pass may return.
+#
+# This used to be a bare `max_length=12` on `CaptureExtraction.memories`,
+# and the SAME "12" was independently re-hardcoded in two other places
+# (`extraction_service._sanitize_extraction_payload` and
+# `capture_service._extract_from_raw_text`'s chunk-merge loop). A source
+# that is itself an explicit enumerated list longer than 12 items (e.g. a
+# video titled "13 Businesses for the Age of AI") was therefore silently
+# truncated three times over, with no error and no record that anything
+# was dropped. Raised to 40 so a bounded-but-generous single list survives
+# one extraction pass; still finite so a single pathological capture can't
+# blow up extraction cost or DB writes unboundedly. See the architecture
+# review doc ("Fix 4") for the full incident this traces back to.
+MAX_MEMORIES_PER_EXTRACTION = 40
+
 EpistemicLabel = Literal[
     "factual_claim",
     "opinion",
@@ -155,6 +170,16 @@ class ExtractedMemoryAtom(BaseModel):
     confidence: Confidence
     confidence_reason: str = Field(min_length=8, max_length=500)
     source_strength: SourceStrength
+    # Populated only when the extractor recognized this memory as one item
+    # of an explicit enumerated list named by its source (e.g. a video
+    # titled "13 Businesses for the Age of AI" → list_total=13). Left
+    # unset (None) for ordinary, non-list memories. `list_group_id` ties
+    # every item of the same list together even across chunked extraction
+    # passes over a long transcript; `capture_service._create_memories`
+    # persists these onto the corresponding `Memory` row untouched.
+    list_group_id: str | None = Field(default=None, max_length=80)
+    list_position: int | None = Field(default=None, ge=1)
+    list_total: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="before")
     @classmethod
@@ -177,18 +202,53 @@ class ExtractedMemoryAtom(BaseModel):
             return normalize_epistemic_label(value)
         return normalize_label(value)
 
+    @model_validator(mode="after")
+    def repair_inconsistent_list_fields(self) -> "ExtractedMemoryAtom":
+        # Guard against a model emitting a partial list tag (e.g.
+        # list_position without list_total, or position > total) — treat
+        # an internally inconsistent tag as "not a list item" rather than
+        # persisting a nonsensical position onto the Memory row.
+        if self.list_position is not None and self.list_total is not None:
+            if self.list_position > self.list_total:
+                self.list_group_id = None
+                self.list_position = None
+                self.list_total = None
+        elif self.list_position is not None or self.list_total is not None:
+            self.list_group_id = None
+            self.list_position = None
+            self.list_total = None
+        return self
+
 
 class CaptureExtraction(BaseModel):
     source_title: str | None = Field(default=None, max_length=200)
     inferred_intents: list[CaptureIntent] = Field(default_factory=list, max_length=5)
-    memories: list[ExtractedMemoryAtom] = Field(min_length=1, max_length=12)
+    memories: list[ExtractedMemoryAtom] = Field(min_length=1, max_length=MAX_MEMORIES_PER_EXTRACTION)
+    # A holistic, human-readable write-up of the WHOLE source, formatted as
+    # markdown (headings, bullets) -- distinct from `memories`, which are
+    # deliberately atomic fragments. This is what the "Original" tab in the
+    # UI shows instead of a raw, unpunctuated transcript dump (see
+    # capture_service._create_memories / api/v1/sources.py for where it's
+    # persisted and served). It is allowed to compress/organize, unlike
+    # `Source.raw_text`, which stays an untouched copy of what was actually
+    # captured and remains the only thing extraction/hashing/re-extraction
+    # ever reads from.
+    source_overview_markdown: str | None = Field(default=None, max_length=6000)
 
     @field_validator("inferred_intents", mode="before")
     @classmethod
     def normalize_intents(cls, value: object) -> object:
         if not isinstance(value, list):
-            return value
-        return [normalize_intent_label(item) for item in value]
+            return ["learned"]
+        valid_intents = set(get_args(CaptureIntent))
+        results: list[CaptureIntent] = []
+        for item in value:
+            norm = normalize_intent_label(item)
+            if norm in valid_intents:
+                results.append(norm)
+            elif isinstance(norm, str) and norm.strip():
+                results.append("learned")
+        return results[:5] or ["learned"]
 
 
 class MemoryRelationshipAssessment(BaseModel):
@@ -214,11 +274,25 @@ class MemoryRelationshipBatch(BaseModel):
 
 class ChatRoute(BaseModel):
     action: ChatAction
-    reply: str | None = Field(default=None, max_length=500)
-    reason: str = Field(min_length=3, max_length=300)
+    reply: str | None = Field(default=None, max_length=1500)
+    reason: str = Field(min_length=1, max_length=1500)
     context_action: ContextualChatAction | None = None
     target: ContextualChatTarget | None = None
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def normalize_reason(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()[:1400]
+        return value
+
+    @field_validator("reply", mode="before")
+    @classmethod
+    def normalize_reply(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()[:1400]
+        return value
 
     @field_validator("action", mode="before")
     @classmethod
@@ -255,6 +329,11 @@ class ChatRoute(BaseModel):
     @field_validator("context_action", "target", mode="before")
     @classmethod
     def normalize_context_fields(cls, value: object) -> object:
+        # LLMs (especially character-tuned models) sometimes return the
+        # string "null" or "none" when they mean a JSON null. Map these
+        # explicitly so Pydantic sees None rather than an invalid Literal.
+        if isinstance(value, str) and value.strip().lower() in {"null", "none", "n/a", "na", ""}:
+            return None
         return normalize_label(value)
 
 

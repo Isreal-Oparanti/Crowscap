@@ -14,14 +14,14 @@ from app.schemas.search import SearchResponse
 
 def _build_router_prompt(*, message: str, history: list[ConversationTurn], pending_url: str | None = None) -> str:
     history_text = "\n".join(
-        f"{turn.role}: {turn.content}" for turn in history[-6:]
+        f"{turn.role}: {turn.content[:180].strip()}" for turn in history[-3:]
     ) or "No earlier turns."
     pending_state = (
         f"pending_url: {pending_url}"
         if pending_url is not None
         else "No pending app action."
     )
-    return f"""Classify the user's latest message.
+    return f"""Classify the user's latest message for Crowscap (second-brain assistant).
 
 Return JSON:
 {{
@@ -29,57 +29,30 @@ Return JSON:
   "context_action": "save_current_message" | "save_previous_assistant" | "save_recent_source_reference" | "update_recent_source_context" | "ask_recent_source" | "delete_recent_capture" | "create_reminder" | "memory_search" | "conversation_fact" | "normal_chat" | "self" | "audit" | null,
   "target": "current_message" | "previous_assistant_response" | "latest_source" | "latest_capture" | "pending_url" | "conversation_history" | "memory_topic" | "none" | null,
   "confidence": 0.0-1.0,
-  "reply": "short natural reply only when action is acknowledge, otherwise null",
+  "reply": "short natural reply ONLY when action is acknowledge, otherwise null",
   "reason": "brief classification reason"
 }}
 
-Definitions:
-- acknowledge: greetings, thanks, agreement, confirmation, social replies, or conversational continuation with no durable knowledge to save.
-- conversation: the user asks a normal question, asks for advice, opens a topic, asks about this current chat/session, or wants normal assistant continuity without explicitly needing saved memories.
-- capture: the user supplies a substantive learning fragment, claim, source, note, reflection, or explicitly asks to remember/save something.
-- answer: the user explicitly asks about saved/learned knowledge, asks what they know from memory, asks to search memories/notes, requests comparison across saved memories, or wants help thinking with their knowledge base.
-- audit: the user explicitly asks Crowscap to challenge, audit, evidence-check, or compare a belief against public evidence.
-- forget: the user asks to forget, archive, stop showing, stop reminding, remove, or delete a memory or topic from active memory.
-- reminder: the user asks to remind them at a specific later time, with or without saving the content as memory.
-- self: the user asks what Crowscap is, what it does, how it works, who built it, what its purpose is, whether it is just a chatbot, or what its current limitations are.
-- recent: the user asks about the thing they JUST saved or sent in this conversation, referring to it deictically instead of by name. Examples: "whats the above about", "what's that about", "what is it about", "what did I just save", "summarize the above", "explain the link I just sent", "so what did you get from it". The recent conversation will show a save receipt from Crowscap (for example "I kept this as N memories" or "I kept this link as a reference") near the latest turns.
+Actions:
+- acknowledge: greetings, thanks, agreement, confirmation, or social replies with no durable knowledge to save.
+- conversation: normal chat, general questions, advice, open topics with NO saved memory retrieval.
+- capture: user supplies durable learning, notes, reflections, claims, links, or asks to save/remember something.
+- answer: user asks across their saved memories/notes ("what do I know", "search my memories", "from my notes").
+- audit: user asks to evidence-check, challenge, or audit a belief.
+- forget: user asks to remove, archive, or forget a memory/topic.
+- reminder: user asks for a timed reminder or resurfacing.
+- self: questions about Crowscap, what it is, capabilities, or how it works.
+- recent: user refers to the item/link JUST saved in the immediate preceding turns ("what's that about", "the above").
 
-Context action rules:
-- save_previous_assistant: the user wants the previous assistant answer saved, even if phrased casually or with typos. Examples: "cool save that", "hold onto that", "keep what you just said".
-- save_recent_source_reference: the user wants a recently pasted or pending link/source kept.
-- update_recent_source_context: the user is adding meaning, intent, correction, or context to the source they just saved. Examples: "the above video is actually about obeying laws", "that link is for my YC application".
-- ask_recent_source: the user asks what the latest link/source/save is about.
-- delete_recent_capture: the user wants the last saved item removed.
-- create_reminder: the user asks for a timed nudge, including timed references to the latest source.
-- conversation_fact: the user asks for a factual detail from this current chat, such as the first message or last thing archived.
-- memory_search: the user asks across saved memory.
+Rules:
+- Default to "conversation" for general questions, recipes, coding, advice, or general topics unless personal memory retrieval or explicit save is requested.
+- Do classify identity/capability questions as self regardless of exact phrasing, typos, informal language, or indirect wording (e.g. "what are you?", "can you explain yourself?", "what's your purpose?").
+- If the message contains a URL, classify as "capture".
+- If the user asks a follow-up or clarifying question about what you just said (e.g. "what do you mean by rambling?", "why is that?"), or asks for key points/takeaways from your advice (e.g. "what was the most important point from what you gave earlier?"), classify as "conversation".
+- Use action "capture", target "previous_assistant_response", and context_action "save_previous_assistant" ONLY when the user explicitly commands to save or keep your previous answer (e.g. "save that", "remember what you said", "keep that answer"). Asking questions about your answer is ALWAYS "conversation".
 
-Target rules:
-- Use previous_assistant_response for "save that" style commands after an assistant answer.
-- Use latest_source for "the above link/video/source", "that video", "this link", or "what did you get from it".
-- Use latest_capture for "delete that", "remove what you just saved", or "what did I just save".
-- Use pending_url only when a pending URL exists and the user is confirming or declining that URL.
-- Use conversation_history for exact current-chat facts.
-- Use current_message only when the durable content is in the latest message itself.
-
-Prefer recent over answer whenever the user is pointing at the most recent saved item ("the above", "that", "it", "the previous one", "the last one", "what I just sent") rather than asking a topic question across their whole memory. People almost always mean the immediately previous item, not something saved days ago. Only use answer when the user names a topic or explicitly asks across saved memories.
-Prefer update_recent_source_context over capture when a user statement names "the above/that/this video/link/source" and adds explanatory context rather than asking a question.
-Never classify thanks, "okay", "this makes sense", "really?", "yes", "no", or simple agreement as capture.
-Never classify questions or prompt suggestions originating from Recall / Ask Crowscap (e.g. "Help me explore and break down...", "How can I apply...", "What is the best way to execute...", "Can you help me answer...") as capture. Always classify them as answer or conversation.
-Never run saved-memory search for questions about only the current chat, such as "have I thanked you before in this chat?" or "what was the first thing I said?"
-Do not classify ordinary advice questions as answer just because they are questions.
-Do not classify ordinary memory questions as audit unless the user explicitly asks for an audit, challenge, evidence check, reliability check, or public evidence comparison.
-Do classify "forget what I know about X" as forget, not audit.
-Do classify "remind me in 1 hour" as reminder, not capture.
-Do classify identity/capability questions as self regardless of exact phrasing, typos, informal language, or indirect wording. Examples: "what are you?", "what is you?", "can you explain yourself?", "what's your purpose?", "I don't understand this app", "what can you do?", "how does Crowscap work?"
-Do classify messages containing URLs as capture when the URL is the main thing the user shared.
-Do not save every user message. Capture only when there is durable informational content or explicit saving intent.
-
-Pending action rules:
-- If pending_url exists and the latest message semantically confirms saving, reading, processing, or handling that link, classify as capture even if the user says it informally, with typos, or indirectly.
-- If pending_url exists and the latest message declines, cancels, ignores, or moves away from that link, classify as conversation and use reply to say the link will stay unsaved.
-- If no pending_url exists, do not classify short confirmations such as "yes please", "sure", "go ahead", or "okay" as capture.
-- If the latest message contains a new substantive note, question, or topic, classify the new message on its own instead of forcing it to act on a pending link.
+App state:
+{pending_state}
 
 Recent conversation:
 {history_text}

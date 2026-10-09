@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.schemas.capture import UrlCaptureRequest, TextCaptureResponse
+from app.ai.qwen_client import QwenClient
 from app.services.capture_service import create_extracted_text_capture
 from app.services.embedding_service import MemoryEmbedder
 from app.services.extraction_service import MemoryExtractor
@@ -591,6 +592,9 @@ def create_pdf_capture_from_bytes(
     validate_pdf_bytes(file_bytes)
     text, metadata = extract_pdf_text(file_bytes)
     file_hash = hashlib.sha256(file_bytes).hexdigest()
+    # Convert flat PDF text → structured Markdown so the Original tab renders nicely.
+    # Falls back silently to raw text if the model call fails.
+    text = format_pdf_as_markdown(text)
     metadata.update(
         {
             "input_kind": "pdf",
@@ -821,6 +825,33 @@ def _normalize_youtube_video_id(video_id: str | None) -> str | None:
     return cleaned
 
 
+def canonical_resolved_url(url: str) -> str:
+    """Best-effort canonical identity for a URL.
+
+    Used to unify a source across Crowscap's two capture paths for the same
+    link: the synchronous "save this link" reference stub
+    (chat_service._create_reference_link_capture) and the async
+    full-extraction enrichment job (job_service.run_url_capture_job ->
+    create_youtube_capture / create_url_capture). Both need to write the
+    same Source.resolved_url, or capture_service._find_existing_source can
+    never match them back together and each save forks into two permanently
+    disconnected Source rows for one real link.
+
+    For YouTube links this is exact: every shape (youtu.be short links,
+    /watch, /shorts, /embed, /live, with or without tracking params) reduces
+    to the same "https://www.youtube.com/watch?v=<id>" form that
+    create_youtube_capture already stores as resolved_url. For everything
+    else this returns the URL unchanged: canonicalizing an arbitrary article
+    URL would mean following redirects, and this function intentionally
+    stays a cheap, synchronous, no-network call since it also runs on the
+    reference-save hot path, not only inside the background job.
+    """
+    video_id = extract_youtube_video_id(url)
+    if video_id:
+        return f"https://www.youtube.com/watch?v={video_id}"
+    return url
+
+
 def unsupported_url_reason(url: str) -> str | None:
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower().strip(".")
@@ -969,6 +1000,63 @@ def validate_pdf_bytes(file_bytes: bytes) -> None:
         raise IngestionError("This PDF is too small or empty to process.")
     if not file_bytes.startswith(b"%PDF-"):
         raise IngestionError("This file does not appear to be a valid PDF.")
+
+
+_PDF_MARKDOWN_SYSTEM = (
+    "You are a document formatter. Convert the raw text extracted from a PDF into "
+    "clean, well-structured Markdown. Use ## for major sections, ### for sub-sections, "
+    "bullet points for lists, **bold** for labels and field names. Preserve all factual "
+    "content exactly — do not summarise or add commentary. "
+    'Return a JSON object with exactly one key: "markdown", '
+    "whose value is the complete formatted Markdown string."
+)
+_PDF_MARKDOWN_MAX_CHARS = 8000  # trim input to keep the call fast
+
+
+def format_pdf_as_markdown(raw_text: str) -> str:
+    """Format PDF-extracted text as clean structured Markdown instantly in Python (0 tokens, 0ms latency).
+
+    Normalizes headers, list bullets, and paragraph spacing without waiting on an external LLM.
+    """
+    if not raw_text or not raw_text.strip():
+        return raw_text
+
+    lines = raw_text.splitlines()
+    formatted_lines: list[str] = []
+
+    for line in lines:
+        cleaned = line.strip()
+        if not cleaned:
+            if formatted_lines and formatted_lines[-1] != "":
+                formatted_lines.append("")
+            continue
+
+        # Detect heading-like short lines (e.g. "Chapter 1: Intro", "OVERVIEW", "1. Setup")
+        words = cleaned.split()
+        if (
+            len(words) <= 8
+            and not cleaned.endswith((".", ",", ";", ":"))
+            and (cleaned.isupper() or cleaned.istitle() or re.match(r"^(\d+\.|\b[A-Z0-9\s-]{3,}\b)", cleaned))
+            and not cleaned.startswith(("-", "*", "•", "—"))
+        ):
+            if formatted_lines and formatted_lines[-1] != "":
+                formatted_lines.append("")
+            formatted_lines.append(f"### {cleaned}")
+            formatted_lines.append("")
+            continue
+
+        # Standardize bullet markers
+        if re.match(r"^([•\-\*—]|\d+\.)\s+", cleaned):
+            cleaned = re.sub(r"^[•—]\s*", "* ", cleaned)
+            formatted_lines.append(cleaned)
+            continue
+
+        formatted_lines.append(cleaned)
+
+    result = "\n".join(formatted_lines).strip()
+    logger.info("📄 ingestion.pdf_local_markdown_formatted chars_in=%s chars_out=%s", len(raw_text), len(result))
+    return result or raw_text
+
 
 
 def extract_pdf_text(file_bytes: bytes) -> tuple[str, dict[str, Any]]:

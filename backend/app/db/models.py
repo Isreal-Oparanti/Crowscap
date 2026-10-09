@@ -7,7 +7,39 @@ from typing import Any
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.config import get_settings
 from app.db.base import Base
+from app.db.vector import QWEN_EMBEDDING_DIMENSIONS
+
+# `embedding_vector` (below, on Memory) used to exist ONLY as a raw-SQL
+# managed Postgres column (see db/vector.py's ensure_postgres_vector_schema
+# / update_memory_embedding_vector) -- it was never declared on the ORM
+# model at all, so nothing here could query, select, or even know the
+# column existed; every read/write to it had to go through hand-written
+# SQL strings. Declare it properly so the ORM is aware of it, but ONLY
+# when both of these hold:
+#   1. The `pgvector` Python package is importable. It's a new dependency
+#      (added to pyproject.toml alongside this change) that may not be
+#      installed yet in an existing environment, and this module must
+#      keep importing cleanly either way -- every other model in this
+#      file depends on importing successfully regardless of whether
+#      pgvector's wheel has landed.
+#   2. The configured database is Postgres. The local SQLite dev DB's
+#      `memories` table genuinely has no `embedding_vector` column (it is
+#      never added by `_ensure_sqlite_memory_columns`, intentionally --
+#      SQLite dev stays on the embedding_json/in-process-cosine fallback
+#      path). If this column were declared unconditionally and pgvector
+#      happened to be installed, `SELECT * FROM memories` issued by the
+#      ORM for an ordinary query would ask SQLite for a column that does
+#      not exist on disk and raise OperationalError on EVERY Memory
+#      query. Gating on the dialect, decided once at import time from the
+#      same Settings the rest of the app uses, avoids that trap.
+try:
+    from pgvector.sqlalchemy import Vector as _PgVector
+except ImportError:  # pgvector not installed yet -- see core/config.require_pgvector
+    _PgVector = None  # type: ignore[assignment,misc]
+
+_memory_table_is_postgres = not get_settings().database_url.startswith("sqlite")
 
 
 def uuid_str() -> str:
@@ -124,6 +156,19 @@ class Source(Base, TimestampMixin):
     extracted_text_hash: Mapped[str | None] = mapped_column(String(128), index=True)
     metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
+    # LLM-written, organized markdown write-up of this source, produced
+    # once by extraction (CaptureExtraction.source_overview_markdown) and
+    # shown to the user as the "Original" tab's content instead of
+    # `raw_text` -- a raw video transcript or article dump is often
+    # unpunctuated / badly organized to actually read. `raw_text` is left
+    # completely untouched: it's still the only thing extraction/chunking,
+    # the content-hash dedup check, and re-extraction ever read from. Null
+    # until extraction completes (e.g. the synchronous reference-only stub
+    # before its background enrichment job runs -- see
+    # capture_service._is_reference_placeholder_source), in which case API
+    # consumers fall back to raw_text (see api/v1/sources.py).
+    summary_markdown: Mapped[str | None] = mapped_column(Text)
+
     captures: Mapped[list[Capture]] = relationship(back_populates="source")
     memories: Mapped[list[Memory]] = relationship(back_populates="source")
 
@@ -185,6 +230,35 @@ class Memory(Base, TimestampMixin):
     last_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     review_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     recall_score: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
+
+    # Set only when extraction detected that this memory is one item of an
+    # explicit enumerated list named by its source (e.g. "13 Businesses for
+    # the Age of AI" -> 13 items). list_group_id ties every memory from the
+    # same detected list together (shared across a Source, and across
+    # chunks for a long document); list_position is this item's 1-based
+    # position; list_total is how many items the source itself claims the
+    # list has. All three are null for a memory that isn't part of a
+    # detected list. This lets a caller answer "did I get all of them" and
+    # "how many more are there" without re-reading the source, which was
+    # previously impossible to represent at all — see extraction_service's
+    # list-detection prompt rules and capture_service._create_memories.
+    list_group_id: Mapped[str | None] = mapped_column(String(80), index=True)
+    list_position: Mapped[int | None] = mapped_column(Integer)
+    list_total: Mapped[int | None] = mapped_column(Integer)
+
+    if _PgVector is not None and _memory_table_is_postgres:
+        # See the module-level comment above for why both conditions are
+        # required. The column itself is still created/migrated
+        # exclusively by db/vector.py's raw-SQL `ensure_postgres_vector_schema`
+        # (Base.metadata.create_all only creates missing TABLES, never adds
+        # columns to a table that already exists, so this declaration
+        # never races with that function's ALTER TABLE). What this adds is
+        # the ability to actually reference `Memory.embedding_vector` from
+        # Python/ORM code (filters, selects) instead of only through
+        # hand-written SQL strings.
+        embedding_vector: Mapped[list[float] | None] = mapped_column(
+            _PgVector(QWEN_EMBEDDING_DIMENSIONS), nullable=True
+        )
 
     source: Mapped[Source] = relationship(back_populates="memories")
     capture: Mapped[Capture] = relationship(back_populates="memories")

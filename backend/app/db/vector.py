@@ -6,9 +6,24 @@ from sqlalchemy import Engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 
 logger = get_logger("db.vector")
+
+
+class PgVectorUnavailableError(RuntimeError):
+    """Raised when pgvector setup/writes fail and Settings.require_pgvector is True.
+
+    Without this, a Postgres deployment whose pgvector extension or column
+    is broken (permissions, extension not whitelisted, disk full on the
+    CREATE INDEX, a bad migration) falls back silently to the
+    embedding_json / in-process-cosine-similarity path -- correct answers,
+    much slower, capped at 1000 rows
+    (search_service._load_searchable_memories), and nothing ever alerts
+    anyone. Set `require_pgvector=True` in production so this fails the
+    request/startup instead of degrading invisibly.
+    """
 
 # Dimension of Qwen's text-embedding-v4 model output.
 # IMPORTANT: This must match the `vector(N)` column type defined in the pgvector
@@ -31,12 +46,25 @@ def ensure_postgres_vector_schema(*, engine: Engine) -> None:
     if not is_postgres_bind(engine):
         return
 
+    require_pgvector = get_settings().require_pgvector
+
     inspector = inspect(engine)
     if "memories" not in inspector.get_table_names():
         logger.warning(
             "⚠️ db.vector.schema_missing table=memories action='run alembic upgrade head'"
         )
-        return
+        if require_pgvector:
+            raise PgVectorUnavailableError(
+                "memories table is missing; run 'alembic upgrade head' before starting "
+                "with require_pgvector=True"
+            )
+    try:
+        existing_cols = {c["name"] for c in inspector.get_columns("memories")}
+        if "embedding_vector" in existing_cols:
+            logger.info("✅ db.vector.ready extension=vector column=memories.embedding_vector")
+            return
+    except Exception:
+        pass
 
     try:
         with engine.begin() as connection:
@@ -59,6 +87,11 @@ def ensure_postgres_vector_schema(*, engine: Engine) -> None:
             "⚠️ db.vector.unavailable reason=%s fallback=embedding_json",
             _compact_error(exc),
         )
+        if require_pgvector:
+            raise PgVectorUnavailableError(
+                f"pgvector extension/column setup failed and require_pgvector=True: "
+                f"{_compact_error(exc)}"
+            ) from exc
         return
 
     logger.info("✅ db.vector.ready extension=vector column=memories.embedding_vector")
@@ -77,6 +110,8 @@ def update_memory_embedding_vector(
     if not is_postgres_bind(bind):
         return False
 
+    require_pgvector = get_settings().require_pgvector
+
     if len(embedding) != QWEN_EMBEDDING_DIMENSIONS:
         logger.warning(
             "⚠️ db.vector.dimension_mismatch memory_id=%s expected=%s actual=%s",
@@ -84,6 +119,11 @@ def update_memory_embedding_vector(
             QWEN_EMBEDDING_DIMENSIONS,
             len(embedding),
         )
+        if require_pgvector:
+            raise PgVectorUnavailableError(
+                f"embedding dimension mismatch for memory {memory_id}: "
+                f"expected {QWEN_EMBEDDING_DIMENSIONS}, got {len(embedding)}"
+            )
         return False
 
     try:
@@ -101,6 +141,11 @@ def update_memory_embedding_vector(
             memory_id,
             _compact_error(exc),
         )
+        if require_pgvector:
+            raise PgVectorUnavailableError(
+                f"pgvector write failed for memory {memory_id} and require_pgvector=True: "
+                f"{_compact_error(exc)}"
+            ) from exc
         return False
 
     return True

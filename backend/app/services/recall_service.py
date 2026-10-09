@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 import urllib.parse
 from datetime import datetime, timezone
 
@@ -18,6 +19,24 @@ from app.schemas.recall import (
 from app.services.preference_service import get_or_create_user_preferences
 
 logger = get_logger("services.recall")
+
+_recall_cache: dict[str, tuple[float, DueRecallsResponse]] = {}
+RECALL_CACHE_TTL = 30.0  # seconds
+
+
+def invalidate_recall_cache(user_id: str | None = None) -> None:
+    """Invalidate cached recall results for a specific user, or all users if user_id is None."""
+    if user_id is None:
+        _recall_cache.clear()
+        logger.info("🧹 recall.cache.cleared all")
+        return
+    prefix = f"{user_id}:"
+    keys_to_delete = [k for k in _recall_cache if k.startswith(prefix)]
+    for k in keys_to_delete:
+        _recall_cache.pop(k, None)
+    if keys_to_delete:
+        logger.info("🧹 recall.cache.invalidated user_id=%s keys=%s", user_id, len(keys_to_delete))
+
 
 _STOPWORDS = {
     "about",
@@ -64,6 +83,15 @@ def get_due_recalls(
     user_id: str | None = None,
     target_memory_id: str | None = None,
 ) -> DueRecallsResponse:
+    cache_key = f"{user_id or 'anon'}:{limit}:{target_memory_id or 'none'}"
+    if target_memory_id is None:
+        cached = _recall_cache.get(cache_key)
+        if cached is not None:
+            cached_at, cached_response = cached
+            if time.monotonic() - cached_at < RECALL_CACHE_TTL:
+                logger.info("⚡ recall.due.cache_hit key=%s", cache_key)
+                return cached_response
+
     now = utc_now()
     logger.info("🔔 recall.due.start limit=%s target=%s", limit, target_memory_id)
 
@@ -112,6 +140,7 @@ def get_due_recalls(
         for memory, source, surface_reason, pinned in rows
     ]
 
+    due_memory_ids = {memory.id for memory, _source, _reason, _pinned in rows}
     due_reminders = _load_due_reminders(db=db, now=now, limit=limit, user_id=user_id)
     response_reminders = [
         DueReminderResponse(
@@ -124,6 +153,7 @@ def get_due_recalls(
             status=reminder.status,
         )
         for reminder in due_reminders
+        if reminder.memory_id is None or reminder.memory_id not in due_memory_ids
     ]
 
     logger.info(
@@ -131,12 +161,15 @@ def get_due_recalls(
         len(response_memories),
         len(response_reminders),
     )
-    return DueRecallsResponse(
+    response = DueRecallsResponse(
         due_count=len(response_memories) + len(response_reminders),
         now=now,
         memories=response_memories,
         reminders=response_reminders,
     )
+    if target_memory_id is None:
+        _recall_cache[cache_key] = (time.monotonic(), response)
+    return response
 
 
 def _load_due_memories(
@@ -176,13 +209,19 @@ def _load_due_memories(
     ]
     seen_sources: set[str] = set()
     selected: list[tuple[Memory, Source, str, bool]] = []
-    for _score, memory, source, reason in scored_rows:
-        if source.id in seen_sources:
-            continue
-        seen_sources.add(source.id)
-        selected.append((memory, source, reason, False))
-        if len(selected) >= limit:
-            break
+    remaining: list[tuple[float, Memory, Source, str]] = []
+    for score, memory, source, reason in scored_rows:
+        if source.id not in seen_sources and len(selected) < limit:
+            seen_sources.add(source.id)
+            selected.append((memory, source, reason, False))
+        else:
+            remaining.append((score, memory, source, reason))
+
+    if len(selected) < limit:
+        for _score, memory, source, reason in remaining:
+            selected.append((memory, source, reason, False))
+            if len(selected) >= limit:
+                break
 
     if target_memory_id:
         target_query = (
@@ -471,6 +510,7 @@ def _load_due_reminders(
     query = (
         select(Reminder)
         .where(Reminder.status.in_(["scheduled", "snoozed"]))
+        .where(Reminder.due_at <= now)
         .order_by(Reminder.due_at.asc())
         .limit(limit)
     )

@@ -471,3 +471,32 @@ def test_duplicate_capture_backfills_relationships_when_source_was_not_scanned()
         assert relation_detector.calls == 3
     finally:
         app.dependency_overrides.clear()
+
+
+def test_extraction_payload_sanitization_avoids_llm_repair() -> None:
+    from app.services.extraction_service import QwenMemoryExtractor
+    from app.ai.structured_outputs import CaptureExtraction
+
+    extractor = QwenMemoryExtractor()
+    imperfect_payload = {
+        "source_title": "A" * 300,  # exceeds 200 chars
+        "inferred_intents": ["learned", "some_unrecognized_intent"],
+        "memories": [
+            {
+                "memory_type": "principle",
+                "epistemic_label": "advice",
+                "content": "Deploy models cleanly into production.",
+                "confidence": "high",
+                "confidence_reason": "Good",  # too short (< 8 chars)
+                "source_strength": "moderate",
+            }
+        ],
+    }
+
+    sanitized = extractor._sanitize_extraction_payload(imperfect_payload)
+    result = CaptureExtraction.model_validate(sanitized)
+    assert len(result.source_title) <= 200
+    assert result.inferred_intents == ["learned", "learned"]
+    assert len(result.memories[0].confidence_reason) >= 8
+    assert len(result.memories) == 1
+

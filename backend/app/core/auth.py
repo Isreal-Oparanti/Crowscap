@@ -339,13 +339,25 @@ def _upsert_user(
             db.add(user)
             is_new = True
 
-    user.email = email
+    needs_commit = is_new
+    if user.email != email:
+        user.email = email
+        needs_commit = True
     if name and (not user.name or name != email.split("@")[0]):
         user.name = name
-    if image_url:
+        needs_commit = True
+    if image_url and user.image_url != image_url:
         user.image_url = image_url
-    user.last_seen_at = utc_now()
-    db.commit()
+        needs_commit = True
+
+    now = utc_now()
+    last_seen = user.last_seen_at.replace(tzinfo=datetime.timezone.utc) if user.last_seen_at and user.last_seen_at.tzinfo is None else user.last_seen_at
+    if is_new or last_seen is None or (now - last_seen).total_seconds() > 300:
+        user.last_seen_at = now
+        needs_commit = True
+
+    if needs_commit:
+        db.commit()
 
     if provider in {"demo", "mobile_demo"}:
         _seed_demo_user_data(db, user.id)

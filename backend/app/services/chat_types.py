@@ -75,7 +75,7 @@ CROWSCAP_SELF_KNOWLEDGE: tuple[SelfKnowledgeChunk, ...] = (
     SelfKnowledgeChunk(
         title="Identity and Purpose",
         body=(
-            "I'm Crowscap, your personal memory intelligence system. I am built to help you turn scattered learning fragments "
+            "I'm Crowscap, your private memory intelligence for learning. I am built to help you turn scattered learning fragments "
             "into source-aware knowledge you can remember, question, compare, and actually use when it matters."
         ),
         keywords=("what", "who", "identity", "crowscap", "you", "are", "assistant", "purpose", "about"),
