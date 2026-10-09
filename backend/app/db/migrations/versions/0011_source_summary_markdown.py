@@ -26,7 +26,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("sources", sa.Column("summary_markdown", sa.Text(), nullable=True))
+    # Idempotent: the app's startup schema self-heal may have added this already.
+    op.execute("ALTER TABLE sources ADD COLUMN IF NOT EXISTS summary_markdown TEXT")
 
 
 def downgrade() -> None:

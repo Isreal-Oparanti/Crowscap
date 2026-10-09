@@ -26,10 +26,11 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("memories", sa.Column("list_group_id", sa.String(length=80), nullable=True))
-    op.add_column("memories", sa.Column("list_position", sa.Integer(), nullable=True))
-    op.add_column("memories", sa.Column("list_total", sa.Integer(), nullable=True))
-    op.create_index("ix_memories_list_group_id", "memories", ["list_group_id"])
+    # Idempotent: the app's startup schema self-heal may have added these already.
+    op.execute("ALTER TABLE memories ADD COLUMN IF NOT EXISTS list_group_id VARCHAR(80)")
+    op.execute("ALTER TABLE memories ADD COLUMN IF NOT EXISTS list_position INTEGER")
+    op.execute("ALTER TABLE memories ADD COLUMN IF NOT EXISTS list_total INTEGER")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_memories_list_group_id ON memories (list_group_id)")
 
 
 def downgrade() -> None:
